@@ -65,7 +65,7 @@ restore_versions() {
 }
 trap restore_versions EXIT
 
-git diff --check
+git --no-pager diff --check
 ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleRelease
 
 [[ -f "$apk_path" ]] || fail "Release APK was not created at $apk_path."
