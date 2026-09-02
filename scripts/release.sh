@@ -39,7 +39,7 @@ fi
 
 [[ -f "$keystore_properties" ]] || fail "Create keystore.properties from keystore.properties.example."
 for required_property in storeFile storePassword keyAlias keyPassword; do
-    grep --quiet "^$required_property=.+" "$keystore_properties" || \
+    grep --quiet --extended-regexp "^$required_property=.+" "$keystore_properties" || \
         fail "keystore.properties is missing $required_property."
 done
 
