@@ -1,0 +1,67 @@
+# Gradle build system
+.gradle/
+.kotlin/
+**/build/
+
+# Local Android SDK configuration
+local.properties
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.navigation/
+deploymentTargetDropDown.xml
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Android native builds
+.externalNativeBuild/
+.cxx/
+obj/
+
+# Compiled Android packages
+*.apk
+*.aab
+*.ap_
+*.idsig
+/app/release/
+
+# Signing keys and configuration
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+secrets.properties
+
+# Logs, profiles, and crash dumps
+*.log
+*.hprof
+hs_err_pid*
+
+# Fastlane generated output
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Operating-system files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Keep Gradle Wrapper and Room migration schemas versioned:
+# gradle/wrapper/
+# app/schemas/

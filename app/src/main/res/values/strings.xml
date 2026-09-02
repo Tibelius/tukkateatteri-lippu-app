@@ -1,0 +1,70 @@
+<resources>
+    <string name="app_name">Tukkateatteri</string>
+    <plurals name="reservation_progress">
+        <item quantity="one">%1$d / %2$d kirjattu</item>
+        <item quantity="other">%1$d / %2$d kirjattu</item>
+    </plurals>
+    <string name="add_reservation">Lisää varaus</string>
+    <string name="add_admission_title">Lisää asiakas</string>
+    <string name="add_admission_description">Valitse lisätäänkö ennakkovaraus vai ovelta myyty lippu.</string>
+    <string name="add_door_sale">Myy lippu ovelta</string>
+    <string name="admission_type_reservation">Varaus</string>
+    <string name="admission_type_door_sale">Ovimyynti</string>
+    <string name="no_reservations">Ei varauksia</string>
+    <string name="no_reservations_description">Lisää ensimmäinen varaus plus-painikkeella.</string>
+
+    <string name="last_name">Sukunimi</string>
+    <string name="first_name">Etunimi</string>
+    <string name="contact_information">Puhelinnumero tai sähköposti</string>
+    <string name="optional_customer_details">Asiakastiedot (valinnainen)</string>
+    <string name="show_optional_customer_details">Näytä asiakastiedot</string>
+    <string name="hide_optional_customer_details">Piilota asiakastiedot</string>
+    <string name="last_name_optional">Sukunimi (valinnainen)</string>
+    <string name="first_name_optional">Etunimi (valinnainen)</string>
+    <string name="contact_information_optional">Puhelinnumero tai sähköposti (valinnainen)</string>
+    <string name="cancel">Peruuta</string>
+    <string name="save">Tallenna</string>
+    <string name="delete">Poista</string>
+    <string name="close">Sulje</string>
+    <string name="more_actions">Lisää toimintoja</string>
+    <string name="import_spreadsheet">Tuo Excelistä tai Google Sheetsistä</string>
+    <string name="export_spreadsheet">Vie Exceliin tai Google Sheetsiin</string>
+    <string name="import_spreadsheet_message">Tuonti otetaan käyttöön, kun käytettävän taulukon sarakkeet ja tiedostomuoto ovat tiedossa.</string>
+    <string name="export_spreadsheet_message">Vienti otetaan käyttöön, kun käytettävä tiedostomuoto ja kohde on määritelty.</string>
+
+    <string name="delete_reservation_title">Poistetaanko varaus?</string>
+    <string name="delete_reservation_message">%1$s poistetaan pysyvästi.</string>
+    <string name="delete_reservation_action">Poista varaus</string>
+    <string name="discard_changes_title">Hylätäänkö muutokset?</string>
+    <string name="discard_changes_message">Tallentamattomat muutokset menetetään.</string>
+    <string name="discard_changes">Hylkää</string>
+    <string name="continue_editing">Jatka muokkausta</string>
+
+    <string name="seat_count">Paikkoja</string>
+    <string name="decrease_seat_count">Vähennä paikkoja</string>
+    <string name="increase_seat_count">Lisää paikkoja</string>
+    <string name="payment_method">Maksutapa</string>
+    <string name="mark_as_present">Merkitse paikalla olevaksi</string>
+    <string name="present">Paikalla</string>
+    <string name="reservation_status_not_checked_in">Ei kirjattu</string>
+    <string name="reservation_status_payment_missing">Paikalla – maksutapa puuttuu</string>
+    <string name="reservation_summary">%1$s · %2$s</string>
+    <string name="reservation_overview">%1$s · %2$s</string>
+
+    <string name="payment_method_card">Kortti</string>
+    <string name="payment_method_cash">Käteinen</string>
+    <string name="payment_method_prepaid">Ennakkomaksettu</string>
+    <string name="payment_method_prepaid_wrapped">Ennakko-\nmaksettu</string>
+    <string name="payment_method_kaikukortti">Kaikukortti</string>
+    <string name="payment_method_free_ticket">Vapaalippu</string>
+    <string name="payment_method_other">Muu</string>
+
+    <plurals name="seat_count_summary">
+        <item quantity="one">%d paikka</item>
+        <item quantity="other">%d paikkaa</item>
+    </plurals>
+    <plurals name="total_seat_count">
+        <item quantity="one">%d paikka yhteensä</item>
+        <item quantity="other">%d paikkaa yhteensä</item>
+    </plurals>
+</resources>
