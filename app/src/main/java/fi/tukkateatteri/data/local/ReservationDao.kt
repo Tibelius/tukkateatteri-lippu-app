@@ -26,4 +26,7 @@ interface ReservationDao {
 
     @Query("DELETE FROM reservations WHERE id = :reservationId")
     suspend fun deleteById(reservationId: Long)
+
+    @Query("DELETE FROM reservations")
+    suspend fun deleteAll()
 }

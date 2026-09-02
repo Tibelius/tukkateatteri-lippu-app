@@ -10,19 +10,24 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ReservationViewModel(
     private val reservationRepository: ReservationRepository
 ) : ViewModel() {
+    private val addedReservationIdsChannel = Channel<Long>(Channel.BUFFERED)
+
     val reservations: StateFlow<List<Reservation>> = reservationRepository.reservations.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = emptyList()
     )
+    val addedReservationIds = addedReservationIdsChannel.receiveAsFlow()
 
     fun addAdmission(
         lastName: String,
@@ -33,7 +38,7 @@ class ReservationViewModel(
         paymentMethod: PaymentMethod?
     ) {
         viewModelScope.launch {
-            reservationRepository.addAdmission(
+            val reservationId = reservationRepository.addAdmission(
                 lastName = lastName,
                 firstName = firstName,
                 contact = contact,
@@ -41,6 +46,9 @@ class ReservationViewModel(
                 admissionType = admissionType,
                 paymentMethod = paymentMethod
             )
+            if (admissionType == AdmissionType.RESERVATION) {
+                addedReservationIdsChannel.send(reservationId)
+            }
         }
     }
 
@@ -53,6 +61,12 @@ class ReservationViewModel(
     fun deleteReservation(reservationId: Long) {
         viewModelScope.launch {
             reservationRepository.deleteReservation(reservationId)
+        }
+    }
+
+    fun deleteAllReservations() {
+        viewModelScope.launch {
+            reservationRepository.deleteAllReservations()
         }
     }
 

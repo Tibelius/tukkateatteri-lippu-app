@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -63,6 +64,7 @@ fun AddAdmissionDialog(
         onNext = { focusManager.moveFocus(FocusDirection.Next) }
     )
     val nextFieldOptions = KeyboardOptions(imeAction = ImeAction.Next)
+    val nextFieldOptionsNames = KeyboardOptions(imeAction = ImeAction.Next, capitalization = KeyboardCapitalization.Sentences)
     var lastName by rememberSaveable(admissionType) { mutableStateOf("") }
     var firstName by rememberSaveable(admissionType) { mutableStateOf("") }
     var contact by rememberSaveable(admissionType) { mutableStateOf("") }
@@ -140,7 +142,7 @@ fun AddAdmissionDialog(
                                 onValueChange = { lastName = it },
                                 modifier = Modifier.weight(1f),
                                 label = { Text(stringResource(R.string.last_name)) },
-                                keyboardOptions = nextFieldOptions,
+                                keyboardOptions = nextFieldOptionsNames,
                                 keyboardActions = nextFieldAction,
                                 singleLine = true
                             )
@@ -149,7 +151,7 @@ fun AddAdmissionDialog(
                                 onValueChange = { firstName = it },
                                 modifier = Modifier.weight(1f),
                                 label = { Text(stringResource(R.string.first_name)) },
-                                keyboardOptions = nextFieldOptions,
+                                keyboardOptions = nextFieldOptionsNames,
                                 keyboardActions = nextFieldAction,
                                 singleLine = true
                             )

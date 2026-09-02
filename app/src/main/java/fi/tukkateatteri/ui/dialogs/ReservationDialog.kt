@@ -1,5 +1,6 @@
 package fi.tukkateatteri.ui.dialogs
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,9 +38,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -49,6 +55,8 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
 import fi.tukkateatteri.ui.components.SeatCountSelector
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 
 private const val DIALOG_WIDTH_FRACTION = 0.94f
 private const val DIALOG_MAX_HEIGHT_FRACTION = 0.9f
@@ -62,20 +70,35 @@ fun ReservationDialog(
     onDelete: () -> Unit
 ) {
     val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
+    val focusManager = LocalFocusManager.current
     val maxDialogHeight = LocalConfiguration.current.screenHeightDp.dp * DIALOG_MAX_HEIGHT_FRACTION
+    val nextFieldAction = KeyboardActions(
+        onNext = { focusManager.moveFocus(FocusDirection.Next) }
+    )
+    val nextFieldOptions = KeyboardOptions(imeAction = ImeAction.Next)
+    val nextFieldOptionsNames = KeyboardOptions(imeAction = ImeAction.Next, capitalization = KeyboardCapitalization.Sentences)
+    var lastName by rememberSaveable(reservation.id) { mutableStateOf(reservation.lastName) }
+    var firstName by rememberSaveable(reservation.id) { mutableStateOf(reservation.firstName) }
+    var contact by rememberSaveable(reservation.id) { mutableStateOf(reservation.contact) }
     var isPresent by rememberSaveable(reservation.id) { mutableStateOf(reservation.isPresent) }
     var selectedPaymentName by rememberSaveable(reservation.id) {
         mutableStateOf(reservation.paymentMethod?.name)
     }
+    var isCustomerDetailsEditing by rememberSaveable(reservation.id) { mutableStateOf(false) }
     var seatCount by rememberSaveable(reservation.id) {
         mutableIntStateOf(reservation.seatCount)
     }
     var isDeleteMenuExpanded by remember(reservation.id) { mutableStateOf(false) }
     var showDiscardConfirmation by rememberSaveable(reservation.id) { mutableStateOf(false) }
     val selectedPayment = PaymentMethod.entries.firstOrNull { it.name == selectedPaymentName }
+    val displayName = "$lastName $firstName".trim()
+    val hasRequiredCustomerDetails = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
 
     val hasUnsavedChanges =
-        seatCount != reservation.seatCount ||
+        lastName != reservation.lastName ||
+            firstName != reservation.firstName ||
+            contact != reservation.contact ||
+            seatCount != reservation.seatCount ||
             isPresent != reservation.isPresent ||
             selectedPayment != reservation.paymentMethod
 
@@ -114,17 +137,83 @@ fun ReservationDialog(
                         .verticalScroll(rememberScrollState())
                 ) {
                     ReservationDialogHeader(
-                        reservation = reservation,
+                        displayName = displayName,
                         isDeleteMenuExpanded = isDeleteMenuExpanded,
                         onDeleteMenuExpand = { isDeleteMenuExpanded = true },
                         onDeleteMenuDismiss = { isDeleteMenuExpanded = false },
+                        onEditCustomerDetails = { isCustomerDetailsEditing = true },
                         onDelete = onDelete,
                         onDismiss = requestDismiss
                     )
 
-                    if (reservation.contact.isNotBlank()) {
+                    AnimatedVisibility(visible = isCustomerDetailsEditing) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.customer_details),
+                                modifier = Modifier.padding(top = 12.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Row(modifier = Modifier.padding(top = 8.dp)) {
+                                OutlinedTextField(
+                                    value = lastName,
+                                    onValueChange = { lastName = it },
+                                    modifier = Modifier.weight(1f),
+                                    label = {
+                                        Text(
+                                            stringResource(
+                                                if (isDoorSale) R.string.last_name_optional
+                                                else R.string.last_name
+                                            )
+                                        )
+                                    },
+                                    keyboardOptions = nextFieldOptionsNames,
+                                    keyboardActions = nextFieldAction,
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = firstName,
+                                    onValueChange = { firstName = it },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 10.dp),
+                                    label = {
+                                        Text(
+                                            stringResource(
+                                                if (isDoorSale) R.string.first_name_optional
+                                                else R.string.first_name
+                                            )
+                                        )
+                                    },
+                                    keyboardOptions = nextFieldOptionsNames,
+                                    keyboardActions = nextFieldAction,
+                                    singleLine = true
+                                )
+                            }
+                            OutlinedTextField(
+                                value = contact,
+                                onValueChange = { contact = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            if (isDoorSale) R.string.contact_information_optional
+                                            else R.string.contact_information
+                                        )
+                                    )
+                                },
+                                keyboardOptions = nextFieldOptions,
+                                keyboardActions = nextFieldAction,
+                                singleLine = true
+                            )
+                        }
+                    }
+
+                    if (!isCustomerDetailsEditing && contact.isNotBlank()) {
                         Text(
-                            text = reservation.contact,
+                            text = contact,
                             modifier = Modifier.padding(top = 4.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,10 +275,14 @@ fun ReservationDialog(
                             .fillMaxWidth()
                             .padding(top = 16.dp)
                             .height(primaryActionHeight),
-                        enabled = !isDoorSale || selectedPayment != null,
+                        enabled = hasRequiredCustomerDetails &&
+                            (!isDoorSale || selectedPayment != null),
                         onClick = {
                             onSave(
                                 reservation.copy(
+                                    lastName = lastName.trim(),
+                                    firstName = firstName.trim(),
+                                    contact = contact.trim(),
                                     seatCount = seatCount,
                                     isPresent = isDoorSale || isPresent,
                                     paymentMethod = selectedPayment.takeIf {
@@ -231,10 +324,11 @@ private fun DiscardChangesDialog(
 
 @Composable
 private fun ReservationDialogHeader(
-    reservation: Reservation,
+    displayName: String,
     isDeleteMenuExpanded: Boolean,
     onDeleteMenuExpand: () -> Unit,
     onDeleteMenuDismiss: () -> Unit,
+    onEditCustomerDetails: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -243,7 +337,7 @@ private fun ReservationDialogHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = reservation.displayName.ifBlank {
+            text = displayName.ifBlank {
                 stringResource(R.string.admission_type_door_sale)
             },
             modifier = Modifier.weight(1f),
@@ -265,6 +359,14 @@ private fun ReservationDialogHeader(
                 expanded = isDeleteMenuExpanded,
                 onDismissRequest = onDeleteMenuDismiss
             ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.edit_customer_details)) },
+                    onClick = {
+                        onDeleteMenuDismiss()
+                        onEditCustomerDetails()
+                    }
+                )
+                HorizontalDivider()
                 DropdownMenuItem(
                     text = {
                         Text(

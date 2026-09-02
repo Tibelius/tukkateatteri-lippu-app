@@ -1,6 +1,7 @@
 package fi.tukkateatteri
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -9,6 +10,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -18,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.ui.dialogs.AddAdmissionDialog
 import fi.tukkateatteri.ui.dialogs.AddAdmissionTypeDialog
+import fi.tukkateatteri.ui.dialogs.DeleteAllReservationsDialog
 import fi.tukkateatteri.ui.dialogs.DeleteReservationDialog
 import fi.tukkateatteri.ui.dialogs.ReservationDialog
 import fi.tukkateatteri.ui.screens.ReservationListScreen
@@ -32,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
             TukkateatteriTheme {
@@ -48,6 +52,7 @@ private fun ReservationApp(viewModel: ReservationViewModel) {
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAdmissionTypeDialog by rememberSaveable { mutableStateOf(false) }
     var selectedAdmissionTypeName by rememberSaveable { mutableStateOf<String?>(null) }
+    var showDeleteAllReservationsConfirmation by rememberSaveable { mutableStateOf(false) }
     var spreadsheetAction by rememberSaveable { mutableStateOf<SpreadsheetAction?>(null) }
 
     ReservationListScreen(
@@ -55,8 +60,15 @@ private fun ReservationApp(viewModel: ReservationViewModel) {
         onReservationClick = { reservation -> selectedReservationId = reservation.id },
         onAddClick = { showAdmissionTypeDialog = true },
         onImportClick = { spreadsheetAction = SpreadsheetAction.IMPORT },
-        onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT }
+        onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
+        onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
     )
+
+    LaunchedEffect(viewModel) {
+        viewModel.addedReservationIds.collect { reservationId ->
+            selectedReservationId = reservationId
+        }
+    }
 
     if (showAdmissionTypeDialog) {
         AddAdmissionTypeDialog(
@@ -109,6 +121,16 @@ private fun ReservationApp(viewModel: ReservationViewModel) {
             onConfirm = {
                 viewModel.deleteReservation(reservation.id)
                 reservationToDeleteId = null
+            }
+        )
+    }
+
+    if (showDeleteAllReservationsConfirmation) {
+        DeleteAllReservationsDialog(
+            onDismiss = { showDeleteAllReservationsConfirmation = false },
+            onConfirm = {
+                viewModel.deleteAllReservations()
+                showDeleteAllReservationsConfirmation = false
             }
         )
     }

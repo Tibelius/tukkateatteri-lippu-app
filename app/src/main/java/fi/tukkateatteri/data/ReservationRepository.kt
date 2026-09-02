@@ -18,11 +18,13 @@ interface ReservationRepository {
         seatCount: Int,
         admissionType: AdmissionType,
         paymentMethod: PaymentMethod?
-    )
+    ): Long
 
     suspend fun updateReservation(reservation: Reservation)
 
     suspend fun deleteReservation(reservationId: Long)
+
+    suspend fun deleteAllReservations()
 
     suspend fun exportSpreadsheetRows(): List<ReservationSpreadsheetRow>
 
@@ -42,8 +44,7 @@ class RoomReservationRepository(
         seatCount: Int,
         admissionType: AdmissionType,
         paymentMethod: PaymentMethod?
-    ) {
-        reservationDao.insert(
+    ): Long = reservationDao.insert(
             ReservationEntity(
                 lastName = lastName.trim(),
                 firstName = firstName.trim(),
@@ -54,7 +55,6 @@ class RoomReservationRepository(
                 paymentMethod = paymentMethod.takeIf { admissionType == AdmissionType.DOOR_SALE }
             )
         )
-    }
 
     override suspend fun updateReservation(reservation: Reservation) {
         reservationDao.update(reservation.toEntity())
@@ -62,6 +62,10 @@ class RoomReservationRepository(
 
     override suspend fun deleteReservation(reservationId: Long) {
         reservationDao.deleteById(reservationId)
+    }
+
+    override suspend fun deleteAllReservations() {
+        reservationDao.deleteAll()
     }
 
     override suspend fun exportSpreadsheetRows(): List<ReservationSpreadsheetRow> =

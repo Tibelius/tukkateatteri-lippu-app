@@ -34,3 +34,25 @@ fun DeleteReservationDialog(
         }
     )
 }
+
+@Composable
+fun DeleteAllReservationsDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.delete_all_reservations_title)) },
+        text = { Text(stringResource(R.string.delete_all_reservations_message)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.delete_all_reservations_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
