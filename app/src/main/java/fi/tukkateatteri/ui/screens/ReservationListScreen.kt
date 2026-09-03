@@ -1,6 +1,5 @@
 package fi.tukkateatteri.ui.screens
 
-import java.text.Collator
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,8 +42,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.Reservation
+import java.text.Collator
+import java.util.Locale
 
-private val floatingActionButtonClearance = 88.dp
+private val FLOATING_ACTION_BUTTON_CLEARANCE = 88.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,7 +62,7 @@ fun ReservationListScreen(
     val totalSeatCount = reservations.sumOf(Reservation::seatCount)
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val sortedReservations = remember(reservations) {
-        val collator = Collator.getInstance()
+        val collator = Collator.getInstance(FINNISH_LOCALE)
         reservations.sortedWith { first, second ->
             val lastNameComparison = collator.compare(first.lastName, second.lastName)
             if (lastNameComparison != 0) {
@@ -178,7 +179,7 @@ fun ReservationListScreen(
                     start = 16.dp,
                     top = 8.dp,
                     end = 16.dp,
-                    bottom = floatingActionButtonClearance
+                    bottom = FLOATING_ACTION_BUTTON_CLEARANCE
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -195,6 +196,8 @@ fun ReservationListScreen(
         }
     }
 }
+
+private val FINNISH_LOCALE = Locale.forLanguageTag("fi-FI")
 
 @Composable
 private fun EmptyReservationList(modifier: Modifier = Modifier) {

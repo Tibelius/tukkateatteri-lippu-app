@@ -1,10 +1,11 @@
 package fi.tukkateatteri.data.spreadsheet
 
-import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.toEuroString
 
 data class ReservationSpreadsheetRow(
     val lastName: String,
@@ -19,7 +20,7 @@ data class ReservationSpreadsheetRow(
 ) {
     init {
         require(reservedSeatCount > 0) { "Reserved seat count must be positive." }
-        require(arrivalCount >= 0) { "Arrival count must not be negative." }
+        require(arrivalCount in 0..reservedSeatCount) { "Arrival count must be within the reserved seat count." }
         require(reservedTicketCounts.values.all { it >= 0 }) { "Reserved ticket counts must not be negative." }
         require(paymentTicketCounts.values.all { it >= 0 }) { "Payment ticket counts must not be negative." }
     }
@@ -40,7 +41,9 @@ data class ReservationSpreadsheetRow(
                     .sumOf { it.quantity }
             }.filterValues { it > 0 }
             val paymentTicketCounts = PaymentMethod.entries.associateWith { paymentMethod ->
-                reservation.ticketSales.filter { it.payments.size == 1 && it.payments.single().method == paymentMethod }.sumOf { it.quantity }
+                reservation.ticketSales
+                    .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
+                    .sumOf { ticketSale -> ticketSale.quantity }
             }.filterValues { it > 0 }
             val splitPaymentNotes = reservation.ticketSales.toSplitPaymentNotes()
             return ReservationSpreadsheetRow(
@@ -66,10 +69,7 @@ data class ReservationSpreadsheetRow(
             val paymentTicketCounts = PaymentMethod.entries.associateWith { paymentMethod ->
                 doorSales.sumOf { reservation ->
                     reservation.ticketSales
-                        .filter { ticketSale ->
-                            ticketSale.payments.size == 1 &&
-                                ticketSale.payments.single().method == paymentMethod
-                        }
+                        .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
                         .sumOf { ticketSale -> ticketSale.quantity }
                 }
             }.filterValues { it > 0 }
@@ -93,7 +93,7 @@ data class ReservationSpreadsheetRow(
 private fun List<TicketSale>.toSplitPaymentNotes(): String = filter(TicketSale::isSplitPayment)
     .joinToString(separator = "; ") { ticketSale ->
         val payments = ticketSale.payments.joinToString(separator = ", ") { payment ->
-            "${payment.method.name.lowercase()} ${payment.amountCents / 100},${(payment.amountCents % 100).toString().padStart(2, '0')} €"
+            "${payment.method.name.lowercase()} ${payment.amountCents.toEuroString()}"
         }
         "Sekamaksu: $payments"
     }

@@ -2,19 +2,14 @@ package fi.tukkateatteri.ui.dialogs
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,18 +19,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
 import fi.tukkateatteri.ui.components.SeatCountSelector
+import fi.tukkateatteri.ui.components.ScrollableAppDialog
+import java.math.RoundingMode
 
 @Composable
 fun TicketSaleDialog(
@@ -43,7 +38,6 @@ fun TicketSaleDialog(
     onDismiss: () -> Unit,
     onSave: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit
 ) {
-    val maxDialogHeight = LocalConfiguration.current.screenHeightDp.dp * 0.9f
     var ticketTypeName by rememberSaveable { mutableStateOf(TicketType.BASIC.name) }
     var quantity by rememberSaveable { mutableIntStateOf(1) }
     var isTicketTypeMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -69,76 +63,186 @@ fun TicketSaleDialog(
         )
         else -> emptyList()
     }
-    val isPaymentValid = totalPriceCents == 0 || (payments.isNotEmpty() && payments.sumOf(PendingPaymentAllocation::amountCents) == totalPriceCents)
+    val isPaymentValid = totalPriceCents == 0 || (
+        payments.isNotEmpty() &&
+            payments.sumOf(PendingPaymentAllocation::amountCents) == totalPriceCents &&
+            (!isSplitPayment || firstSplitMethod != secondSplitMethod)
+        )
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(0.94f).heightIn(max = maxDialogHeight),
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(stringResource(R.string.add_ticket_sale), style = MaterialTheme.typography.headlineSmall)
-                Box {
-                    Button(onClick = { isTicketTypeMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(ticketType.labelResId))
-                    }
-                    DropdownMenu(expanded = isTicketTypeMenuExpanded, onDismissRequest = { isTicketTypeMenuExpanded = false }) {
-                        TicketType.entries.filterNot { it == TicketType.UNSPECIFIED }.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(option.labelResId)) },
-                                onClick = { ticketTypeName = option.name; isTicketTypeMenuExpanded = false }
-                            )
-                        }
-                    }
-                }
-                SeatCountSelector(
-                    seatCount = quantity,
-                    onDecrease = { quantity-- },
-                    onIncrease = { if (quantity < maximumQuantity) quantity++ }
+    ScrollableAppDialog(onDismissRequest = onDismiss) {
+        Text(
+            text = stringResource(R.string.add_ticket_sale),
+            style = MaterialTheme.typography.headlineSmall
+        )
+        TicketTypeDropdown(
+            selectedTicketType = ticketType,
+            expanded = isTicketTypeMenuExpanded,
+            onExpand = { isTicketTypeMenuExpanded = true },
+            onDismiss = { isTicketTypeMenuExpanded = false },
+            onSelected = { option ->
+                ticketTypeName = option.name
+                isTicketTypeMenuExpanded = false
+            }
+        )
+        SeatCountSelector(
+            seatCount = quantity,
+            onDecrease = { quantity-- },
+            onIncrease = { if (quantity < maximumQuantity) quantity++ }
+        )
+        Text(
+            text = "${stringResource(R.string.payment_amount)}: ${totalPriceCents.toEuroString()}",
+            style = MaterialTheme.typography.titleMedium
+        )
+        if (totalPriceCents > 0) {
+            if (isSplitPayment) {
+                SplitPaymentFields(
+                    firstMethod = firstSplitMethod,
+                    secondMethod = secondSplitMethod,
+                    firstAmount = firstSplitAmount,
+                    secondAmount = secondSplitAmount,
+                    onFirstMethodSelected = { firstSplitMethodName = it.name },
+                    onSecondMethodSelected = { secondSplitMethodName = it.name },
+                    onFirstAmountChange = { firstSplitAmount = it },
+                    onSecondAmountChange = { secondSplitAmount = it },
+                    isPaymentValid = isPaymentValid,
+                    onUseSinglePayment = { isSplitPayment = false }
                 )
-                Text("${stringResource(R.string.payment_amount)}: ${formatCents(totalPriceCents)}", style = MaterialTheme.typography.titleMedium)
-                if (totalPriceCents > 0) {
-                    if (!isSplitPayment) {
-                        PaymentMethodSelector(selectedPayment = selectedPayment, onPaymentSelected = { method -> selectedPaymentName = method.name })
-                        TextButton(onClick = { isSplitPayment = true }) { Text(stringResource(R.string.split_payment)) }
-                    } else {
-                        Text(stringResource(R.string.split_payment), style = MaterialTheme.typography.titleMedium)
-                        PaymentMethodDropdown(selected = firstSplitMethod, onSelected = { firstSplitMethodName = it.name })
-                        OutlinedTextField(value = firstSplitAmount, onValueChange = { firstSplitAmount = it }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.payment_amount)) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-                        PaymentMethodDropdown(selected = secondSplitMethod, onSelected = { secondSplitMethodName = it.name })
-                        OutlinedTextField(value = secondSplitAmount, onValueChange = { secondSplitAmount = it }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.payment_amount)) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
-                        if (!isPaymentValid) Text(stringResource(R.string.payment_total_mismatch), color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = { isSplitPayment = false }) { Text(stringResource(R.string.single_payment)) }
-                    }
+            } else {
+                PaymentMethodSelector(
+                    selectedPayment = selectedPayment,
+                    onPaymentSelected = { method -> selectedPaymentName = method.name }
+                )
+                TextButton(onClick = { isSplitPayment = true }) {
+                    Text(stringResource(R.string.split_payment))
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-                    TextButton(onClick = { onSave(ticketType, quantity, payments) }, enabled = quantity in 1..maximumQuantity && isPaymentValid) { Text(stringResource(R.string.save)) }
-                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            TextButton(
+                onClick = { onSave(ticketType, quantity, payments) },
+                enabled = quantity in 1..maximumQuantity && isPaymentValid
+            ) {
+                Text(stringResource(R.string.save))
             }
         }
     }
 }
 
 @Composable
-private fun PaymentMethodDropdown(selected: PaymentMethod, onSelected: (PaymentMethod) -> Unit) {
-    var expanded by rememberSaveable(selected) { mutableStateOf(false) }
+private fun TicketTypeDropdown(
+    selectedTicketType: TicketType,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+    onSelected: (TicketType) -> Unit
+) {
     Box {
-        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(selected.labelResId)) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            PaymentMethod.entries.forEach { method ->
-                DropdownMenuItem(text = { Text(stringResource(method.labelResId)) }, onClick = { onSelected(method); expanded = false })
-            }
+        Button(onClick = onExpand, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(selectedTicketType.labelResId))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+            TicketType.entries
+                .filterNot { it == TicketType.UNSPECIFIED }
+                .forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(option.labelResId)) },
+                        onClick = { onSelected(option) }
+                    )
+                }
         }
     }
+}
+
+@Composable
+private fun SplitPaymentFields(
+    firstMethod: PaymentMethod,
+    secondMethod: PaymentMethod,
+    firstAmount: String,
+    secondAmount: String,
+    onFirstMethodSelected: (PaymentMethod) -> Unit,
+    onSecondMethodSelected: (PaymentMethod) -> Unit,
+    onFirstAmountChange: (String) -> Unit,
+    onSecondAmountChange: (String) -> Unit,
+    isPaymentValid: Boolean,
+    onUseSinglePayment: () -> Unit
+) {
+    Text(stringResource(R.string.split_payment), style = MaterialTheme.typography.titleMedium)
+    PaymentMethodDropdown(
+        selected = firstMethod,
+        excludedMethod = secondMethod,
+        onSelected = onFirstMethodSelected
+    )
+    PaymentAmountField(value = firstAmount, onValueChange = onFirstAmountChange)
+    PaymentMethodDropdown(
+        selected = secondMethod,
+        excludedMethod = firstMethod,
+        onSelected = onSecondMethodSelected
+    )
+    PaymentAmountField(value = secondAmount, onValueChange = onSecondAmountChange)
+    if (!isPaymentValid) {
+        Text(
+            text = stringResource(R.string.payment_total_mismatch),
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    TextButton(onClick = onUseSinglePayment) {
+        Text(stringResource(R.string.single_payment))
+    }
+}
+
+@Composable
+private fun PaymentMethodDropdown(
+    selected: PaymentMethod,
+    excludedMethod: PaymentMethod,
+    onSelected: (PaymentMethod) -> Unit
+) {
+    var expanded by rememberSaveable(selected) { mutableStateOf(false) }
+    Box {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(selected.labelResId))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PaymentMethod.entries
+                .filterNot { it == excludedMethod }
+                .forEach { method ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(method.labelResId)) },
+                        onClick = {
+                            onSelected(method)
+                            expanded = false
+                        }
+                    )
+                }
+        }
+    }
+}
+
+@Composable
+private fun PaymentAmountField(value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.payment_amount)) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        singleLine = true
+    )
 }
 
 private fun String.toCentsOrNull(): Int? {
     val normalizedValue = trim().replace(',', '.')
     if (normalizedValue.isEmpty()) return null
-    return normalizedValue.toBigDecimalOrNull()?.movePointRight(2)?.toInt()
+    return runCatching {
+        normalizedValue
+            .toBigDecimal()
+            .movePointRight(2)
+            .setScale(0, RoundingMode.UNNECESSARY)
+            .intValueExact()
+    }.getOrNull()
 }

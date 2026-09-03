@@ -1,5 +1,6 @@
 package fi.tukkateatteri
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,9 +12,9 @@ import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.ReservedTicketAllocation
-import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
+import fi.tukkateatteri.R
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,11 +23,16 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class UiMessage(
+    @param:StringRes val messageResId: Int,
+    val formatArgs: List<Any> = emptyList()
+)
+
 class ReservationViewModel(
     private val reservationRepository: ReservationRepository
 ) : ViewModel() {
     private val addedReservationIdsChannel = Channel<Long>(Channel.BUFFERED)
-    private val _transferMessage = MutableStateFlow<String?>(null)
+    private val _transferMessage = MutableStateFlow<UiMessage?>(null)
     private val _importCandidates = MutableStateFlow<List<GoogleSheetImportCandidate>>(emptyList())
     private val _isTransferInProgress = MutableStateFlow(false)
     private var pendingImportUrl: String? = null
@@ -43,7 +49,7 @@ class ReservationViewModel(
         initialValue = emptyList()
     )
     val addedReservationIds = addedReservationIdsChannel.receiveAsFlow()
-    val transferMessage: StateFlow<String?> = _transferMessage
+    val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val importCandidates: StateFlow<List<GoogleSheetImportCandidate>> = _importCandidates
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
 
@@ -109,27 +115,27 @@ class ReservationViewModel(
         }
     }
 
-    suspend fun exportSpreadsheetRows(): List<ReservationSpreadsheetRow> =
-        reservationRepository.exportSpreadsheetRows()
-
-    fun importSpreadsheetRows(rows: List<ReservationSpreadsheetRow>) {
-        viewModelScope.launch {
-            reservationRepository.importSpreadsheetRows(rows)
-        }
-    }
-
     fun prepareGoogleSheetImport(spreadsheetUrl: String, accessToken: String) {
         viewModelScope.launch {
             _isTransferInProgress.value = true
-            runCatching { reservationRepository.loadGoogleSheetImportCandidates(spreadsheetUrl, accessToken) }
-                .onSuccess { candidates ->
+            try {
+                val candidates = reservationRepository.loadGoogleSheetImportCandidates(
+                    spreadsheetUrl,
+                    accessToken
+                )
+                if (candidates.isEmpty()) {
+                    dismissImportCandidates()
+                    _transferMessage.value = UiMessage(R.string.google_sheets_no_import_candidates)
+                } else {
                     pendingImportUrl = spreadsheetUrl
                     pendingImportAccessToken = accessToken
                     _importCandidates.value = candidates
-                    if (candidates.isEmpty()) _transferMessage.value = "Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt."
                 }
-                .onFailure { error -> _transferMessage.value = "Tuonti epäonnistui: ${error.message}" }
-            _isTransferInProgress.value = false
+            } catch (_: Exception) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_import_failed)
+            } finally {
+                _isTransferInProgress.value = false
+            }
         }
     }
 
@@ -138,19 +144,25 @@ class ReservationViewModel(
         val accessToken = pendingImportAccessToken ?: return
         viewModelScope.launch {
             _isTransferInProgress.value = true
-            runCatching {
-                reservationRepository.importGoogleSheet(spreadsheetUrl, accessToken, candidate.sheetTitle).also {
-                    reservationRepository.upsertGoogleSheetSource(
-                        GoogleSheetSource(candidate.performanceName, spreadsheetUrl)
-                    )
-                }
+            try {
+                val reservationCount = reservationRepository.importGoogleSheet(
+                    spreadsheetUrl,
+                    accessToken,
+                    candidate.sheetTitle
+                )
+                reservationRepository.upsertGoogleSheetSource(
+                    GoogleSheetSource(candidate.performanceName, spreadsheetUrl)
+                )
+                _transferMessage.value = UiMessage(
+                    R.string.google_sheets_import_succeeded,
+                    listOf(reservationCount)
+                )
+            } catch (_: Exception) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_import_failed)
+            } finally {
+                _isTransferInProgress.value = false
+                dismissImportCandidates()
             }
-                .onSuccess { count -> _transferMessage.value = "Tuotiin $count varausta." }
-                .onFailure { error -> _transferMessage.value = "Tuonti epäonnistui: ${error.message}" }
-            _isTransferInProgress.value = false
-            _importCandidates.value = emptyList()
-            pendingImportUrl = null
-            pendingImportAccessToken = null
         }
     }
 
@@ -163,21 +175,25 @@ class ReservationViewModel(
     fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
         viewModelScope.launch {
             _isTransferInProgress.value = true
-            runCatching { reservationRepository.exportGoogleSheet(spreadsheetUrl, sheetTitle, accessToken) }
-                .onSuccess { _transferMessage.value = "Vienti onnistui." }
-                .onFailure { error -> _transferMessage.value = "Vienti epäonnistui: ${error.message}" }
-            _isTransferInProgress.value = false
+            try {
+                reservationRepository.exportGoogleSheet(spreadsheetUrl, sheetTitle, accessToken)
+                _transferMessage.value = UiMessage(R.string.google_sheets_export_succeeded)
+            } catch (_: Exception) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_export_failed)
+            } finally {
+                _isTransferInProgress.value = false
+            }
         }
     }
 
     fun saveGoogleSheetSource(actName: String, spreadsheetUrl: String) {
         viewModelScope.launch {
-            runCatching {
+            try {
                 reservationRepository.upsertGoogleSheetSource(
                     GoogleSheetSource(actName, spreadsheetUrl)
                 )
-            }.onFailure { error ->
-                _transferMessage.value = "Google Sheets -osoitteen tallennus epäonnistui: ${error.message}"
+            } catch (_: Exception) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_source_save_failed)
             }
         }
     }

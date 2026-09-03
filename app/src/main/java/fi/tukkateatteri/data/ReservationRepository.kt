@@ -65,9 +65,7 @@ class RoomReservationRepository(
         admissionType: AdmissionType,
         reservedTicketAllocations: List<ReservedTicketAllocation>
     ): Long = database.withTransaction {
-        require(reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {
-            "Reserved ticket quantities must not exceed the seat count."
-        }
+        validateReservedTicketAllocations(reservedTicketAllocations, seatCount)
         val reservationId = reservationDao.insert(
             ReservationEntity(
                 lastName = lastName.trim(),
@@ -84,11 +82,14 @@ class RoomReservationRepository(
     }
 
     override suspend fun updateReservation(reservation: Reservation) {
-        val existingReservation = reservationDao.getById(reservation.id)
-        require(reservation.reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= reservation.seatCount) {
-            "Reserved ticket quantities must not exceed the seat count."
-        }
         database.withTransaction {
+            val existingReservation = requireNotNull(reservationDao.getWithTicketSalesById(reservation.id))
+            val existingReservationEntity = existingReservation.reservation
+            val existingPaidSeatCount = existingReservation.toReservation().paidSeatCount
+            require(reservation.seatCount >= maxOf(existingReservationEntity.arrivalCount, existingPaidSeatCount)) {
+                "Seat count must not be lower than arrived or redeemed tickets."
+            }
+            validateReservedTicketAllocations(reservation.reservedTicketAllocations, reservation.seatCount)
             reservationDao.update(
                 ReservationEntity(
                     id = reservation.id,
@@ -97,12 +98,12 @@ class RoomReservationRepository(
                     contact = reservation.contact.trim(),
                     seatCount = reservation.seatCount,
                     notes = reservation.notes.trim(),
-                    sourceIdentity = existingReservation?.sourceIdentity.orEmpty(),
+                    sourceIdentity = existingReservationEntity.sourceIdentity,
                     admissionType = reservation.admissionType,
                     arrivalCount = if (reservation.admissionType == AdmissionType.DOOR_SALE) {
                         reservation.seatCount
                     } else {
-                        existingReservation?.arrivalCount.orZero()
+                        existingReservationEntity.arrivalCount
                     },
                     isPresent = reservation.admissionType == AdmissionType.DOOR_SALE || reservation.isPresent,
                     paymentMethod = null
@@ -112,14 +113,24 @@ class RoomReservationRepository(
         }
     }
 
-    override suspend fun addTicketSale(reservationId: Long, ticketType: TicketType, quantity: Int, payments: List<PendingPaymentAllocation>) {
+    override suspend fun addTicketSale(
+        reservationId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    ) {
         require(quantity > 0) { "Ticket quantity must be positive." }
+        require(ticketType != TicketType.UNSPECIFIED) { "Manual ticket sales need a ticket type." }
         require(payments.all { it.amountCents >= 0 }) { "Payment amounts must not be negative." }
         require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
             "Payment total must match the ticket price."
         }
         database.withTransaction {
-            val reservation = requireNotNull(reservationDao.getById(reservationId))
+            val currentReservation = requireNotNull(reservationDao.getWithTicketSalesById(reservationId))
+            val reservation = currentReservation.reservation
+            require(quantity <= currentReservation.toReservation().unpaidSeatCount) {
+                "Ticket quantity exceeds the number of unredeemed seats."
+            }
             val ticketSaleId = reservationDao.insertTicketSale(
                 TicketSaleEntity(
                     reservationId = reservationId,
@@ -130,7 +141,15 @@ class RoomReservationRepository(
                     countsAsArrival = true
                 )
             )
-            reservationDao.insertPaymentAllocations(payments.map { payment -> PaymentAllocationEntity(ticketSaleId = ticketSaleId, paymentMethod = payment.method, amountCents = payment.amountCents) })
+            reservationDao.insertPaymentAllocations(
+                payments.map { payment ->
+                    PaymentAllocationEntity(
+                        ticketSaleId = ticketSaleId,
+                        paymentMethod = payment.method,
+                        amountCents = payment.amountCents
+                    )
+                }
+            )
             reservationDao.update(
                 reservation.copy(
                     arrivalCount = (reservation.arrivalCount + quantity).coerceAtMost(reservation.seatCount),
@@ -292,6 +311,16 @@ class RoomReservationRepository(
             }
         )
     }
-}
 
-private fun Int?.orZero(): Int = this ?: 0
+    private fun validateReservedTicketAllocations(
+        allocations: List<ReservedTicketAllocation>,
+        seatCount: Int
+    ) {
+        require(allocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {
+            "Reserved ticket quantities must not exceed the seat count."
+        }
+        require(allocations.map(ReservedTicketAllocation::ticketType).distinct().size == allocations.size) {
+            "Each reserved ticket type may only appear once."
+        }
+    }
+}

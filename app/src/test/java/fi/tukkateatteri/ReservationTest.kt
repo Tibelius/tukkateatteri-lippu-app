@@ -1,11 +1,13 @@
 package fi.tukkateatteri
 
 import fi.tukkateatteri.data.PaymentAllocation
-import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
+import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -140,5 +142,51 @@ class ReservationTest {
             paymentTicketCounts = emptyMap(),
             notes = ""
         )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun reservations_rejectMoreArrivalsThanSeats() {
+        Reservation(
+            id = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 1,
+            arrivalCount = 2
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun reservations_rejectDuplicateReservedTicketTypes() {
+        Reservation(
+            id = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 2,
+            reservedTicketAllocations = listOf(
+                ReservedTicketAllocation(TicketType.BASIC, 1),
+                ReservedTicketAllocation(TicketType.BASIC, 1)
+            )
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun ticketSales_rejectPaymentsGreaterThanTheTicketPrice() {
+        TicketSale(
+            id = 1,
+            reservationId = 1,
+            ticketType = TicketType.BASIC,
+            quantity = 1,
+            unitPriceCents = 2_200,
+            payments = listOf(
+                PaymentAllocation(1, 1, PaymentMethod.CARD, 2_201)
+            )
+        )
+    }
+
+    @Test
+    fun euroAmounts_useTheFinnishDecimalSeparator() {
+        assertEquals("22,00 €", 2_200.toEuroString())
     }
 }

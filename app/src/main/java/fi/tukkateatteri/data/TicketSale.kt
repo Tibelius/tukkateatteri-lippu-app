@@ -18,6 +18,9 @@ data class TicketSale(
         require(reservationId > 0) { "Reservation ID must be positive." }
         require(quantity > 0) { "Ticket quantity must be positive." }
         require(unitPriceCents >= 0) { "Ticket price must not be negative." }
+        require(payments.sumOf(PaymentAllocation::amountCents) <= totalPriceCents) {
+            "Payment amount must not exceed the ticket price."
+        }
     }
 
     val totalPriceCents: Int
@@ -31,6 +34,9 @@ data class TicketSale(
 
     val isSplitPayment: Boolean
         get() = payments.size > 1
+
+    val singlePaymentMethod: PaymentMethod?
+        get() = payments.singleOrNull()?.method
 }
 
 enum class TicketSaleOrigin {
@@ -43,6 +49,9 @@ data class ReservedTicketAllocation(
     val quantity: Int
 ) {
     init {
+        require(ticketType != TicketType.UNSPECIFIED) {
+            "Reserved ticket allocations need a ticket type."
+        }
         require(quantity > 0) { "Reserved ticket quantity must be positive." }
     }
 }

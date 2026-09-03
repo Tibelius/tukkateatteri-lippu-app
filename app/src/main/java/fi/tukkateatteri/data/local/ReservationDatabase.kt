@@ -9,7 +9,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ReservationEntity::class, TicketSaleEntity::class, PaymentAllocationEntity::class, ReservedTicketAllocationEntity::class, GoogleSheetSourceEntity::class],
+    entities = [
+        ReservationEntity::class,
+        TicketSaleEntity::class,
+        PaymentAllocationEntity::class,
+        ReservedTicketAllocationEntity::class,
+        GoogleSheetSourceEntity::class
+    ],
     version = 8,
     exportSchema = true
 )
@@ -22,11 +28,21 @@ abstract class ReservationDatabase : RoomDatabase() {
         fun create(context: Context): ReservationDatabase {
             lateinit var database: ReservationDatabase
 
-            database = Room.databaseBuilder(
-                context.applicationContext,
-                ReservationDatabase::class.java,
-                DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            database = Room
+                .databaseBuilder(
+                    context.applicationContext,
+                    ReservationDatabase::class.java,
+                    DATABASE_NAME
+                )
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8
+                )
                 .withBuildSpecificDatabaseConfiguration { database }
                 .build()
 
@@ -111,14 +127,21 @@ abstract class ReservationDatabase : RoomDatabase() {
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE reservations ADD COLUMN source_identity TEXT NOT NULL DEFAULT ''")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_reservations_source_identity ON reservations (source_identity)")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_reservations_source_identity " +
+                        "ON reservations (source_identity)"
+                )
             }
         }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `google_sheet_sources` (`actName` TEXT NOT NULL, `spreadsheetUrl` TEXT NOT NULL, PRIMARY KEY(`actName`))"
+                    "CREATE TABLE IF NOT EXISTS `google_sheet_sources` (" +
+                        "`actName` TEXT NOT NULL, " +
+                        "`spreadsheetUrl` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`actName`)" +
+                        ")"
                 )
             }
         }
@@ -140,7 +163,8 @@ abstract class ReservationDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS `index_reserved_ticket_allocations_reservation_id` ON `reserved_ticket_allocations` (`reservation_id`)"
+                    "CREATE INDEX IF NOT EXISTS `index_reserved_ticket_allocations_reservation_id` " +
+                        "ON `reserved_ticket_allocations` (`reservation_id`)"
                 )
                 db.execSQL(
                     """
@@ -203,11 +227,8 @@ abstract class ReservationDatabase : RoomDatabase() {
 
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "UPDATE reservations SET arrival_count = seat_count, is_present = 1 WHERE admission_type = 'DOOR_SALE'"
-                )
+                db.execSQL("UPDATE reservations SET arrival_count = seat_count, is_present = 1 WHERE admission_type = 'DOOR_SALE'")
             }
         }
-
     }
 }

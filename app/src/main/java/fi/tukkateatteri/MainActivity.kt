@@ -3,32 +3,32 @@ package fi.tukkateatteri
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -81,8 +81,19 @@ class MainActivity : ComponentActivity() {
                     onGoogleSheetsTransfer = { action, spreadsheetUrl, sheetTitle ->
                         authorizeGoogleSheets { accessToken ->
                             when (action) {
-                                SpreadsheetAction.IMPORT -> reservationViewModel.prepareGoogleSheetImport(spreadsheetUrl, accessToken)
-                                SpreadsheetAction.EXPORT -> reservationViewModel.exportGoogleSheet(spreadsheetUrl, sheetTitle, accessToken)
+                                SpreadsheetAction.IMPORT -> {
+                                    reservationViewModel.prepareGoogleSheetImport(
+                                        spreadsheetUrl,
+                                        accessToken
+                                    )
+                                }
+                                SpreadsheetAction.EXPORT -> {
+                                    reservationViewModel.exportGoogleSheet(
+                                        spreadsheetUrl,
+                                        sheetTitle,
+                                        accessToken
+                                    )
+                                }
                             }
                         }
                     }
@@ -99,9 +110,13 @@ class MainActivity : ComponentActivity() {
         Identity.getAuthorizationClient(this).authorize(request)
             .addOnSuccessListener { result ->
                 if (result.hasResolution()) {
-                    googleAuthorizationLauncher.launch(
-                        IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build()
-                    )
+                    result.pendingIntent?.let { pendingIntent ->
+                        googleAuthorizationLauncher.launch(
+                            IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                        )
+                    } ?: run {
+                        pendingGoogleAuthorization = null
+                    }
                 } else {
                     result.accessToken?.let { pendingGoogleAuthorization?.invoke(it) }
                     pendingGoogleAuthorization = null
@@ -232,7 +247,7 @@ private fun ReservationApp(
         AlertDialog(
             onDismissRequest = viewModel::dismissTransferMessage,
             title = { Text(stringResource(R.string.google_sheets_transfer)) },
-            text = { Text(message) },
+            text = { Text(stringResource(message.messageResId, *message.formatArgs.toTypedArray())) },
             confirmButton = {
                 TextButton(onClick = viewModel::dismissTransferMessage) {
                     Text(stringResource(R.string.close))

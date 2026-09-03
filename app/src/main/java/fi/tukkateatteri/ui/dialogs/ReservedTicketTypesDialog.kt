@@ -2,13 +2,9 @@ package fi.tukkateatteri.ui.dialogs
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -19,7 +15,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,18 +25,13 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
-
-private const val DIALOG_WIDTH_FRACTION = 0.94f
-private const val DIALOG_MAX_HEIGHT_FRACTION = 0.9f
+import fi.tukkateatteri.ui.components.ScrollableAppDialog
 
 internal val reservedTicketAllocationsSaver = listSaver<List<ReservedTicketAllocation>, String>(
     save = { allocations ->
@@ -61,7 +51,6 @@ fun ReservedTicketTypesDialog(
     onDismiss: () -> Unit,
     onSave: (List<ReservedTicketAllocation>) -> Unit
 ) {
-    val maxDialogHeight = LocalConfiguration.current.screenHeightDp.dp * DIALOG_MAX_HEIGHT_FRACTION
     var quantities by rememberSaveable(initialAllocations, maximumQuantity) {
         mutableStateOf(initialAllocations.associate { it.ticketType.name to it.quantity })
     }
@@ -71,78 +60,88 @@ fun ReservedTicketTypesDialog(
         ticketType != TicketType.UNSPECIFIED && ticketType.name !in quantities
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(DIALOG_WIDTH_FRACTION).heightIn(max = maxDialogHeight),
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = 4.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(stringResource(R.string.reserved_ticket_types), style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    stringResource(R.string.reserved_ticket_types_total, allocatedQuantity, maximumQuantity),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    ScrollableAppDialog(onDismissRequest = onDismiss) {
+        Text(
+            text = stringResource(R.string.reserved_ticket_types),
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = stringResource(
+                R.string.reserved_ticket_types_total,
+                allocatedQuantity,
+                maximumQuantity
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        quantities.entries
+            .sortedBy { (ticketTypeName, _) -> TicketType.valueOf(ticketTypeName).ordinal }
+            .forEach { (ticketTypeName, quantity) ->
+                val ticketType = TicketType.valueOf(ticketTypeName)
+                ReservedTicketTypeRow(
+                    ticketType = ticketType,
+                    quantity = quantity,
+                    canIncrease = allocatedQuantity < maximumQuantity,
+                    onDecrease = {
+                        quantities = quantities.toMutableMap().apply {
+                            if (quantity == 1) remove(ticketTypeName) else put(ticketTypeName, quantity - 1)
+                        }
+                    },
+                    onIncrease = {
+                        quantities = quantities.toMutableMap().apply {
+                            put(ticketTypeName, quantity + 1)
+                        }
+                    }
                 )
-                quantities.entries
-                    .sortedBy { (ticketTypeName, _) -> TicketType.valueOf(ticketTypeName).ordinal }
-                    .forEach { (ticketTypeName, quantity) ->
-                        val ticketType = TicketType.valueOf(ticketTypeName)
-                        ReservedTicketTypeRow(
-                            ticketType = ticketType,
-                            quantity = quantity,
-                            canIncrease = allocatedQuantity < maximumQuantity,
-                            onDecrease = {
-                                quantities = quantities.toMutableMap().apply {
-                                    if (quantity == 1) remove(ticketTypeName) else put(ticketTypeName, quantity - 1)
-                                }
-                            },
-                            onIncrease = {
-                                quantities = quantities.toMutableMap().apply { put(ticketTypeName, quantity + 1) }
+            }
+        if (quantities.isNotEmpty()) {
+            HorizontalDivider()
+        }
+        if (availableTicketTypes.isNotEmpty()) {
+            Box {
+                Button(
+                    onClick = { isTicketTypeMenuExpanded = true },
+                    enabled = allocatedQuantity < maximumQuantity,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Text(
+                        text = stringResource(R.string.add_reserved_ticket_type),
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = isTicketTypeMenuExpanded,
+                    onDismissRequest = { isTicketTypeMenuExpanded = false }
+                ) {
+                    availableTicketTypes.forEach { ticketType ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(ticketType.labelResId)) },
+                            onClick = {
+                                quantities = quantities + (ticketType.name to 1)
+                                isTicketTypeMenuExpanded = false
                             }
                         )
                     }
-                if (quantities.isNotEmpty()) HorizontalDivider()
-                if (availableTicketTypes.isNotEmpty()) {
-                    Box {
-                        Button(
-                            onClick = { isTicketTypeMenuExpanded = true },
-                            enabled = allocatedQuantity < maximumQuantity,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Text(stringResource(R.string.add_reserved_ticket_type), modifier = Modifier.padding(start = 8.dp))
-                        }
-                        DropdownMenu(
-                            expanded = isTicketTypeMenuExpanded,
-                            onDismissRequest = { isTicketTypeMenuExpanded = false }
-                        ) {
-                            availableTicketTypes.forEach { ticketType ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(ticketType.labelResId)) },
-                                    onClick = {
-                                        quantities = quantities + (ticketType.name to 1)
-                                        isTicketTypeMenuExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-                    TextButton(
-                        onClick = {
-                            onSave(
-                                quantities.map { (ticketTypeName, quantity) ->
-                                    ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
-                                }
-                            )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            TextButton(
+                onClick = {
+                    onSave(
+                        quantities.map { (ticketTypeName, quantity) ->
+                            ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
                         }
-                    ) { Text(stringResource(R.string.save)) }
+                    )
                 }
+            ) {
+                Text(stringResource(R.string.save))
             }
         }
     }

@@ -18,7 +18,13 @@ data class Reservation(
     init {
         require(id > 0) { "Reservation ID must be positive." }
         require(seatCount > 0) { "Seat count must be positive." }
-        require(arrivalCount >= 0) { "Arrival count must not be negative." }
+        require(arrivalCount in 0..seatCount) { "Arrival count must be within the seat count." }
+        require(reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {
+            "Reserved ticket quantities must not exceed the seat count."
+        }
+        require(reservedTicketAllocations.map(ReservedTicketAllocation::ticketType).distinct().size == reservedTicketAllocations.size) {
+            "Each reserved ticket type may only appear once."
+        }
 
         if (admissionType == AdmissionType.RESERVATION) {
             require(lastName.isNotBlank()) { "Last name must not be blank for reservations." }
@@ -31,6 +37,9 @@ data class Reservation(
 
     val paidSeatCount: Int
         get() = ticketSales.filter(TicketSale::isPaid).sumOf(TicketSale::quantity)
+
+    val reservedTicketCount: Int
+        get() = reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
 
     val unpaidSeatCount: Int
         get() = (seatCount - paidSeatCount).coerceAtLeast(0)

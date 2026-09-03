@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">Tukkateatteri</string>
     <plurals name="reservation_progress">
-        <item quantity="one">%1$d / %2$d maksettu</item>
-        <item quantity="other">%1$d / %2$d maksettu</item>
+        <item quantity="one">%1$d / %2$d lunastettu</item>
+        <item quantity="other">%1$d / %2$d lunastettu</item>
     </plurals>
     <string name="add_reservation">Lisää varaus</string>
     <string name="add_admission_title">Lisää asiakas</string>
@@ -24,7 +24,6 @@
     <string name="last_name_optional">Sukunimi (valinnainen)</string>
     <string name="first_name_optional">Etunimi (valinnainen)</string>
     <string name="contact_information_optional">Puhelinnumero tai sähköposti (valinnainen)</string>
-    <string name="customer_details">Asiakastiedot</string>
     <string name="edit_customer_details">Muokkaa asiakastietoja</string>
     <string name="cancel">Peruuta</string>
     <string name="save">Tallenna</string>
@@ -33,7 +32,7 @@
     <string name="more_actions">Lisää toimintoja</string>
     <string name="import_spreadsheet">Tuo Google Sheetsistä</string>
     <string name="export_spreadsheet">Vie Google Sheetsiin</string>
-    <string name="import_spreadsheet_message">Kirjaudu teatterin Google-tilille ja anna taulukon osoite.</string>
+    <string name="import_spreadsheet_message">Anna lippuvaraustaulukon osoite.</string>
     <string name="export_spreadsheet_message">Anna taulukon osoite ja välilehden nimi. Samannimiset varaukset päivitetään, muut lisätään.</string>
     <string name="google_sheet_url">Google Sheets -osoite</string>
     <string name="google_sheet_tab">Välilehden nimi</string>
@@ -49,6 +48,12 @@
     <string name="google_sheets_transfer">Google Sheets</string>
     <string name="google_sheets_loading">Luetaan Google Sheets -taulukkoa…</string>
     <string name="select_performance_date">Valitse esityspäivä</string>
+    <string name="google_sheets_no_import_candidates">Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt.</string>
+    <string name="google_sheets_import_succeeded">Tuotiin %1$d varausta.</string>
+    <string name="google_sheets_import_failed">Tuonti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_export_succeeded">Vienti onnistui.</string>
+    <string name="google_sheets_export_failed">Vienti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
 
     <string name="delete_reservation_title">Poistetaanko varaus?</string>
     <string name="delete_reservation_message">%1$s poistetaan pysyvästi.</string>
@@ -65,10 +70,6 @@
     <string name="decrease_seat_count">Vähennä paikkoja</string>
     <string name="increase_seat_count">Lisää paikkoja</string>
     <string name="payment_method">Maksutapa</string>
-    <string name="mark_as_present">Merkitse paikalla olevaksi</string>
-    <string name="present">Paikalla</string>
-    <string name="reservation_status_not_checked_in">Ei kirjattu</string>
-    <string name="reservation_status_payment_missing">Paikalla – maksutapa puuttuu</string>
     <string name="reservation_summary">%1$s · %2$s</string>
     <string name="reservation_overview">%1$s · %2$s</string>
 
@@ -90,12 +91,11 @@
     <string name="reserved_ticket_types_summary">%d lipputyyppiä varattu</string>
     <string name="no_reserved_ticket_types">Ei määritelty</string>
     <string name="add_reserved_ticket_type">Lisää lipputyyppi</string>
-    <string name="realized_payments">Toteutuneet maksut</string>
-    <string name="no_realized_payments">Maksuja ei ole vielä kirjattu.</string>
-    <string name="add_ticket_sale">Kirjaa maksu</string>
+    <string name="realized_payments">Toteutuneet lunastukset</string>
+    <string name="no_realized_payments">Lunastuksia ei ole vielä kirjattu.</string>
+    <string name="add_ticket_sale">Kirjaa lunastus</string>
     <string name="imported_payment">Tuotu taulukosta</string>
     <string name="ticket_type">Lipputyyppi</string>
-    <string name="ticket_quantity">Lippuja</string>
     <string name="split_payment">Sekamaksu</string>
     <string name="single_payment">Yksi maksutapa</string>
     <string name="payment_amount">Summa (€)</string>
@@ -104,7 +104,7 @@
     <string name="show_notes">Näytä huomautukset</string>
     <string name="hide_notes">Piilota huomautukset</string>
     <string name="arrivals">Saapuminen</string>
-    <string name="payment_overview">Maksettu %1$d / %2$d · maksamatta %3$d</string>
+    <string name="payment_overview">Lunastettu %1$d / %2$d · lunastamatta %3$d</string>
     <string name="arrival_overview">Saapunut %1$d / %2$d</string>
     <string name="arrival_count">Saapuneita</string>
     <string name="edit_arrival_count">Merkitse saapuneet</string>
