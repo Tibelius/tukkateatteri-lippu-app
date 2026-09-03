@@ -29,6 +29,7 @@ android {
 
     defaultConfig {
         applicationId = "fi.tukkateatteri"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 30
         targetSdk = 37
         versionCode = 5
@@ -83,5 +84,7 @@ dependencies {
     implementation(libs.google.play.services.auth)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
