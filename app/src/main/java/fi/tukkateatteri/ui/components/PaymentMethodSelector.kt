@@ -2,7 +2,7 @@ package fi.tukkateatteri.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -121,35 +121,15 @@ private fun PaymentOptionCard(
                 modifier = Modifier.height(28.dp),
                 tint = contentColor
             )
-            BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                var usePrepaidWrappedLabel by remember(paymentMethod, maxWidth) {
-                    mutableStateOf(false)
-                }
-                val labelResId = if (
-                    paymentMethod == PaymentMethod.PREPAID && usePrepaidWrappedLabel
-                ) {
-                    R.string.payment_method_prepaid_wrapped
-                } else {
-                    paymentMethod.labelResId
-                }
-
+            Box(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(labelResId),
+                    text = stringResource(paymentMethod.labelResId),
                     modifier = Modifier.padding(start = 10.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = contentColor,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    onTextLayout = { layoutResult ->
-                        if (
-                            paymentMethod == PaymentMethod.PREPAID &&
-                            !usePrepaidWrappedLabel &&
-                            layoutResult.lineCount > 1
-                        ) {
-                            usePrepaidWrappedLabel = true
-                        }
-                    }
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -160,8 +140,6 @@ private val PaymentMethod.icon: ImageVector
     get() = when (this) {
         PaymentMethod.CARD -> Icons.Filled.CreditCard
         PaymentMethod.CASH -> Icons.Filled.Payments
-        PaymentMethod.PREPAID,
-        PaymentMethod.FREE_TICKET -> Icons.Filled.ConfirmationNumber
-        PaymentMethod.KAIKUKORTTI -> Icons.Filled.Redeem
-        PaymentMethod.OTHER -> Icons.Filled.MoreHoriz
+        PaymentMethod.EPASSI -> Icons.Filled.Redeem
+        PaymentMethod.LIPPUAGENTTI -> Icons.Filled.ConfirmationNumber
     }

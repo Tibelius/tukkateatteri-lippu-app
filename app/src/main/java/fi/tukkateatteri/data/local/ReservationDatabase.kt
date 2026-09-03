@@ -8,10 +8,15 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [ReservationEntity::class], version = 2, exportSchema = true)
+@Database(
+    entities = [ReservationEntity::class, TicketSaleEntity::class, PaymentAllocationEntity::class, GoogleSheetSourceEntity::class],
+    version = 6,
+    exportSchema = true
+)
 @TypeConverters(ReservationTypeConverters::class)
 abstract class ReservationDatabase : RoomDatabase() {
     abstract fun reservationDao(): ReservationDao
+    abstract fun googleSheetSourceDao(): GoogleSheetSourceDao
 
     companion object {
         fun create(context: Context): ReservationDatabase {
@@ -21,7 +26,7 @@ abstract class ReservationDatabase : RoomDatabase() {
                 context.applicationContext,
                 ReservationDatabase::class.java,
                 DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .withBuildSpecificDatabaseConfiguration { database }
                 .build()
 
@@ -34,6 +39,86 @@ abstract class ReservationDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE reservations ADD COLUMN admission_type TEXT NOT NULL DEFAULT 'RESERVATION'"
+                )
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ticket_sales` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `reservation_id` INTEGER NOT NULL,
+                        `ticket_type` TEXT NOT NULL,
+                        `quantity` INTEGER NOT NULL,
+                        `unit_price_cents` INTEGER NOT NULL,
+                        FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ticket_sales_reservation_id` ON `ticket_sales` (`reservation_id`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `payment_allocations` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `ticket_sale_id` INTEGER NOT NULL,
+                        `payment_method` TEXT NOT NULL,
+                        `amount_cents` INTEGER NOT NULL,
+                        FOREIGN KEY(`ticket_sale_id`) REFERENCES `ticket_sales`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_payment_allocations_ticket_sale_id` ON `payment_allocations` (`ticket_sale_id`)"
+                )
+
+                db.execSQL(
+                    """
+                    INSERT INTO ticket_sales (reservation_id, ticket_type, quantity, unit_price_cents)
+                    SELECT id, 'UNSPECIFIED', seat_count, 0
+                    FROM reservations
+                    WHERE is_present = 1
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO payment_allocations (ticket_sale_id, payment_method, amount_cents)
+                    SELECT ticket_sales.id,
+                        CASE reservations.payment_method
+                            WHEN 'PREPAID' THEN 'LIPPUAGENTTI'
+                            WHEN 'CARD' THEN 'CARD'
+                            WHEN 'CASH' THEN 'CASH'
+                            ELSE 'LIPPUAGENTTI'
+                        END,
+                        0
+                    FROM ticket_sales
+                    INNER JOIN reservations ON reservations.id = ticket_sales.reservation_id
+                    WHERE reservations.is_present = 1 AND reservations.payment_method IS NOT NULL
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reservations ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reservations ADD COLUMN source_identity TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reservations_source_identity ON reservations (source_identity)")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `google_sheet_sources` (`actName` TEXT NOT NULL, `spreadsheetUrl` TEXT NOT NULL, PRIMARY KEY(`actName`))"
                 )
             }
         }

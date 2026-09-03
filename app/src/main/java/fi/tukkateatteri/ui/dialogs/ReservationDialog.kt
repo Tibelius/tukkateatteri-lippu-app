@@ -1,24 +1,24 @@
 package fi.tukkateatteri.ui.dialogs
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -38,402 +38,213 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
-import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Reservation
-import fi.tukkateatteri.ui.components.PaymentMethodSelector
+import fi.tukkateatteri.data.TicketSale
+import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.ui.components.SeatCountSelector
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 
 private const val DIALOG_WIDTH_FRACTION = 0.94f
 private const val DIALOG_MAX_HEIGHT_FRACTION = 0.9f
-private val primaryActionHeight = 56.dp
 
 @Composable
 fun ReservationDialog(
     reservation: Reservation,
     onDismiss: () -> Unit,
     onSave: (Reservation) -> Unit,
+    onAddTicketSale: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit,
+    onDeleteTicketSale: (Long) -> Unit,
     onDelete: () -> Unit
 ) {
     val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
-    val focusManager = LocalFocusManager.current
     val maxDialogHeight = LocalConfiguration.current.screenHeightDp.dp * DIALOG_MAX_HEIGHT_FRACTION
-    val nextFieldAction = KeyboardActions(
-        onNext = { focusManager.moveFocus(FocusDirection.Next) }
-    )
-    val nextFieldOptions = KeyboardOptions(imeAction = ImeAction.Next)
-    val nextFieldOptionsNames = KeyboardOptions(imeAction = ImeAction.Next, capitalization = KeyboardCapitalization.Sentences)
     var lastName by rememberSaveable(reservation.id) { mutableStateOf(reservation.lastName) }
     var firstName by rememberSaveable(reservation.id) { mutableStateOf(reservation.firstName) }
     var contact by rememberSaveable(reservation.id) { mutableStateOf(reservation.contact) }
-    var isPresent by rememberSaveable(reservation.id) { mutableStateOf(reservation.isPresent) }
-    var selectedPaymentName by rememberSaveable(reservation.id) {
-        mutableStateOf(reservation.paymentMethod?.name)
-    }
-    var isCustomerDetailsEditing by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    var seatCount by rememberSaveable(reservation.id) {
-        mutableIntStateOf(reservation.seatCount)
-    }
-    var isDeleteMenuExpanded by remember(reservation.id) { mutableStateOf(false) }
+    var notes by rememberSaveable(reservation.id) { mutableStateOf(reservation.notes) }
+    var seatCount by rememberSaveable(reservation.id) { mutableIntStateOf(reservation.seatCount) }
+    var showCustomerDetails by rememberSaveable(reservation.id) { mutableStateOf(!isDoorSale) }
+    var showTicketSaleDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
+    var isMenuExpanded by remember { mutableStateOf(false) }
     var showDiscardConfirmation by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    val selectedPayment = PaymentMethod.entries.firstOrNull { it.name == selectedPaymentName }
-    val displayName = "$lastName $firstName".trim()
-    val hasRequiredCustomerDetails = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
+    val hasCustomerDetails = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
+    val hasChanges = lastName != reservation.lastName || firstName != reservation.firstName ||
+        contact != reservation.contact || notes != reservation.notes || seatCount != reservation.seatCount
+    val requestDismiss = {
+        if (hasChanges) showDiscardConfirmation = true else onDismiss()
+    }
 
-    val hasUnsavedChanges =
-        lastName != reservation.lastName ||
-            firstName != reservation.firstName ||
-            contact != reservation.contact ||
-            seatCount != reservation.seatCount ||
-            isPresent != reservation.isPresent ||
-            selectedPayment != reservation.paymentMethod
-
-    val requestDismiss: () -> Unit = {
-        if (hasUnsavedChanges) {
-            showDiscardConfirmation = true
-        } else {
-            onDismiss()
-        }
+    if (showTicketSaleDialog) {
+        TicketSaleDialog(
+            maximumQuantity = reservation.remainingSeatCount,
+            onDismiss = { showTicketSaleDialog = false },
+            onSave = { ticketType, quantity, payments ->
+                onAddTicketSale(ticketType, quantity, payments)
+                showTicketSaleDialog = false
+            }
+        )
     }
 
     if (showDiscardConfirmation) {
-        DiscardChangesDialog(
-            onDismiss = { showDiscardConfirmation = false },
-            onDiscard = {
-                showDiscardConfirmation = false
-                onDismiss()
-            }
-        )
-    } else {
-        Dialog(
-            onDismissRequest = requestDismiss,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+        DiscardChangesDialog(onDismiss = { showDiscardConfirmation = false }, onDiscard = onDismiss)
+        return
+    }
+
+    Dialog(onDismissRequest = requestDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(DIALOG_WIDTH_FRACTION).heightIn(max = maxDialogHeight),
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 4.dp
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(DIALOG_WIDTH_FRACTION)
-                    .heightIn(max = maxDialogHeight),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 4.dp
+            Column(
+                modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    ReservationDialogHeader(
-                        displayName = displayName,
-                        isDeleteMenuExpanded = isDeleteMenuExpanded,
-                        onDeleteMenuExpand = { isDeleteMenuExpanded = true },
-                        onDeleteMenuDismiss = { isDeleteMenuExpanded = false },
-                        onEditCustomerDetails = { isCustomerDetailsEditing = true },
-                        onDelete = onDelete,
-                        onDismiss = requestDismiss
+                ReservationDialogHeader(
+                    title = reservation.displayName.ifBlank { stringResource(R.string.admission_type_door_sale) },
+                    isMenuExpanded = isMenuExpanded,
+                    onMenuExpand = { isMenuExpanded = true },
+                    onMenuDismiss = { isMenuExpanded = false },
+                    onEditCustomerDetails = { showCustomerDetails = true },
+                    onDelete = onDelete,
+                    onDismiss = requestDismiss
+                )
+                Text(
+                    stringResource(R.string.redeemed_overview, reservation.redeemedSeatCount, seatCount, (seatCount - reservation.redeemedSeatCount).coerceAtLeast(0)),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                if (showCustomerDetails) {
+                    CustomerDetailsFields(
+                        isDoorSale = isDoorSale,
+                        lastName = lastName,
+                        firstName = firstName,
+                        contact = contact,
+                        onLastNameChange = { lastName = it },
+                        onFirstNameChange = { firstName = it },
+                        onContactChange = { contact = it }
                     )
-
-                    AnimatedVisibility(visible = isCustomerDetailsEditing) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.customer_details),
-                                modifier = Modifier.padding(top = 12.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Row(modifier = Modifier.padding(top = 8.dp)) {
-                                OutlinedTextField(
-                                    value = lastName,
-                                    onValueChange = { lastName = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = {
-                                        Text(
-                                            stringResource(
-                                                if (isDoorSale) R.string.last_name_optional
-                                                else R.string.last_name
-                                            )
-                                        )
-                                    },
-                                    keyboardOptions = nextFieldOptionsNames,
-                                    keyboardActions = nextFieldAction,
-                                    singleLine = true
-                                )
-                                OutlinedTextField(
-                                    value = firstName,
-                                    onValueChange = { firstName = it },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 10.dp),
-                                    label = {
-                                        Text(
-                                            stringResource(
-                                                if (isDoorSale) R.string.first_name_optional
-                                                else R.string.first_name
-                                            )
-                                        )
-                                    },
-                                    keyboardOptions = nextFieldOptionsNames,
-                                    keyboardActions = nextFieldAction,
-                                    singleLine = true
-                                )
-                            }
-                            OutlinedTextField(
-                                value = contact,
-                                onValueChange = { contact = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 10.dp),
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            if (isDoorSale) R.string.contact_information_optional
-                                            else R.string.contact_information
-                                        )
-                                    )
-                                },
-                                keyboardOptions = nextFieldOptions,
-                                keyboardActions = nextFieldAction,
-                                singleLine = true
-                            )
-                        }
-                    }
-
-                    if (!isCustomerDetailsEditing && contact.isNotBlank()) {
-                        Text(
-                            text = contact,
-                            modifier = Modifier.padding(top = 4.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    SeatCountSelector(
-                        seatCount = seatCount,
-                        onDecrease = { seatCount-- },
-                        onIncrease = { seatCount++ }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
                     if (isDoorSale) {
-                        Text(
-                            text = stringResource(R.string.admission_type_door_sale),
-                            modifier = Modifier.padding(bottom = 4.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        PaymentMethodSelector(
-                            selectedPayment = selectedPayment,
-                            onPaymentSelected = { paymentMethod ->
-                                selectedPaymentName = if (selectedPayment == paymentMethod) {
-                                    null
-                                } else {
-                                    paymentMethod.name
-                                }
-                            }
-                        )
-                    } else {
-                        PresenceButton(
-                            isPresent = isPresent,
-                            onClick = {
-                                isPresent = !isPresent
-                                if (!isPresent) selectedPaymentName = null
-                            }
-                        )
-
-                        if (isPresent) {
-                            PaymentMethodSelector(
-                                selectedPayment = selectedPayment,
-                                onPaymentSelected = { paymentMethod ->
-                                    selectedPaymentName = if (selectedPayment == paymentMethod) {
-                                        null
-                                    } else {
-                                        paymentMethod.name
-                                    }
-                                }
-                            )
+                        TextButton(onClick = { showCustomerDetails = false }) {
+                            Text(stringResource(R.string.hide_optional_customer_details))
+                            Icon(Icons.Filled.ExpandLess, null)
                         }
                     }
-
-                    Button(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp)
-                            .height(primaryActionHeight),
-                        enabled = hasRequiredCustomerDetails &&
-                            (!isDoorSale || selectedPayment != null),
-                        onClick = {
-                            onSave(
-                                reservation.copy(
-                                    lastName = lastName.trim(),
-                                    firstName = firstName.trim(),
-                                    contact = contact.trim(),
-                                    seatCount = seatCount,
-                                    isPresent = isDoorSale || isPresent,
-                                    paymentMethod = selectedPayment.takeIf {
-                                        isDoorSale || isPresent
-                                    }
-                                )
-                            )
-                        }
-                    ) {
-                        Text(stringResource(R.string.save))
+                } else {
+                    TextButton(onClick = { showCustomerDetails = true }) {
+                        Text(stringResource(R.string.show_optional_customer_details))
+                        Icon(Icons.Filled.ExpandMore, null)
                     }
                 }
-            }
-        }
-    }
-}
 
-@Composable
-private fun DiscardChangesDialog(
-    onDismiss: () -> Unit,
-    onDiscard: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.discard_changes_title)) },
-        text = { Text(stringResource(R.string.discard_changes_message)) },
-        confirmButton = {
-            TextButton(onClick = onDiscard) {
-                Text(stringResource(R.string.discard_changes))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.continue_editing))
-            }
-        }
-    )
-}
-
-@Composable
-private fun ReservationDialogHeader(
-    displayName: String,
-    isDeleteMenuExpanded: Boolean,
-    onDeleteMenuExpand: () -> Unit,
-    onDeleteMenuDismiss: () -> Unit,
-    onEditCustomerDetails: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = displayName.ifBlank {
-                stringResource(R.string.admission_type_door_sale)
-            },
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Box {
-            IconButton(onClick = onDeleteMenuExpand) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = stringResource(R.string.more_actions)
-                )
-            }
-
-            DropdownMenu(
-                expanded = isDeleteMenuExpanded,
-                onDismissRequest = onDeleteMenuDismiss
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.edit_customer_details)) },
-                    onClick = {
-                        onDeleteMenuDismiss()
-                        onEditCustomerDetails()
-                    }
+                SeatCountSelector(seatCount = seatCount, onDecrease = { seatCount-- }, onIncrease = { seatCount++ })
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.reservation_notes)) },
+                    minLines = 2
                 )
                 HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = stringResource(R.string.delete_reservation_action),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    onClick = {
-                        onDeleteMenuDismiss()
-                        onDelete()
+                Text(stringResource(R.string.redeemed_tickets), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                if (reservation.ticketSales.isEmpty()) {
+                    Text(stringResource(R.string.reservation_status_not_checked_in), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    reservation.ticketSales.forEach { ticketSale ->
+                        TicketSaleRow(ticketSale = ticketSale, onDelete = { onDeleteTicketSale(ticketSale.id) })
                     }
-                )
+                }
+                Button(
+                    onClick = { showTicketSaleDialog = true },
+                    enabled = reservation.remainingSeatCount > 0,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, null)
+                    Text(stringResource(R.string.add_ticket_sale), modifier = Modifier.padding(start = 8.dp))
+                }
+                Button(
+                    onClick = {
+                        onSave(reservation.copy(lastName = lastName.trim(), firstName = firstName.trim(), contact = contact.trim(), notes = notes.trim(), seatCount = seatCount))
+                    },
+                    enabled = hasCustomerDetails,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(R.string.save)) }
             }
-        }
-
-        IconButton(onClick = onDismiss) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = stringResource(R.string.close)
-            )
         }
     }
 }
 
 @Composable
-private fun PresenceButton(
-    isPresent: Boolean,
-    onClick: () -> Unit
+private fun CustomerDetailsFields(
+    isDoorSale: Boolean,
+    lastName: String,
+    firstName: String,
+    contact: String,
+    onLastNameChange: (String) -> Unit,
+    onFirstNameChange: (String) -> Unit,
+    onContactChange: (String) -> Unit
 ) {
-    val backgroundColor = if (isPresent) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedTextField(value = lastName, onValueChange = onLastNameChange, modifier = Modifier.weight(1f), label = { Text(stringResource(if (isDoorSale) R.string.last_name_optional else R.string.last_name)) }, singleLine = true)
+        OutlinedTextField(value = firstName, onValueChange = onFirstNameChange, modifier = Modifier.weight(1f), label = { Text(stringResource(if (isDoorSale) R.string.first_name_optional else R.string.first_name)) }, singleLine = true)
     }
-    val contentColor = if (isPresent) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    OutlinedTextField(value = contact, onValueChange = onContactChange, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(if (isDoorSale) R.string.contact_information_optional else R.string.contact_information)) }, singleLine = true)
+}
 
-    Button(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(primaryActionHeight),
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = backgroundColor,
-            contentColor = contentColor
-        )
-    ) {
-        Icon(
-            imageVector = if (isPresent) Icons.Filled.CheckCircle else Icons.Outlined.Person,
-            contentDescription = null
-        )
-        Text(
-            text = stringResource(
-                if (isPresent) R.string.present else R.string.mark_as_present
-            ),
-            modifier = Modifier.padding(start = 12.dp),
-            fontWeight = FontWeight.SemiBold
-        )
+@Composable
+private fun TicketSaleRow(ticketSale: TicketSale, onDelete: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("${stringResource(ticketSale.ticketType.labelResId)} × ${ticketSale.quantity}", fontWeight = FontWeight.SemiBold)
+                val paymentText = if (ticketSale.payments.isEmpty()) {
+                    stringResource(R.string.ticket_type_free_ticket)
+                } else {
+                    buildString {
+                        ticketSale.payments.forEachIndexed { index, payment ->
+                            if (index > 0) append(", ")
+                            append(stringResource(payment.method.labelResId))
+                            append(' ')
+                            append(formatCents(payment.amountCents))
+                        }
+                    }
+                }
+                Text(paymentText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, stringResource(R.string.delete)) }
+        }
     }
 }
+
+@Composable
+private fun ReservationDialogHeader(title: String, isMenuExpanded: Boolean, onMenuExpand: () -> Unit, onMenuDismiss: () -> Unit, onEditCustomerDetails: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Box {
+            IconButton(onClick = onMenuExpand) { Icon(Icons.Filled.MoreVert, stringResource(R.string.more_actions)) }
+            DropdownMenu(expanded = isMenuExpanded, onDismissRequest = onMenuDismiss) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.edit_customer_details)) }, onClick = { onMenuDismiss(); onEditCustomerDetails() })
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text(stringResource(R.string.delete_reservation_action), color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) }, onClick = { onMenuDismiss(); onDelete() })
+            }
+        }
+        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, stringResource(R.string.close)) }
+    }
+}
+
+@Composable
+private fun DiscardChangesDialog(onDismiss: () -> Unit, onDiscard: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.discard_changes_title)) }, text = { Text(stringResource(R.string.discard_changes_message)) }, confirmButton = { TextButton(onClick = onDiscard) { Text(stringResource(R.string.discard_changes)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.continue_editing)) } })
+}
+
+internal fun formatCents(amountCents: Int): String = "${amountCents / 100},${(amountCents % 100).toString().padStart(2, '0')} €"

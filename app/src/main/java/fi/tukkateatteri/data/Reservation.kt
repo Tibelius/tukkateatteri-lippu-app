@@ -9,9 +9,9 @@ data class Reservation(
     val firstName: String,
     val contact: String,
     val seatCount: Int,
+    val notes: String = "",
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
-    val isPresent: Boolean = false,
-    val paymentMethod: PaymentMethod? = null
+    val ticketSales: List<TicketSale> = emptyList()
 ) {
     init {
         require(id > 0) { "Reservation ID must be positive." }
@@ -20,17 +20,23 @@ data class Reservation(
         if (admissionType == AdmissionType.RESERVATION) {
             require(lastName.isNotBlank()) { "Last name must not be blank for reservations." }
             require(firstName.isNotBlank()) { "First name must not be blank for reservations." }
-        } else {
-            require(isPresent) { "Door sales must be marked present." }
-            require(paymentMethod != null) { "Door sales must have a payment method." }
         }
     }
 
     val displayName: String
         get() = "$lastName $firstName"
 
+    val redeemedSeatCount: Int
+        get() = ticketSales.sumOf(TicketSale::quantity)
+
+    val remainingSeatCount: Int
+        get() = (seatCount - redeemedSeatCount).coerceAtLeast(0)
+
+    val isPresent: Boolean
+        get() = redeemedSeatCount > 0
+
     val isCompleted: Boolean
-        get() = isPresent && paymentMethod != null
+        get() = redeemedSeatCount >= seatCount && ticketSales.all(TicketSale::isPaid)
 }
 
 enum class AdmissionType(@param:StringRes val labelResId: Int) {
@@ -41,8 +47,6 @@ enum class AdmissionType(@param:StringRes val labelResId: Int) {
 enum class PaymentMethod(@param:StringRes val labelResId: Int) {
     CARD(R.string.payment_method_card),
     CASH(R.string.payment_method_cash),
-    PREPAID(R.string.payment_method_prepaid),
-    KAIKUKORTTI(R.string.payment_method_kaikukortti),
-    FREE_TICKET(R.string.payment_method_free_ticket),
-    OTHER(R.string.payment_method_other)
+    EPASSI(R.string.payment_method_epassi),
+    LIPPUAGENTTI(R.string.payment_method_lippuagentti)
 }

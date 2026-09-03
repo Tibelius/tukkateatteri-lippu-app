@@ -54,6 +54,7 @@ fun ReservationListScreen(
     onAddClick: () -> Unit,
     onImportClick: () -> Unit,
     onExportClick: () -> Unit,
+    onManageGoogleSheetSourcesClick: () -> Unit,
     onDeleteAllClick: () -> Unit
 ) {
     val completedCount = reservations.count(Reservation::isCompleted)
@@ -121,6 +122,13 @@ fun ReservationListScreen(
                                 onClick = {
                                     isDataMenuExpanded = false
                                     onExportClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.manage_google_sheet_sources)) },
+                                onClick = {
+                                    isDataMenuExpanded = false
+                                    onManageGoogleSheetSourcesClick()
                                 }
                             )
                             if (reservations.isNotEmpty()) {
@@ -231,13 +239,12 @@ private fun ReservationRow(
         reservation.isPresent -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
-    val statusText = when {
-        reservation.isCompleted -> reservation.paymentMethod?.let { paymentMethod ->
-            stringResource(paymentMethod.labelResId)
-        } ?: stringResource(R.string.reservation_status_payment_missing)
-        reservation.isPresent -> stringResource(R.string.reservation_status_payment_missing)
-        else -> stringResource(R.string.reservation_status_not_checked_in)
-    }
+    val statusText = stringResource(
+        R.string.redeemed_overview,
+        reservation.redeemedSeatCount,
+        reservation.seatCount,
+        reservation.remainingSeatCount
+    )
 
     Card(
         modifier = Modifier

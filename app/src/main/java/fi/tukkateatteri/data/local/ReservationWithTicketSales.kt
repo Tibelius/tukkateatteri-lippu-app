@@ -1,0 +1,53 @@
+package fi.tukkateatteri.data.local
+
+import androidx.room.Embedded
+import androidx.room.Relation
+import fi.tukkateatteri.data.PaymentAllocation
+import fi.tukkateatteri.data.Reservation
+import fi.tukkateatteri.data.TicketSale
+
+data class ReservationWithTicketSales(
+    @Embedded val reservation: ReservationEntity,
+    @Relation(
+        entity = TicketSaleEntity::class,
+        parentColumn = "id",
+        entityColumn = "reservation_id"
+    )
+    val ticketSales: List<TicketSaleWithPayments>
+)
+
+data class TicketSaleWithPayments(
+    @Embedded val ticketSale: TicketSaleEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "ticket_sale_id"
+    )
+    val payments: List<PaymentAllocationEntity>
+)
+
+fun ReservationWithTicketSales.toReservation() = Reservation(
+    id = reservation.id,
+    lastName = reservation.lastName,
+    firstName = reservation.firstName,
+    contact = reservation.contact,
+    seatCount = reservation.seatCount,
+    notes = reservation.notes,
+    admissionType = reservation.admissionType,
+    ticketSales = ticketSales.map(TicketSaleWithPayments::toTicketSale)
+)
+
+private fun TicketSaleWithPayments.toTicketSale() = TicketSale(
+    id = ticketSale.id,
+    reservationId = ticketSale.reservationId,
+    ticketType = ticketSale.ticketType,
+    quantity = ticketSale.quantity,
+    unitPriceCents = ticketSale.unitPriceCents,
+    payments = payments.map { payment ->
+        PaymentAllocation(
+            id = payment.id,
+            ticketSaleId = payment.ticketSaleId,
+            method = payment.paymentMethod,
+            amountCents = payment.amountCents
+        )
+    }
+)

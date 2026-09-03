@@ -1,29 +1,58 @@
 package fi.tukkateatteri
 
+import fi.tukkateatteri.data.PaymentAllocation
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
-import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.TicketSale
+import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReservationTest {
     @Test
-    fun completedReservation_requiresPresenceAndPaymentMethod() {
+    fun reservation_progress_isDerivedFromTicketSales() {
         val reservation = Reservation(
             id = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
             seatCount = 2,
-            isPresent = true,
-            paymentMethod = PaymentMethod.CARD
+            ticketSales = listOf(
+                TicketSale(
+                    id = 1,
+                    reservationId = 1,
+                    ticketType = TicketType.BASIC,
+                    quantity = 1,
+                    unitPriceCents = 2_200,
+                    payments = listOf(PaymentAllocation(1, 1, PaymentMethod.CARD, 2_200))
+                )
+            )
         )
 
-        assertTrue(reservation.isCompleted)
-        assertFalse(reservation.copy(paymentMethod = null).isCompleted)
-        assertFalse(reservation.copy(isPresent = false).isCompleted)
+        assertEquals(1, reservation.redeemedSeatCount)
+        assertEquals(1, reservation.remainingSeatCount)
+        assertFalse(reservation.isCompleted)
+    }
+
+    @Test
+    fun splitPayment_requiresTheWholeTicketPrice() {
+        val ticketSale = TicketSale(
+            id = 1,
+            reservationId = 1,
+            ticketType = TicketType.BASIC,
+            quantity = 1,
+            unitPriceCents = 2_200,
+            payments = listOf(
+                PaymentAllocation(1, 1, PaymentMethod.CASH, 1_000),
+                PaymentAllocation(2, 1, PaymentMethod.CARD, 1_200)
+            )
+        )
+
+        assertTrue(ticketSale.isPaid)
+        assertTrue(ticketSale.isSplitPayment)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -32,24 +61,11 @@ class ReservationTest {
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
-            seatCount = 0,
-            admissionType = AdmissionType.RESERVATION,
-            isPresent = false,
-            paymentMethod = null
-        )
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun doorSale_requiresAPaymentMethod() {
-        Reservation(
-            id = 1,
-            lastName = "",
-            firstName = "",
-            contact = "",
-            seatCount = 1,
-            admissionType = AdmissionType.DOOR_SALE,
-            isPresent = true,
-            paymentMethod = null
+            reservedSeatCount = 0,
+            redeemedSeatCount = 0,
+            ticketCounts = emptyMap(),
+            paymentTicketCounts = emptyMap(),
+            notes = ""
         )
     }
 }

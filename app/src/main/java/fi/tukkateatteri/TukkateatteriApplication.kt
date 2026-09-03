@@ -7,6 +7,12 @@ import fi.tukkateatteri.data.local.ReservationDatabase
 
 class TukkateatteriApplication : Application() {
     val reservationRepository: ReservationRepository by lazy {
-        RoomReservationRepository(ReservationDatabase.create(this).reservationDao())
+        ReservationDatabase.create(this).let { database ->
+            RoomReservationRepository(
+                database = database,
+                reservationDao = database.reservationDao(),
+                googleSheetSourceDao = database.googleSheetSourceDao()
+            )
+        }
     }
 }

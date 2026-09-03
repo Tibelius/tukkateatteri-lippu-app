@@ -38,8 +38,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
-import fi.tukkateatteri.data.PaymentMethod
-import fi.tukkateatteri.ui.components.PaymentMethodSelector
 import fi.tukkateatteri.ui.components.SeatCountSelector
 
 private const val DIALOG_WIDTH_FRACTION = 0.94f
@@ -53,8 +51,7 @@ fun AddAdmissionDialog(
         lastName: String,
         firstName: String,
         contact: String,
-        seatCount: Int,
-        paymentMethod: PaymentMethod?
+        seatCount: Int
     ) -> Unit
 ) {
     val isDoorSale = admissionType == AdmissionType.DOOR_SALE
@@ -69,9 +66,7 @@ fun AddAdmissionDialog(
     var firstName by rememberSaveable(admissionType) { mutableStateOf("") }
     var contact by rememberSaveable(admissionType) { mutableStateOf("") }
     var seatCount by rememberSaveable(admissionType) { mutableIntStateOf(1) }
-    var paymentMethodName by rememberSaveable(admissionType) { mutableStateOf<String?>(null) }
     var showCustomerDetails by rememberSaveable(admissionType) { mutableStateOf(false) }
-    val paymentMethod = PaymentMethod.entries.firstOrNull { it.name == paymentMethodName }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -101,16 +96,6 @@ fun AddAdmissionDialog(
                         seatCount = seatCount,
                         onDecrease = { seatCount-- },
                         onIncrease = { seatCount++ }
-                    )
-                    PaymentMethodSelector(
-                        selectedPayment = paymentMethod,
-                        onPaymentSelected = { selectedPayment ->
-                            paymentMethodName = if (paymentMethod == selectedPayment) {
-                                null
-                            } else {
-                                selectedPayment.name
-                            }
-                        }
                     )
                     Text(
                         text = stringResource(R.string.optional_customer_details),
@@ -185,10 +170,9 @@ fun AddAdmissionDialog(
                         Text(stringResource(R.string.cancel))
                     }
                     TextButton(
-                        enabled = (isDoorSale || lastName.isNotBlank() && firstName.isNotBlank()) &&
-                            (!isDoorSale || paymentMethod != null),
+                        enabled = isDoorSale || lastName.isNotBlank() && firstName.isNotBlank(),
                         onClick = {
-                            onSave(lastName, firstName, contact, seatCount, paymentMethod)
+                            onSave(lastName, firstName, contact, seatCount)
                         }
                     ) {
                         Text(stringResource(R.string.save))

@@ -2,7 +2,6 @@ package fi.tukkateatteri.data.local
 
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
-import fi.tukkateatteri.data.PaymentMethod
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,15 +32,12 @@ private val initialReservations = listOf(
         lastName = "Mäkinen",
         firstName = "Pekka",
         contact = "pekka.makinen@example.fi",
-        seatCount = 4,
-        isPresent = true,
-        paymentMethod = PaymentMethod.CARD
+        seatCount = 4
     ),
     ReservationEntity(
         lastName = "Nieminen",
         firstName = "Sari",
         contact = "050 765 4321",
-        seatCount = 1,
-        isPresent = true
+        seatCount = 1
     )
 )

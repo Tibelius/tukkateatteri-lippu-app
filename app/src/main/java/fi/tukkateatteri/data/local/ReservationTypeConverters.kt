@@ -3,6 +3,7 @@ package fi.tukkateatteri.data.local
 import androidx.room.TypeConverter
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.TicketType
 
 class ReservationTypeConverters {
     @TypeConverter
@@ -19,4 +20,12 @@ class ReservationTypeConverters {
 
     @TypeConverter
     fun paymentMethodToStorage(value: PaymentMethod?): String? = value?.name
+
+    @TypeConverter
+    fun ticketTypeFromStorage(value: String?): TicketType =
+        value?.let { storedValue -> TicketType.entries.find { it.name == storedValue } }
+            ?: TicketType.UNSPECIFIED
+
+    @TypeConverter
+    fun ticketTypeToStorage(value: TicketType): String = value.name
 }
