@@ -2,6 +2,7 @@ package fi.tukkateatteri
 
 import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -45,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.rememberCoroutineScope
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import fi.tukkateatteri.data.AdmissionType
@@ -108,7 +110,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                    }
+                    },
+                    onChangeGoogleAccount = ::revokeGoogleSheetsAccess
                 )
             }
         }
@@ -137,6 +140,21 @@ class MainActivity : ComponentActivity() {
             .addOnFailureListener { pendingGoogleAuthorization = null }
     }
 
+    private fun revokeGoogleSheetsAccess() {
+        pendingGoogleAuthorization = null
+        val request = RevokeAccessRequest.builder()
+            .setScopes(listOf(Scope(SHEETS_SCOPE)))
+            .build()
+        Identity.getAuthorizationClient(this).revokeAccess(request)
+            .addOnCompleteListener {
+                Toast.makeText(
+                    this,
+                    R.string.google_account_disconnected,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+    }
+
     private companion object {
         const val SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
     }
@@ -145,7 +163,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun ReservationApp(
     viewModel: ReservationViewModel,
-    onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit
+    onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit,
+    onChangeGoogleAccount: () -> Unit
 ) {
     val reservations by viewModel.reservations.collectAsStateWithLifecycle()
     val activePerformance by viewModel.activePerformance.collectAsStateWithLifecycle()
@@ -192,6 +211,7 @@ private fun ReservationApp(
             onImportClick = { spreadsheetAction = SpreadsheetAction.IMPORT },
             onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
             onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
+            onChangeGoogleAccountClick = onChangeGoogleAccount,
             onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
         )
     }

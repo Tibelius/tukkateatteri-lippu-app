@@ -63,6 +63,7 @@ fun ReservationListScreen(
     onImportClick: () -> Unit,
     onExportClick: () -> Unit,
     onManageGoogleSheetSourcesClick: () -> Unit,
+    onChangeGoogleAccountClick: () -> Unit,
     onDeleteAllClick: () -> Unit
 ) {
     val redeemedCount = reservations.count(Reservation::isFullyRedeemed)
@@ -148,6 +149,13 @@ fun ReservationListScreen(
                                 onClick = {
                                     isDataMenuExpanded = false
                                     onManageGoogleSheetSourcesClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.change_google_account)) },
+                                onClick = {
+                                    isDataMenuExpanded = false
+                                    onChangeGoogleAccountClick()
                                 }
                             )
                             if (reservations.isNotEmpty()) {

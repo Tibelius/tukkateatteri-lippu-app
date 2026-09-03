@@ -98,6 +98,8 @@
     <string name="edit_ticket_sale">Korjaa lunastus</string>
     <string name="delete_ticket_sale">Poista lunastus</string>
     <string name="imported_payment">Tuotu taulukosta</string>
+    <string name="change_google_account">Vaihda Google-tili</string>
+    <string name="google_account_disconnected">Google-tili irrotettu. Valitse tili seuraavassa tuonnissa tai viennissä.</string>
     <string name="ticket_type">Lipputyyppi</string>
     <string name="split_payment">Sekamaksu</string>
     <string name="single_payment">Yksi maksutapa</string>
