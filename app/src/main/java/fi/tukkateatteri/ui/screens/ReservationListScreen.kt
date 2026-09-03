@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -62,7 +64,7 @@ fun ReservationListScreen(
     onManageGoogleSheetSourcesClick: () -> Unit,
     onDeleteAllClick: () -> Unit
 ) {
-    val completedCount = reservations.count(Reservation::isCompleted)
+    val redeemedCount = reservations.count(Reservation::isFullyRedeemed)
     val totalSeatCount = reservations.sumOf(Reservation::seatCount)
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val sortedReservations = remember(reservations) {
@@ -101,7 +103,7 @@ fun ReservationListScreen(
                                 pluralStringResource(
                                     R.plurals.reservation_progress,
                                     reservations.size,
-                                    completedCount,
+                                    redeemedCount,
                                     reservations.size
                                 ),
                                 pluralStringResource(
@@ -263,11 +265,13 @@ private fun ReservationRow(
     }
     val backgroundColor = when {
         reservation.isCompleted -> MaterialTheme.colorScheme.tertiaryContainer
+        reservation.isFullyRedeemed -> MaterialTheme.colorScheme.primaryContainer
         reservation.isPresent -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.surface
     }
     val contentColor = when {
         reservation.isCompleted -> MaterialTheme.colorScheme.onTertiaryContainer
+        reservation.isFullyRedeemed -> MaterialTheme.colorScheme.onPrimaryContainer
         reservation.isPresent -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
@@ -304,7 +308,8 @@ private fun ReservationRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(
+            ReservationStatusRow(
+                icon = Icons.Filled.ConfirmationNumber,
                 text = stringResource(
                     R.string.reservation_summary,
                     pluralStringResource(
@@ -315,20 +320,46 @@ private fun ReservationRow(
                     statusText
                 ),
                 modifier = Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = contentColor
+                contentColor = contentColor
             )
             if (reservation.arrivalCount > 0) {
-                Text(
+                ReservationStatusRow(
+                    icon = Icons.Filled.Person,
                     text = stringResource(
                         R.string.arrival_overview,
                         reservation.arrivalCount,
                         reservation.seatCount
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.8f)
+                    contentColor = contentColor.copy(alpha = 0.8f)
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReservationStatusRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.labelLarge,
+    contentColor: androidx.compose.ui.graphics.Color
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.padding(end = 6.dp),
+            tint = contentColor
+        )
+        Text(
+            text = text,
+            style = style,
+            color = contentColor
+        )
     }
 }

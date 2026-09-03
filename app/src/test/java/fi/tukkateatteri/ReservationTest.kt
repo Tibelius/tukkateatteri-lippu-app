@@ -208,4 +208,33 @@ class ReservationTest {
 
         assertEquals("Yön Vuodenaika 24.10.2026", performance.displayName)
     }
+
+    @Test
+    fun prepaidReservation_isNotCompletedBeforeArrival() {
+        val reservation = Reservation(
+            id = 1,
+            performanceId = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 1,
+            ticketSales = listOf(
+                TicketSale(
+                    id = 1,
+                    reservationId = 1,
+                    ticketType = TicketType.UNSPECIFIED,
+                    quantity = 1,
+                    unitPriceCents = 0,
+                    origin = fi.tukkateatteri.data.TicketSaleOrigin.IMPORTED,
+                    countsAsArrival = false,
+                    payments = listOf(
+                        PaymentAllocation(1, 1, PaymentMethod.LIPPUAGENTTI, 0)
+                    )
+                )
+            )
+        )
+
+        assertTrue(reservation.isFullyRedeemed)
+        assertFalse(reservation.isCompleted)
+    }
 }

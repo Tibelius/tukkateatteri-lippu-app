@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.PendingPaymentAllocation
+import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
@@ -35,18 +36,38 @@ import java.math.RoundingMode
 @Composable
 fun TicketSaleDialog(
     maximumQuantity: Int,
+    ticketSale: TicketSale? = null,
     onDismiss: () -> Unit,
-    onSave: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit
+    onSave: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
-    var ticketTypeName by rememberSaveable { mutableStateOf(TicketType.BASIC.name) }
-    var quantity by rememberSaveable { mutableIntStateOf(1) }
-    var isTicketTypeMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    var selectedPaymentName by rememberSaveable { mutableStateOf<String?>(null) }
-    var isSplitPayment by rememberSaveable { mutableStateOf(false) }
-    var firstSplitMethodName by rememberSaveable { mutableStateOf(PaymentMethod.CASH.name) }
-    var secondSplitMethodName by rememberSaveable { mutableStateOf(PaymentMethod.CARD.name) }
-    var firstSplitAmount by rememberSaveable { mutableStateOf("") }
-    var secondSplitAmount by rememberSaveable { mutableStateOf("") }
+    val initialFirstPayment = ticketSale?.payments?.getOrNull(0)
+    val initialSecondPayment = ticketSale?.payments?.getOrNull(1)
+    var ticketTypeName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(ticketSale?.ticketType?.name ?: TicketType.BASIC.name)
+    }
+    var quantity by rememberSaveable(ticketSale?.id) {
+        mutableIntStateOf(ticketSale?.quantity ?: 1)
+    }
+    var isTicketTypeMenuExpanded by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var selectedPaymentName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(ticketSale?.singlePaymentMethod?.name)
+    }
+    var isSplitPayment by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(ticketSale?.isSplitPayment == true)
+    }
+    var firstSplitMethodName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialFirstPayment?.method?.name ?: PaymentMethod.CASH.name)
+    }
+    var secondSplitMethodName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialSecondPayment?.method?.name ?: PaymentMethod.CARD.name)
+    }
+    var firstSplitAmount by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialFirstPayment?.amountCents?.toDecimalInput().orEmpty())
+    }
+    var secondSplitAmount by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialSecondPayment?.amountCents?.toDecimalInput().orEmpty())
+    }
     val ticketType = TicketType.valueOf(ticketTypeName)
     val totalPriceCents = ticketType.defaultPriceCents * quantity
     val selectedPayment = selectedPaymentName?.let(PaymentMethod::valueOf)
@@ -75,7 +96,9 @@ fun TicketSaleDialog(
 
     ScrollableAppDialog(onDismissRequest = onDismiss) {
         Text(
-            text = stringResource(R.string.add_ticket_sale),
+            text = stringResource(
+                if (ticketSale == null) R.string.add_ticket_sale else R.string.edit_ticket_sale
+            ),
             style = MaterialTheme.typography.headlineSmall
         )
         Text(
@@ -129,6 +152,14 @@ fun TicketSaleDialog(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
         ) {
+            onDelete?.let { delete ->
+                TextButton(onClick = delete) {
+                    Text(
+                        text = stringResource(R.string.delete_ticket_sale),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.cancel))
             }
@@ -256,3 +287,6 @@ private fun String.toCentsOrNull(): Int? {
             .intValueExact()
     }.getOrNull()
 }
+
+private fun Int.toDecimalInput(): String =
+    "${this / 100},${(this % 100).toString().padStart(2, '0')}"

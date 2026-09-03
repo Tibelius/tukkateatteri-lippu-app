@@ -253,6 +253,7 @@ private fun ReservationApp(
             onAddTicketSale = { ticketType, quantity, payments ->
                 viewModel.addTicketSale(reservation.id, ticketType, quantity, payments)
             },
+            onUpdateTicketSale = viewModel::updateTicketSale,
             onDeleteTicketSale = viewModel::deleteTicketSale,
             onDelete = {
                 selectedReservationId = null

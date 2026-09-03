@@ -10,9 +10,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -57,35 +59,21 @@ fun ReservationDialog(
     onSave: (Reservation) -> Unit,
     onUpdateArrivalCount: (reservationId: Long, arrivalCount: Int) -> Unit,
     onAddTicketSale: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit,
+    onUpdateTicketSale: (
+        ticketSaleId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    ) -> Unit,
     onDeleteTicketSale: (Long) -> Unit,
     onDelete: () -> Unit
 ) {
     val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
-    var lastName by rememberSaveable(reservation.id) { mutableStateOf(reservation.lastName) }
-    var firstName by rememberSaveable(reservation.id) { mutableStateOf(reservation.firstName) }
-    var contact by rememberSaveable(reservation.id) { mutableStateOf(reservation.contact) }
-    var notes by rememberSaveable(reservation.id) { mutableStateOf(reservation.notes) }
-    var seatCount by rememberSaveable(reservation.id) { mutableIntStateOf(reservation.seatCount) }
-    var showCustomerDetails by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    var showNotes by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    var reservedTicketAllocations by rememberSaveable(
-        reservation.id,
-        stateSaver = reservedTicketAllocationsSaver
-    ) {
-        mutableStateOf(reservation.reservedTicketAllocations)
-    }
     var showTicketSaleDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    var showReservedTicketTypesDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
+    var ticketSaleToEditId by rememberSaveable(reservation.id) { mutableStateOf<Long?>(null) }
     var showArrivalDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
+    var showReservationEditor by rememberSaveable(reservation.id) { mutableStateOf(false) }
     var isMenuExpanded by remember { mutableStateOf(false) }
-    var showDiscardConfirmation by rememberSaveable(reservation.id) { mutableStateOf(false) }
-    val hasCustomerDetails = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
-    val hasChanges = lastName != reservation.lastName || firstName != reservation.firstName ||
-        contact != reservation.contact || notes != reservation.notes || seatCount != reservation.seatCount ||
-        reservedTicketAllocations != reservation.reservedTicketAllocations
-    val requestDismiss = {
-        if (hasChanges) showDiscardConfirmation = true else onDismiss()
-    }
 
     if (showTicketSaleDialog) {
         TicketSaleDialog(
@@ -98,14 +86,18 @@ fun ReservationDialog(
         )
     }
 
-    if (showReservedTicketTypesDialog) {
-        ReservedTicketTypesDialog(
-            initialAllocations = reservedTicketAllocations,
-            maximumQuantity = seatCount,
-            onDismiss = { showReservedTicketTypesDialog = false },
-            onSave = { allocations ->
-                reservedTicketAllocations = allocations
-                showReservedTicketTypesDialog = false
+    reservation.ticketSales.find { ticketSale -> ticketSale.id == ticketSaleToEditId }?.let { ticketSale ->
+        TicketSaleDialog(
+            maximumQuantity = reservation.unpaidSeatCount + ticketSale.quantity,
+            ticketSale = ticketSale,
+            onDismiss = { ticketSaleToEditId = null },
+            onSave = { ticketType, quantity, payments ->
+                onUpdateTicketSale(ticketSale.id, ticketType, quantity, payments)
+                ticketSaleToEditId = null
+            },
+            onDelete = {
+                onDeleteTicketSale(ticketSale.id)
+                ticketSaleToEditId = null
             }
         )
     }
@@ -122,12 +114,18 @@ fun ReservationDialog(
         )
     }
 
-    if (showDiscardConfirmation) {
-        DiscardChangesDialog(onDismiss = { showDiscardConfirmation = false }, onDiscard = onDismiss)
-        return
+    if (showReservationEditor) {
+        ReservationEditorDialog(
+            reservation = reservation,
+            onDismiss = { showReservationEditor = false },
+            onSave = { updatedReservation ->
+                onSave(updatedReservation)
+                showReservationEditor = false
+            }
+        )
     }
 
-    ScrollableAppDialog(onDismissRequest = requestDismiss) {
+    ScrollableAppDialog(onDismissRequest = onDismiss) {
         ReservationDialogHeader(
             title = reservation.displayName.ifBlank {
                 stringResource(R.string.admission_type_door_sale)
@@ -135,70 +133,36 @@ fun ReservationDialog(
             isMenuExpanded = isMenuExpanded,
             onMenuExpand = { isMenuExpanded = true },
             onMenuDismiss = { isMenuExpanded = false },
-            onEditCustomerDetails = { showCustomerDetails = true },
+            onEditReservation = { showReservationEditor = true },
             onDelete = onDelete,
-            onDismiss = requestDismiss
+            onDismiss = onDismiss
         )
         Text(
             text = stringResource(
                 R.string.payment_overview,
                 reservation.paidSeatCount,
-                seatCount,
-                (seatCount - reservation.paidSeatCount).coerceAtLeast(0)
+                reservation.seatCount,
+                reservation.unpaidSeatCount
             ),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary
         )
 
-        CustomerDetailsSection(
-            isDoorSale = isDoorSale,
-            isExpanded = showCustomerDetails,
-            lastName = lastName,
-            firstName = firstName,
-            contact = contact,
-            onLastNameChange = { lastName = it },
-            onFirstNameChange = { firstName = it },
-            onContactChange = { contact = it },
-            onExpandedChange = { showCustomerDetails = it }
-        )
-        SeatCountSelector(
-            seatCount = seatCount,
-            minimumSeatCount = maxOf(
-                1,
-                reservation.paidSeatCount,
-                reservation.arrivalCount,
-                reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
-            ),
-            onDecrease = { seatCount-- },
-            onIncrease = { seatCount++ }
-        )
-        if (!isDoorSale) {
-            TextButton(onClick = { showReservedTicketTypesDialog = true }) {
-                Text(
-                    "${stringResource(R.string.reserved_ticket_types)}: " +
-                        reservedTicketTypesSummary(reservedTicketAllocations)
-                )
-            }
+        if (!isDoorSale && reservation.reservedTicketAllocations.isNotEmpty()) {
+            ReservedTicketTypesSummaryCard(reservation.reservedTicketAllocations)
         }
-        NotesSection(
-            isExpanded = showNotes,
-            notes = notes,
-            onNotesChange = { notes = it },
-            onExpandedChange = { showNotes = it }
-        )
-        HorizontalDivider()
         if (reservation.arrivalCount > 0 || reservation.paidSeatCount > 0) {
             ArrivalSection(
                 arrivalCount = reservation.arrivalCount,
-                seatCount = seatCount,
-                canEdit = !isDoorSale && reservation.arrivalCount < reservation.paidSeatCount,
+                seatCount = reservation.seatCount,
+                canEdit = !isDoorSale,
                 onEdit = { showArrivalDialog = true }
             )
             HorizontalDivider()
         }
         RealizedPaymentsSection(
             ticketSales = reservation.ticketSales,
-            onDeleteTicketSale = onDeleteTicketSale
+            onEditTicketSale = { ticketSale -> ticketSaleToEditId = ticketSale.id }
         )
         Button(
             onClick = { showTicketSaleDialog = true },
@@ -210,24 +174,6 @@ fun ReservationDialog(
                 text = stringResource(R.string.add_ticket_sale),
                 modifier = Modifier.padding(start = 8.dp)
             )
-        }
-        Button(
-            onClick = {
-                onSave(
-                    reservation.copy(
-                        lastName = lastName.trim(),
-                        firstName = firstName.trim(),
-                        contact = contact.trim(),
-                        notes = notes.trim(),
-                        seatCount = seatCount,
-                        reservedTicketAllocations = reservedTicketAllocations
-                    )
-                )
-            },
-            enabled = hasCustomerDetails,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(stringResource(R.string.save))
         }
     }
 }
@@ -269,68 +215,159 @@ private fun ArrivalCountDialog(
 }
 
 @Composable
-private fun CustomerDetailsSection(
-    isDoorSale: Boolean,
-    isExpanded: Boolean,
-    lastName: String,
-    firstName: String,
-    contact: String,
-    onLastNameChange: (String) -> Unit,
-    onFirstNameChange: (String) -> Unit,
-    onContactChange: (String) -> Unit,
-    onExpandedChange: (Boolean) -> Unit
+private fun ReservationEditorDialog(
+    reservation: Reservation,
+    onDismiss: () -> Unit,
+    onSave: (Reservation) -> Unit
 ) {
-    if (isExpanded) {
+    val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
+    var lastName by rememberSaveable(reservation.id) { mutableStateOf(reservation.lastName) }
+    var firstName by rememberSaveable(reservation.id) { mutableStateOf(reservation.firstName) }
+    var contact by rememberSaveable(reservation.id) { mutableStateOf(reservation.contact) }
+    var notes by rememberSaveable(reservation.id) { mutableStateOf(reservation.notes) }
+    var seatCount by rememberSaveable(reservation.id) { mutableIntStateOf(reservation.seatCount) }
+    var reservedTicketAllocations by rememberSaveable(
+        reservation.id,
+        stateSaver = reservedTicketAllocationsSaver
+    ) {
+        mutableStateOf(reservation.reservedTicketAllocations)
+    }
+    var showReservedTicketTypesDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
+    val minimumSeatCount = maxOf(
+        1,
+        reservation.paidSeatCount,
+        reservation.arrivalCount,
+        reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
+    )
+    val canSave = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
+
+    if (showReservedTicketTypesDialog) {
+        ReservedTicketTypesDialog(
+            initialAllocations = reservedTicketAllocations,
+            maximumQuantity = seatCount,
+            onDismiss = { showReservedTicketTypesDialog = false },
+            onSave = { allocations ->
+                reservedTicketAllocations = allocations
+                showReservedTicketTypesDialog = false
+            }
+        )
+    }
+
+    ScrollableAppDialog(onDismissRequest = onDismiss) {
+        Text(
+            text = stringResource(R.string.edit_reservation),
+            style = MaterialTheme.typography.headlineSmall
+        )
         CustomerDetailsFields(
             isDoorSale = isDoorSale,
             lastName = lastName,
             firstName = firstName,
             contact = contact,
-            onLastNameChange = onLastNameChange,
-            onFirstNameChange = onFirstNameChange,
-            onContactChange = onContactChange
+            onLastNameChange = { lastName = it },
+            onFirstNameChange = { firstName = it },
+            onContactChange = { contact = it }
         )
-    }
-    TextButton(onClick = { onExpandedChange(!isExpanded) }) {
-        Text(
-            stringResource(
-                when {
-                    isExpanded -> R.string.hide_customer_details
-                    isDoorSale -> R.string.show_optional_customer_details
-                    else -> R.string.show_customer_details
-                }
+        HorizontalDivider()
+        SeatCountSelector(
+            seatCount = seatCount,
+            minimumSeatCount = minimumSeatCount,
+            onDecrease = { seatCount-- },
+            onIncrease = { seatCount++ }
+        )
+        if (!isDoorSale) {
+            ReservedTicketTypesEditorRow(
+                allocations = reservedTicketAllocations,
+                onClick = { showReservedTicketTypesDialog = true }
             )
-        )
-        Icon(
-            imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = null
-        )
-    }
-}
-
-@Composable
-private fun NotesSection(
-    isExpanded: Boolean,
-    notes: String,
-    onNotesChange: (String) -> Unit,
-    onExpandedChange: (Boolean) -> Unit
-) {
-    if (isExpanded) {
+        }
         OutlinedTextField(
             value = notes,
-            onValueChange = onNotesChange,
+            onValueChange = { notes = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.reservation_notes)) },
             minLines = 2
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            TextButton(
+                onClick = {
+                    onSave(
+                        reservation.copy(
+                            lastName = lastName.trim(),
+                            firstName = firstName.trim(),
+                            contact = contact.trim(),
+                            notes = notes.trim(),
+                            seatCount = seatCount,
+                            reservedTicketAllocations = reservedTicketAllocations
+                        )
+                    )
+                },
+                enabled = canSave
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
     }
-    TextButton(onClick = { onExpandedChange(!isExpanded) }) {
-        Text(stringResource(if (isExpanded) R.string.hide_notes else R.string.show_notes))
-        Icon(
-            imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = null
+}
+
+@Composable
+private fun ReservedTicketTypesSummaryCard(allocations: List<ReservedTicketAllocation>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = stringResource(R.string.reserved_ticket_types),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = reservedTicketTypesDetails(allocations),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
     }
+}
+
+@Composable
+private fun ReservedTicketTypesEditorRow(
+    allocations: List<ReservedTicketAllocation>,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.reserved_ticket_types))
+            Text(
+                text = reservedTicketTypesDetails(allocations),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Icon(Icons.Filled.ExpandMore, contentDescription = null)
+    }
+}
+
+@Composable
+private fun reservedTicketTypesDetails(allocations: List<ReservedTicketAllocation>): String {
+    var details = ""
+    for ((index, allocation) in allocations.withIndex()) {
+        if (index > 0) {
+            details += "\n"
+        }
+        details += "${stringResource(allocation.ticketType.labelResId)} × ${allocation.quantity}"
+    }
+    return details
 }
 
 @Composable
@@ -340,10 +377,9 @@ private fun ArrivalSection(
     canEdit: Boolean,
     onEdit: () -> Unit
 ) {
-    Text(
-        text = stringResource(R.string.arrivals),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold
+    DetailSectionTitle(
+        icon = Icons.Filled.HowToReg,
+        text = stringResource(R.string.arrivals)
     )
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -365,12 +401,11 @@ private fun ArrivalSection(
 @Composable
 private fun RealizedPaymentsSection(
     ticketSales: List<TicketSale>,
-    onDeleteTicketSale: (Long) -> Unit
+    onEditTicketSale: (TicketSale) -> Unit
 ) {
-    Text(
-        text = stringResource(R.string.realized_payments),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold
+    DetailSectionTitle(
+        icon = Icons.Filled.Payments,
+        text = stringResource(R.string.realized_payments)
     )
     if (ticketSales.isEmpty()) {
         Text(
@@ -381,9 +416,29 @@ private fun RealizedPaymentsSection(
         ticketSales.forEach { ticketSale ->
             TicketSaleRow(
                 ticketSale = ticketSale,
-                onDelete = { onDeleteTicketSale(ticketSale.id) }
+                onEdit = { onEditTicketSale(ticketSale) }
             )
         }
+    }
+}
+
+@Composable
+private fun DetailSectionTitle(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = text,
+            modifier = Modifier.padding(start = 8.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -445,7 +500,7 @@ private fun CustomerDetailsFields(
 }
 
 @Composable
-private fun TicketSaleRow(ticketSale: TicketSale, onDelete: () -> Unit) {
+private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -464,11 +519,13 @@ private fun TicketSaleRow(ticketSale: TicketSale, onDelete: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = stringResource(R.string.delete)
-                )
+            if (ticketSale.origin == TicketSaleOrigin.MANUAL) {
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = stringResource(R.string.edit_ticket_sale)
+                    )
+                }
             }
         }
     }
@@ -509,7 +566,7 @@ private fun ReservationDialogHeader(
     isMenuExpanded: Boolean,
     onMenuExpand: () -> Unit,
     onMenuDismiss: () -> Unit,
-    onEditCustomerDetails: () -> Unit,
+    onEditReservation: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -534,10 +591,10 @@ private fun ReservationDialogHeader(
             }
             DropdownMenu(expanded = isMenuExpanded, onDismissRequest = onMenuDismiss) {
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.edit_customer_details)) },
+                    text = { Text(stringResource(R.string.edit_reservation)) },
                     onClick = {
                         onMenuDismiss()
-                        onEditCustomerDetails()
+                        onEditReservation()
                     }
                 )
                 HorizontalDivider()
@@ -569,23 +626,4 @@ private fun ReservationDialogHeader(
             )
         }
     }
-}
-
-@Composable
-private fun DiscardChangesDialog(onDismiss: () -> Unit, onDiscard: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.discard_changes_title)) },
-        text = { Text(stringResource(R.string.discard_changes_message)) },
-        confirmButton = {
-            TextButton(onClick = onDiscard) {
-                Text(stringResource(R.string.discard_changes))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.continue_editing))
-            }
-        }
-    )
 }

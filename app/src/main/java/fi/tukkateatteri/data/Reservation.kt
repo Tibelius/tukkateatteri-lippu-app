@@ -49,8 +49,11 @@ data class Reservation(
     val isPresent: Boolean
         get() = arrivalCount > 0
 
-    val isCompleted: Boolean
+    val isFullyRedeemed: Boolean
         get() = paidSeatCount >= seatCount
+
+    val isCompleted: Boolean
+        get() = isFullyRedeemed && arrivalCount >= seatCount
 }
 
 enum class AdmissionType(@param:StringRes val labelResId: Int) {

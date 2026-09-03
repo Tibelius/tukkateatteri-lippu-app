@@ -39,6 +39,12 @@ interface ReservationRepository {
     suspend fun updateReservation(reservation: Reservation)
     suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int)
     suspend fun addTicketSale(reservationId: Long, ticketType: TicketType, quantity: Int, payments: List<PendingPaymentAllocation>)
+    suspend fun updateTicketSale(
+        ticketSaleId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    )
     suspend fun deleteTicketSale(ticketSaleId: Long)
     suspend fun deleteReservation(reservationId: Long)
     suspend fun deleteAllReservations()
@@ -213,6 +219,59 @@ class RoomReservationRepository(
                 reservation.copy(
                     arrivalCount = boundedArrivalCount,
                     isPresent = boundedArrivalCount > 0
+                )
+            )
+        }
+    }
+
+    override suspend fun updateTicketSale(
+        ticketSaleId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    ) {
+        require(quantity > 0) { "Ticket quantity must be positive." }
+        require(ticketType != TicketType.UNSPECIFIED) { "Manual ticket sales need a ticket type." }
+        require(payments.all { it.amountCents >= 0 }) { "Payment amounts must not be negative." }
+        require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
+            "Payment total must match the ticket price."
+        }
+        database.withTransaction {
+            val existingTicketSale = requireNotNull(reservationDao.getTicketSaleById(ticketSaleId))
+            require(existingTicketSale.origin == TicketSaleOrigin.MANUAL) {
+                "Imported ticket sales cannot be edited."
+            }
+            val reservationWithSales = requireNotNull(
+                reservationDao.getWithTicketSalesById(existingTicketSale.reservationId)
+            )
+            val reservation = reservationWithSales.reservation
+            val otherPaidSeatCount = reservationWithSales.toReservation().paidSeatCount - existingTicketSale.quantity
+            require(quantity <= reservation.seatCount - otherPaidSeatCount) {
+                "Ticket quantity exceeds the number of unredeemed seats."
+            }
+            reservationDao.updateTicketSale(
+                existingTicketSale.copy(
+                    ticketType = ticketType,
+                    quantity = quantity,
+                    unitPriceCents = ticketType.defaultPriceCents
+                )
+            )
+            reservationDao.deletePaymentAllocationsForTicketSale(ticketSaleId)
+            reservationDao.insertPaymentAllocations(
+                payments.map { payment ->
+                    PaymentAllocationEntity(
+                        ticketSaleId = ticketSaleId,
+                        paymentMethod = payment.method,
+                        amountCents = payment.amountCents
+                    )
+                }
+            )
+            val arrivalDifference = quantity - existingTicketSale.quantity
+            reservationDao.update(
+                reservation.copy(
+                    arrivalCount = (reservation.arrivalCount + arrivalDifference)
+                        .coerceIn(0, reservation.seatCount),
+                    isPresent = reservation.arrivalCount + arrivalDifference > 0
                 )
             )
         }

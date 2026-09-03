@@ -132,6 +132,17 @@ class ReservationViewModel(
         }
     }
 
+    fun updateTicketSale(
+        ticketSaleId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    ) {
+        viewModelScope.launch {
+            reservationRepository.updateTicketSale(ticketSaleId, ticketType, quantity, payments)
+        }
+    }
+
     fun deleteTicketSale(ticketSaleId: Long) {
         viewModelScope.launch {
             reservationRepository.deleteTicketSale(ticketSaleId)
