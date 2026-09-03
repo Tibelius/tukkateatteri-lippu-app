@@ -52,6 +52,17 @@ data class Reservation(
     val isFullyRedeemed: Boolean
         get() = paidSeatCount >= seatCount
 
+    /**
+     * A complete reservation whose originally reserved ticket types and realized ticket types
+     * have different total values. An incomplete type allocation cannot be checked reliably.
+     */
+    val hasTicketValueMismatch: Boolean
+        get() = isFullyRedeemed &&
+            reservedTicketCount == seatCount &&
+            reservedTicketAllocations.sumOf { allocation ->
+                allocation.ticketType.defaultPriceCents * allocation.quantity
+            } != ticketSales.sumOf(TicketSale::totalPriceCents)
+
     val isCompleted: Boolean
         get() = isFullyRedeemed && arrivalCount >= seatCount
 }

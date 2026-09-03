@@ -141,8 +141,7 @@ fun ReservationDialog(
             text = stringResource(
                 R.string.payment_overview,
                 reservation.paidSeatCount,
-                reservation.seatCount,
-                reservation.unpaidSeatCount
+                reservation.seatCount
             ),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -278,8 +279,7 @@ private fun ReservationRow(
     val statusText = stringResource(
         R.string.payment_overview,
         reservation.paidSeatCount,
-        reservation.seatCount,
-        reservation.unpaidSeatCount
+        reservation.seatCount
     )
 
     Card(
@@ -322,6 +322,15 @@ private fun ReservationRow(
                 modifier = Modifier.padding(top = 8.dp),
                 contentColor = contentColor
             )
+            if (reservation.hasTicketValueMismatch) {
+                ReservationStatusRow(
+                    icon = Icons.Filled.WarningAmber,
+                    text = stringResource(R.string.reservation_ticket_value_mismatch),
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            }
             if (reservation.arrivalCount > 0) {
                 ReservationStatusRow(
                     icon = Icons.Filled.Person,

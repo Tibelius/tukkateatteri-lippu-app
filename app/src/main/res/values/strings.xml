@@ -105,7 +105,8 @@
     <string name="payment_total_mismatch">Maksujen summan on vastattava lippujen hintaa.</string>
     <string name="reservation_notes">Huomautukset</string>
     <string name="arrivals">Saapuminen</string>
-    <string name="payment_overview">Lunastettu %1$d / %2$d · lunastamatta %3$d</string>
+    <string name="payment_overview">Lunastettu %1$d / %2$d</string>
+    <string name="reservation_ticket_value_mismatch">Lunastettujen lippujen arvo poikkeaa varauksesta</string>
     <string name="arrival_overview">Saapunut %1$d / %2$d</string>
     <string name="arrival_count">Saapuneita</string>
     <string name="edit_arrival_count">Merkitse saapuneet</string>

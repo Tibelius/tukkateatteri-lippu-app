@@ -64,6 +64,60 @@ class ReservationTest {
     }
 
     @Test
+    fun fullyRedeemedReservation_withDifferentTicketValue_isFlagged() {
+        val reservation = Reservation(
+            id = 1,
+            performanceId = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 1,
+            reservedTicketAllocations = listOf(ReservedTicketAllocation(TicketType.BASIC, 1)),
+            ticketSales = listOf(
+                TicketSale(
+                    id = 1,
+                    reservationId = 1,
+                    ticketType = TicketType.DISCOUNT,
+                    quantity = 1,
+                    unitPriceCents = TicketType.DISCOUNT.defaultPriceCents,
+                    payments = listOf(
+                        PaymentAllocation(1, 1, PaymentMethod.CARD, TicketType.DISCOUNT.defaultPriceCents)
+                    )
+                )
+            )
+        )
+
+        assertTrue(reservation.hasTicketValueMismatch)
+    }
+
+    @Test
+    fun incompleteReservedTicketTypes_areNotFlaggedAsMismatch() {
+        val reservation = Reservation(
+            id = 1,
+            performanceId = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 2,
+            reservedTicketAllocations = listOf(ReservedTicketAllocation(TicketType.BASIC, 1)),
+            ticketSales = listOf(
+                TicketSale(
+                    id = 1,
+                    reservationId = 1,
+                    ticketType = TicketType.DISCOUNT,
+                    quantity = 2,
+                    unitPriceCents = TicketType.DISCOUNT.defaultPriceCents,
+                    payments = listOf(
+                        PaymentAllocation(1, 1, PaymentMethod.CARD, TicketType.DISCOUNT.defaultPriceCents * 2)
+                    )
+                )
+            )
+        )
+
+        assertFalse(reservation.hasTicketValueMismatch)
+    }
+
+    @Test
     fun splitPayment_requiresTheWholeTicketPrice() {
         val ticketSale = TicketSale(
             id = 1,
