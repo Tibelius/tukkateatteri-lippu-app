@@ -3,6 +3,7 @@ package fi.tukkateatteri
 import fi.tukkateatteri.data.PaymentAllocation
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
@@ -19,6 +20,7 @@ class ReservationTest {
     fun reservation_paymentProgress_isSeparateFromArrival() {
         val reservation = Reservation(
             id = 1,
+            performanceId = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
@@ -46,6 +48,7 @@ class ReservationTest {
     fun reservedTicketTypes_doNotCountAsPayments() {
         val reservation = Reservation(
             id = 1,
+            performanceId = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
@@ -83,6 +86,7 @@ class ReservationTest {
         val doorSales = listOf(
             Reservation(
                 id = 1,
+                performanceId = 1,
                 lastName = "",
                 firstName = "",
                 contact = "",
@@ -102,6 +106,7 @@ class ReservationTest {
             ),
             Reservation(
                 id = 2,
+                performanceId = 1,
                 lastName = "",
                 firstName = "",
                 contact = "",
@@ -148,6 +153,7 @@ class ReservationTest {
     fun reservations_rejectMoreArrivalsThanSeats() {
         Reservation(
             id = 1,
+            performanceId = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
@@ -160,6 +166,7 @@ class ReservationTest {
     fun reservations_rejectDuplicateReservedTicketTypes() {
         Reservation(
             id = 1,
+            performanceId = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
@@ -188,5 +195,17 @@ class ReservationTest {
     @Test
     fun euroAmounts_useTheFinnishDecimalSeparator() {
         assertEquals("22,00 €", 2_200.toEuroString())
+    }
+
+    @Test
+    fun performanceDisplayName_includesItsDateWhenAvailable() {
+        val performance = Performance(
+            id = 1,
+            actName = "Yön Vuodenaika",
+            date = "24.10.2026",
+            isActive = true
+        )
+
+        assertEquals("Yön Vuodenaika 24.10.2026", performance.displayName)
     }
 }

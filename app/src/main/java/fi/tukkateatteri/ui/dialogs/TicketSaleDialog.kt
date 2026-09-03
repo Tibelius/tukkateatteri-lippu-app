@@ -66,13 +66,21 @@ fun TicketSaleDialog(
     val isPaymentValid = totalPriceCents == 0 || (
         payments.isNotEmpty() &&
             payments.sumOf(PendingPaymentAllocation::amountCents) == totalPriceCents &&
-            (!isSplitPayment || firstSplitMethod != secondSplitMethod)
+            (!isSplitPayment || (
+                firstSplitMethod != secondSplitMethod &&
+                    firstSplitMethod != PaymentMethod.LIPPUAGENTTI &&
+                    secondSplitMethod != PaymentMethod.LIPPUAGENTTI
+                ))
         )
 
     ScrollableAppDialog(onDismissRequest = onDismiss) {
         Text(
             text = stringResource(R.string.add_ticket_sale),
             style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = stringResource(R.string.ticket_type),
+            style = MaterialTheme.typography.titleMedium
         )
         TicketTypeDropdown(
             selectedTicketType = ticketType,
@@ -209,7 +217,9 @@ private fun PaymentMethodDropdown(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             PaymentMethod.entries
-                .filterNot { it == excludedMethod }
+                .filterNot { method ->
+                    method == excludedMethod || method == PaymentMethod.LIPPUAGENTTI
+                }
                 .forEach { method ->
                     DropdownMenuItem(
                         text = { Text(stringResource(method.labelResId)) },

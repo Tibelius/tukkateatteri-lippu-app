@@ -13,14 +13,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,12 +42,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.rememberCoroutineScope
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
+import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
 import fi.tukkateatteri.ui.dialogs.AddAdmissionDialog
 import fi.tukkateatteri.ui.dialogs.AddAdmissionTypeDialog
@@ -48,6 +59,7 @@ import fi.tukkateatteri.ui.dialogs.GoogleSheetSourceManagerDialog
 import fi.tukkateatteri.ui.dialogs.ReservationDialog
 import fi.tukkateatteri.ui.screens.ReservationListScreen
 import fi.tukkateatteri.ui.theme.TukkateatteriTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val reservationViewModel: ReservationViewModel by viewModels {
@@ -136,6 +148,8 @@ private fun ReservationApp(
     onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit
 ) {
     val reservations by viewModel.reservations.collectAsStateWithLifecycle()
+    val activePerformance by viewModel.activePerformance.collectAsStateWithLifecycle()
+    val performances by viewModel.performances.collectAsStateWithLifecycle()
     val transferMessage by viewModel.transferMessage.collectAsStateWithLifecycle()
     val importCandidates by viewModel.importCandidates.collectAsStateWithLifecycle()
     val isTransferInProgress by viewModel.isTransferInProgress.collectAsStateWithLifecycle()
@@ -146,17 +160,41 @@ private fun ReservationApp(
     var selectedAdmissionTypeName by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeleteAllReservationsConfirmation by rememberSaveable { mutableStateOf(false) }
     var showGoogleSheetSourceManager by rememberSaveable { mutableStateOf(false) }
+    var showPerformanceEditor by rememberSaveable { mutableStateOf(false) }
     var spreadsheetAction by rememberSaveable { mutableStateOf<SpreadsheetAction?>(null) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
 
-    ReservationListScreen(
-        reservations = reservations,
-        onReservationClick = { reservation -> selectedReservationId = reservation.id },
-        onAddClick = { showAdmissionTypeDialog = true },
-        onImportClick = { spreadsheetAction = SpreadsheetAction.IMPORT },
-        onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
-        onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
-        onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
-    )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            PerformanceDrawerContent(
+                performances = performances,
+                onSelectPerformance = { performance ->
+                    viewModel.selectPerformance(performance.id)
+                    coroutineScope.launch { drawerState.close() }
+                },
+                onAddPerformance = {
+                    showPerformanceEditor = true
+                    coroutineScope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        ReservationListScreen(
+            activePerformance = activePerformance,
+            reservations = reservations,
+            onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
+            onReservationClick = { reservation -> selectedReservationId = reservation.id },
+            onAddClick = {
+                if (activePerformance == null) showPerformanceEditor = true else showAdmissionTypeDialog = true
+            },
+            onImportClick = { spreadsheetAction = SpreadsheetAction.IMPORT },
+            onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
+            onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
+            onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
+        )
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.addedReservationIds.collect { reservationId ->
@@ -170,6 +208,16 @@ private fun ReservationApp(
             onTypeSelected = { admissionType ->
                 selectedAdmissionTypeName = admissionType.name
                 showAdmissionTypeDialog = false
+            }
+        )
+    }
+
+    if (showPerformanceEditor) {
+        PerformanceEditorDialog(
+            onDismiss = { showPerformanceEditor = false },
+            onSave = { actName, date ->
+                viewModel.createPerformance(actName, date)
+                showPerformanceEditor = false
             }
         )
     }
@@ -380,6 +428,95 @@ private fun SpreadsheetTransferDialog(
             TextButton(onClick = { onTransfer(spreadsheetUrl, sheetTitle) }, enabled = spreadsheetUrl.isNotBlank() && (action == SpreadsheetAction.IMPORT || sheetTitle.isNotBlank())) { Text(stringResource(action.titleResId)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
+    )
+}
+
+@Composable
+private fun PerformanceDrawerContent(
+    performances: List<Performance>,
+    onSelectPerformance: (Performance) -> Unit,
+    onAddPerformance: () -> Unit
+) {
+    ModalDrawerSheet {
+        Column(modifier = Modifier.padding(vertical = 16.dp)) {
+            Text(
+                text = stringResource(R.string.performances),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.titleLarge
+            )
+            OutlinedButton(
+                onClick = onAddPerformance,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(stringResource(R.string.add_performance))
+            }
+            HorizontalDivider()
+            performances.forEach { performance ->
+                ListItem(
+                    headlineContent = { Text(performance.actName) },
+                    supportingContent = {
+                        if (performance.date.isNotBlank()) {
+                            Text(performance.date)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectPerformance(performance) },
+                    colors = androidx.compose.material3.ListItemDefaults.colors(
+                        containerColor = if (performance.isActive) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PerformanceEditorDialog(
+    onDismiss: () -> Unit,
+    onSave: (actName: String, date: String) -> Unit
+) {
+    var actName by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.add_performance)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = actName,
+                    onValueChange = { actName = it },
+                    label = { Text(stringResource(R.string.performance_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = { date = it },
+                    label = { Text(stringResource(R.string.performance_date)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(actName, date) },
+                enabled = actName.isNotBlank() && date.isNotBlank()
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
     )
 }
 

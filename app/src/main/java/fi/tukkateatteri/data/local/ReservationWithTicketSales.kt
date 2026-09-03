@@ -33,6 +33,7 @@ data class TicketSaleWithPayments(
 
 fun ReservationWithTicketSales.toReservation() = Reservation(
     id = reservation.id,
+    performanceId = reservation.performanceId,
     lastName = reservation.lastName,
     firstName = reservation.firstName,
     contact = reservation.contact,

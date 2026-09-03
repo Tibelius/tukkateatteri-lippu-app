@@ -3,6 +3,8 @@ package fi.tukkateatteri.data
 import androidx.room.withTransaction
 import fi.tukkateatteri.data.local.PaymentAllocationEntity
 import fi.tukkateatteri.data.local.GoogleSheetSourceDao
+import fi.tukkateatteri.data.local.PerformanceDao
+import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDao
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
@@ -11,6 +13,7 @@ import fi.tukkateatteri.data.local.TicketSaleEntity
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.local.toEntity
 import fi.tukkateatteri.data.local.toGoogleSheetSource
+import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
@@ -18,9 +21,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 interface ReservationRepository {
-    val reservations: Flow<List<Reservation>>
+    val performances: Flow<List<Performance>>
+    val activePerformance: Flow<Performance?>
     val googleSheetSources: Flow<List<GoogleSheetSource>>
 
+    fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>>
+    suspend fun createPerformance(actName: String, date: String): Long
+    suspend fun selectPerformance(performanceId: Long)
     suspend fun addAdmission(
         lastName: String,
         firstName: String,
@@ -35,10 +42,12 @@ interface ReservationRepository {
     suspend fun deleteTicketSale(ticketSaleId: Long)
     suspend fun deleteReservation(reservationId: Long)
     suspend fun deleteAllReservations()
-    suspend fun exportSpreadsheetRows(): List<ReservationSpreadsheetRow>
-    suspend fun importSpreadsheetRows(rows: List<ReservationSpreadsheetRow>)
     suspend fun loadGoogleSheetImportCandidates(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportCandidate>
-    suspend fun importGoogleSheet(spreadsheetUrl: String, accessToken: String, sheetTitle: String): Int
+    suspend fun importGoogleSheet(
+        spreadsheetUrl: String,
+        accessToken: String,
+        candidate: GoogleSheetImportCandidate
+    ): Int
     suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String)
     suspend fun upsertGoogleSheetSource(source: GoogleSheetSource)
     suspend fun deleteGoogleSheetSource(actName: String)
@@ -49,13 +58,40 @@ data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: 
 class RoomReservationRepository(
     private val database: ReservationDatabase,
     private val reservationDao: ReservationDao,
+    private val performanceDao: PerformanceDao,
     private val googleSheetSourceDao: GoogleSheetSourceDao,
     private val googleSheetsClient: GoogleSheetsClient = GoogleSheetsClient()
 ) : ReservationRepository {
-    override val reservations: Flow<List<Reservation>> = reservationDao.observeAllWithTicketSales()
-        .map { reservations -> reservations.map { reservation -> reservation.toReservation() } }
+    override val performances: Flow<List<Performance>> = performanceDao.observeAll()
+        .map { performances -> performances.map { performance -> performance.toPerformance() } }
+    override val activePerformance: Flow<Performance?> = performanceDao.observeActive()
+        .map { performance -> performance?.toPerformance() }
     override val googleSheetSources: Flow<List<GoogleSheetSource>> = googleSheetSourceDao.observeAll()
         .map { sources -> sources.map { source -> source.toGoogleSheetSource() } }
+
+    override fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>> =
+        reservationDao.observeByPerformanceWithTicketSales(performanceId)
+            .map { reservations -> reservations.map { reservation -> reservation.toReservation() } }
+
+    override suspend fun createPerformance(actName: String, date: String): Long = database.withTransaction {
+        val normalizedActName = actName.trim()
+        val normalizedDate = date.trim()
+        require(normalizedActName.isNotBlank()) { "Performance name must not be blank." }
+        require(normalizedDate.isNotBlank()) { "Performance date must not be blank." }
+        val performanceId = performanceDao.findByNameAndDate(normalizedActName, normalizedDate)?.id
+            ?: performanceDao.insert(
+                PerformanceEntity(
+                    actName = normalizedActName,
+                    date = normalizedDate
+                )
+            )
+        performanceDao.setActive(performanceId)
+        performanceId
+    }
+
+    override suspend fun selectPerformance(performanceId: Long) {
+        performanceDao.setActive(performanceId)
+    }
 
     override suspend fun addAdmission(
         lastName: String,
@@ -65,9 +101,13 @@ class RoomReservationRepository(
         admissionType: AdmissionType,
         reservedTicketAllocations: List<ReservedTicketAllocation>
     ): Long = database.withTransaction {
+        val activePerformance = requireNotNull(performanceDao.getActive()) {
+            "Select a performance before adding reservations."
+        }
         validateReservedTicketAllocations(reservedTicketAllocations, seatCount)
         val reservationId = reservationDao.insert(
             ReservationEntity(
+                performanceId = activePerformance.id,
                 lastName = lastName.trim(),
                 firstName = firstName.trim(),
                 contact = contact.trim(),
@@ -93,6 +133,7 @@ class RoomReservationRepository(
             reservationDao.update(
                 ReservationEntity(
                     id = reservation.id,
+                    performanceId = existingReservationEntity.performanceId,
                     lastName = reservation.lastName.trim(),
                     firstName = reservation.firstName.trim(),
                     contact = reservation.contact.trim(),
@@ -195,14 +236,21 @@ class RoomReservationRepository(
         }
     }
     override suspend fun deleteReservation(reservationId: Long) = reservationDao.deleteById(reservationId)
-    override suspend fun deleteAllReservations() = reservationDao.deleteAll()
+    override suspend fun deleteAllReservations() {
+        val activePerformance = performanceDao.getActive() ?: return
+        reservationDao.deleteAllByPerformance(activePerformance.id)
+    }
 
-    override suspend fun exportSpreadsheetRows(): List<ReservationSpreadsheetRow> =
+    private suspend fun exportSpreadsheetRows(performanceId: Long): List<ReservationSpreadsheetRow> =
         ReservationSpreadsheetRow.fromReservations(
-            reservationDao.getAllWithTicketSales().map { reservation -> reservation.toReservation() }
+            reservationDao.getByPerformanceWithTicketSales(performanceId)
+                .map { reservation -> reservation.toReservation() }
         )
 
-    override suspend fun importSpreadsheetRows(rows: List<ReservationSpreadsheetRow>) {
+    private suspend fun importSpreadsheetRows(
+        rows: List<ReservationSpreadsheetRow>,
+        performanceId: Long
+    ) {
         database.withTransaction {
             rows.forEach { row ->
                 val existingReservation = if (row.sourceIdentity.isNotBlank()) {
@@ -212,6 +260,7 @@ class RoomReservationRepository(
                 }
                 val reservationId = existingReservation?.id ?: reservationDao.insert(
                     ReservationEntity(
+                        performanceId = performanceId,
                         lastName = row.lastName.trim(),
                         firstName = row.firstName.trim(),
                         contact = row.contact.trim(),
@@ -273,18 +322,26 @@ class RoomReservationRepository(
     override suspend fun loadGoogleSheetImportCandidates(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportCandidate> =
         googleSheetsClient.loadImportCandidates(spreadsheetUrl, accessToken)
 
-    override suspend fun importGoogleSheet(spreadsheetUrl: String, accessToken: String, sheetTitle: String): Int {
-        val rows = googleSheetsClient.importTab(spreadsheetUrl, accessToken, sheetTitle)
-        importSpreadsheetRows(rows)
+    override suspend fun importGoogleSheet(
+        spreadsheetUrl: String,
+        accessToken: String,
+        candidate: GoogleSheetImportCandidate
+    ): Int {
+        val rows = googleSheetsClient.importTab(spreadsheetUrl, accessToken, candidate.sheetTitle)
+        val performanceId = createPerformance(candidate.performanceName, candidate.date)
+        importSpreadsheetRows(rows, performanceId)
         return rows.size
     }
 
     override suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
+        val activePerformance = requireNotNull(performanceDao.getActive()) {
+            "Select a performance before exporting."
+        }
         googleSheetsClient.exportRows(
             spreadsheetUrl = spreadsheetUrl,
             sheetTitle = sheetTitle,
             accessToken = accessToken,
-            rows = exportSpreadsheetRows()
+            rows = exportSpreadsheetRows(activePerformance.id)
         )
     }
 

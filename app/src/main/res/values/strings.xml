@@ -48,6 +48,13 @@
     <string name="google_sheets_transfer">Google Sheets</string>
     <string name="google_sheets_loading">Luetaan Google Sheets -taulukkoa…</string>
     <string name="select_performance_date">Valitse esityspäivä</string>
+    <string name="select_performance">Valitse esitys</string>
+    <string name="performances">Esitykset</string>
+    <string name="add_performance">Lisää esitys</string>
+    <string name="performance_name">Esityksen nimi</string>
+    <string name="performance_date">Päivämäärä</string>
+    <string name="no_active_performance">Valitse tai lisää esitys valikosta ennen varausten käsittelyä.</string>
+    <string name="open_performance_menu">Avaa esitysvalikko</string>
     <string name="google_sheets_no_import_candidates">Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt.</string>
     <string name="google_sheets_import_succeeded">Tuotiin %1$d varausta.</string>
     <string name="google_sheets_import_failed">Tuonti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>

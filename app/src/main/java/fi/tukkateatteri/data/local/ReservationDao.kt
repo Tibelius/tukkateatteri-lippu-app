@@ -9,8 +9,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ReservationDao {
     @Transaction
-    @Query("SELECT * FROM reservations ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE")
-    fun observeAllWithTicketSales(): Flow<List<ReservationWithTicketSales>>
+    @Query(
+        "SELECT * FROM reservations WHERE performance_id = :performanceId " +
+            "ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE"
+    )
+    fun observeByPerformanceWithTicketSales(
+        performanceId: Long
+    ): Flow<List<ReservationWithTicketSales>>
 
     @Query("SELECT * FROM reservations WHERE id = :reservationId")
     suspend fun getById(reservationId: Long): ReservationEntity?
@@ -20,8 +25,13 @@ interface ReservationDao {
     suspend fun getWithTicketSalesById(reservationId: Long): ReservationWithTicketSales?
 
     @Transaction
-    @Query("SELECT * FROM reservations ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE")
-    suspend fun getAllWithTicketSales(): List<ReservationWithTicketSales>
+    @Query(
+        "SELECT * FROM reservations WHERE performance_id = :performanceId " +
+            "ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE"
+    )
+    suspend fun getByPerformanceWithTicketSales(
+        performanceId: Long
+    ): List<ReservationWithTicketSales>
 
     @Insert
     suspend fun insert(reservation: ReservationEntity): Long
@@ -59,6 +69,6 @@ interface ReservationDao {
     @Query("DELETE FROM reserved_ticket_allocations WHERE reservation_id = :reservationId")
     suspend fun deleteReservedTicketAllocationsForReservation(reservationId: Long)
 
-    @Query("DELETE FROM reservations")
-    suspend fun deleteAll()
+    @Query("DELETE FROM reservations WHERE performance_id = :performanceId")
+    suspend fun deleteAllByPerformance(performanceId: Long)
 }

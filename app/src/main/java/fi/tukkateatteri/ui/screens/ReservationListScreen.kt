@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
+import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
 import java.text.Collator
 import java.util.Locale
@@ -50,7 +52,9 @@ private val FLOATING_ACTION_BUTTON_CLEARANCE = 88.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReservationListScreen(
+    activePerformance: Performance?,
     reservations: List<Reservation>,
+    onOpenPerformanceMenu: () -> Unit,
     onReservationClick: (Reservation) -> Unit,
     onAddClick: () -> Unit,
     onImportClick: () -> Unit,
@@ -77,9 +81,20 @@ fun ReservationListScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onOpenPerformanceMenu) {
+                        Icon(
+                            imageVector = Icons.Filled.Menu,
+                            contentDescription = stringResource(R.string.open_performance_menu)
+                        )
+                    }
+                },
                 title = {
                     Column {
-                        Text(stringResource(R.string.app_name))
+                        Text(
+                            text = activePerformance?.displayName
+                                ?: stringResource(R.string.select_performance)
+                        )
                         Text(
                             text = stringResource(
                                 R.string.reservation_overview,
@@ -95,7 +110,7 @@ fun ReservationListScreen(
                                     totalSeatCount
                                 )
                             ),
-                            style = MaterialTheme.typography.labelMedium
+                            style = MaterialTheme.typography.titleSmall
                         )
                     }
                 },
@@ -169,7 +184,10 @@ fun ReservationListScreen(
         }
     ) { contentPadding ->
         if (sortedReservations.isEmpty()) {
-            EmptyReservationList(modifier = Modifier.padding(contentPadding))
+            EmptyReservationList(
+                hasActivePerformance = activePerformance != null,
+                modifier = Modifier.padding(contentPadding)
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -200,7 +218,10 @@ fun ReservationListScreen(
 private val FINNISH_LOCALE = Locale.forLanguageTag("fi-FI")
 
 @Composable
-private fun EmptyReservationList(modifier: Modifier = Modifier) {
+private fun EmptyReservationList(
+    hasActivePerformance: Boolean,
+    modifier: Modifier = Modifier
+) {
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -211,12 +232,20 @@ private fun EmptyReservationList(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = stringResource(R.string.no_reservations),
+                text = stringResource(
+                    if (hasActivePerformance) R.string.no_reservations else R.string.select_performance
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = stringResource(R.string.no_reservations_description),
+                text = stringResource(
+                    if (hasActivePerformance) {
+                        R.string.no_reservations_description
+                    } else {
+                        R.string.no_active_performance
+                    }
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

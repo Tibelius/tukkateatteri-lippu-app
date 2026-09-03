@@ -5,6 +5,7 @@ import fi.tukkateatteri.R
 
 data class Reservation(
     val id: Long,
+    val performanceId: Long,
     val lastName: String,
     val firstName: String,
     val contact: String,
@@ -17,6 +18,7 @@ data class Reservation(
 ) {
     init {
         require(id > 0) { "Reservation ID must be positive." }
+        require(performanceId > 0) { "Performance ID must be positive." }
         require(seatCount > 0) { "Seat count must be positive." }
         require(arrivalCount in 0..seatCount) { "Arrival count must be within the seat count." }
         require(reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {

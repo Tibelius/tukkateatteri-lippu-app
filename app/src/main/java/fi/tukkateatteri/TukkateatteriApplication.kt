@@ -11,6 +11,7 @@ class TukkateatteriApplication : Application() {
             RoomReservationRepository(
                 database = database,
                 reservationDao = database.reservationDao(),
+                performanceDao = database.performanceDao(),
                 googleSheetSourceDao = database.googleSheetSourceDao()
             )
         }

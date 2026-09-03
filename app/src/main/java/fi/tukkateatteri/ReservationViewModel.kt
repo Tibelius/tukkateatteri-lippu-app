@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.PendingPaymentAllocation
+import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.ReservedTicketAllocation
@@ -16,9 +17,12 @@ import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
 import fi.tukkateatteri.R
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -38,11 +42,30 @@ class ReservationViewModel(
     private var pendingImportUrl: String? = null
     private var pendingImportAccessToken: String? = null
 
-    val reservations: StateFlow<List<Reservation>> = reservationRepository.reservations.stateIn(
+    val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = emptyList()
     )
+    val activePerformance: StateFlow<Performance?> = reservationRepository.activePerformance.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val reservations: StateFlow<List<Reservation>> = activePerformance
+        .flatMapLatest { performance ->
+            if (performance == null) {
+                flowOf(emptyList())
+            } else {
+                reservationRepository.reservationsForPerformance(performance.id)
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = emptyList()
+        )
     val googleSheetSources: StateFlow<List<GoogleSheetSource>> = reservationRepository.googleSheetSources.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -52,6 +75,18 @@ class ReservationViewModel(
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val importCandidates: StateFlow<List<GoogleSheetImportCandidate>> = _importCandidates
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
+
+    fun createPerformance(actName: String, date: String) {
+        viewModelScope.launch {
+            reservationRepository.createPerformance(actName, date)
+        }
+    }
+
+    fun selectPerformance(performanceId: Long) {
+        viewModelScope.launch {
+            reservationRepository.selectPerformance(performanceId)
+        }
+    }
 
     fun addAdmission(
         lastName: String,
@@ -148,7 +183,7 @@ class ReservationViewModel(
                 val reservationCount = reservationRepository.importGoogleSheet(
                     spreadsheetUrl,
                     accessToken,
-                    candidate.sheetTitle
+                    candidate
                 )
                 reservationRepository.upsertGoogleSheetSource(
                     GoogleSheetSource(candidate.performanceName, spreadsheetUrl)

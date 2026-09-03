@@ -14,14 +14,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TicketSaleEntity::class,
         PaymentAllocationEntity::class,
         ReservedTicketAllocationEntity::class,
-        GoogleSheetSourceEntity::class
+        GoogleSheetSourceEntity::class,
+        PerformanceEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 @TypeConverters(ReservationTypeConverters::class)
 abstract class ReservationDatabase : RoomDatabase() {
     abstract fun reservationDao(): ReservationDao
+    abstract fun performanceDao(): PerformanceDao
     abstract fun googleSheetSourceDao(): GoogleSheetSourceDao
 
     companion object {
@@ -41,7 +43,8 @@ abstract class ReservationDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
-                    MIGRATION_7_8
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                 .withBuildSpecificDatabaseConfiguration { database }
                 .build()
@@ -228,6 +231,65 @@ abstract class ReservationDatabase : RoomDatabase() {
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE reservations SET arrival_count = seat_count, is_present = 1 WHERE admission_type = 'DOOR_SALE'")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("PRAGMA foreign_keys=OFF")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `performances` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`act_name` TEXT NOT NULL, " +
+                        "`performance_date` TEXT NOT NULL, " +
+                        "`is_active` INTEGER NOT NULL" +
+                        ")"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_performances_act_name_performance_date` " +
+                        "ON `performances` (`act_name`, `performance_date`)"
+                )
+                db.execSQL(
+                    "INSERT INTO performances (`id`, `act_name`, `performance_date`, `is_active`) " +
+                        "VALUES (1, 'Aiemmat varaukset', '', 1)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reservations_new` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`performance_id` INTEGER NOT NULL, " +
+                        "`last_name` TEXT NOT NULL, " +
+                        "`first_name` TEXT NOT NULL, " +
+                        "`contact` TEXT NOT NULL, " +
+                        "`seat_count` INTEGER NOT NULL, " +
+                        "`notes` TEXT NOT NULL, " +
+                        "`source_identity` TEXT NOT NULL, " +
+                        "`admission_type` TEXT NOT NULL, " +
+                        "`arrival_count` INTEGER NOT NULL, " +
+                        "`is_present` INTEGER NOT NULL, " +
+                        "`payment_method` TEXT, " +
+                        "FOREIGN KEY(`performance_id`) REFERENCES `performances`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE RESTRICT" +
+                        ")"
+                )
+                db.execSQL(
+                    "INSERT INTO reservations_new (" +
+                        "id, performance_id, last_name, first_name, contact, seat_count, notes, " +
+                        "source_identity, admission_type, arrival_count, is_present, payment_method" +
+                        ") SELECT id, 1, last_name, first_name, contact, seat_count, notes, " +
+                        "source_identity, admission_type, arrival_count, is_present, payment_method " +
+                        "FROM reservations"
+                )
+                db.execSQL("DROP TABLE reservations")
+                db.execSQL("ALTER TABLE reservations_new RENAME TO reservations")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reservations_source_identity` " +
+                        "ON `reservations` (`source_identity`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reservations_performance_id` " +
+                        "ON `reservations` (`performance_id`)"
+                )
+                db.execSQL("PRAGMA foreign_keys=ON")
             }
         }
     }
