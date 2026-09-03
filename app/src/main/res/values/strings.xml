@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">Tukkateatteri</string>
     <plurals name="reservation_progress">
-        <item quantity="one">%1$d / %2$d kirjattu</item>
-        <item quantity="other">%1$d / %2$d kirjattu</item>
+        <item quantity="one">%1$d / %2$d maksettu</item>
+        <item quantity="other">%1$d / %2$d maksettu</item>
     </plurals>
     <string name="add_reservation">Lisää varaus</string>
     <string name="add_admission_title">Lisää asiakas</string>
@@ -19,6 +19,8 @@
     <string name="optional_customer_details">Asiakastiedot (valinnainen)</string>
     <string name="show_optional_customer_details">Näytä asiakastiedot</string>
     <string name="hide_optional_customer_details">Piilota asiakastiedot</string>
+    <string name="show_customer_details">Näytä asiakastiedot</string>
+    <string name="hide_customer_details">Piilota asiakastiedot</string>
     <string name="last_name_optional">Sukunimi (valinnainen)</string>
     <string name="first_name_optional">Etunimi (valinnainen)</string>
     <string name="contact_information_optional">Puhelinnumero tai sähköposti (valinnainen)</string>
@@ -83,8 +85,15 @@
     <string name="ticket_type_kaikukortti">Kaikukortti</string>
     <string name="ticket_type_free_ticket">Vapaalippu</string>
     <string name="ticket_type_unspecified">Määrittelemätön</string>
-    <string name="redeemed_tickets">Lunastukset ja maksut</string>
-    <string name="add_ticket_sale">Kirjaa lunastus</string>
+    <string name="reserved_ticket_types">Varatut lipputyypit</string>
+    <string name="reserved_ticket_types_total">%1$d / %2$d paikkaa määritelty</string>
+    <string name="reserved_ticket_types_summary">%d lipputyyppiä varattu</string>
+    <string name="no_reserved_ticket_types">Ei määritelty</string>
+    <string name="add_reserved_ticket_type">Lisää lipputyyppi</string>
+    <string name="realized_payments">Toteutuneet maksut</string>
+    <string name="no_realized_payments">Maksuja ei ole vielä kirjattu.</string>
+    <string name="add_ticket_sale">Kirjaa maksu</string>
+    <string name="imported_payment">Tuotu taulukosta</string>
     <string name="ticket_type">Lipputyyppi</string>
     <string name="ticket_quantity">Lippuja</string>
     <string name="split_payment">Sekamaksu</string>
@@ -92,7 +101,13 @@
     <string name="payment_amount">Summa (€)</string>
     <string name="payment_total_mismatch">Maksujen summan on vastattava lippujen hintaa.</string>
     <string name="reservation_notes">Huomautukset</string>
-    <string name="redeemed_overview">Lunastettu %1$d / %2$d · jäljellä %3$d</string>
+    <string name="show_notes">Näytä huomautukset</string>
+    <string name="hide_notes">Piilota huomautukset</string>
+    <string name="arrivals">Saapuminen</string>
+    <string name="payment_overview">Maksettu %1$d / %2$d · maksamatta %3$d</string>
+    <string name="arrival_overview">Saapunut %1$d / %2$d</string>
+    <string name="arrival_count">Saapuneita</string>
+    <string name="edit_arrival_count">Merkitse saapuneet</string>
 
     <plurals name="seat_count_summary">
         <item quantity="one">%d paikka</item>

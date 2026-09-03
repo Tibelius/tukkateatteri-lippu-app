@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.TicketSaleOrigin
 
 class ReservationTypeConverters {
     @TypeConverter
@@ -28,4 +29,12 @@ class ReservationTypeConverters {
 
     @TypeConverter
     fun ticketTypeToStorage(value: TicketType): String = value.name
+
+    @TypeConverter
+    fun ticketSaleOriginFromStorage(value: String?): TicketSaleOrigin =
+        value?.let { storedValue -> TicketSaleOrigin.entries.find { it.name == storedValue } }
+            ?: TicketSaleOrigin.MANUAL
+
+    @TypeConverter
+    fun ticketSaleOriginToStorage(value: TicketSaleOrigin): String = value.name
 }

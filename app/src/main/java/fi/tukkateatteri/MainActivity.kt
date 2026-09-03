@@ -164,13 +164,14 @@ private fun ReservationApp(
         AddAdmissionDialog(
             admissionType = admissionType,
             onDismiss = { selectedAdmissionTypeName = null },
-            onSave = { lastName, firstName, contact, seatCount ->
+            onSave = { lastName, firstName, contact, seatCount, reservedTicketAllocations ->
                 viewModel.addAdmission(
                     lastName = lastName,
                     firstName = firstName,
                     contact = contact,
                     seatCount = seatCount,
-                    admissionType = admissionType
+                    admissionType = admissionType,
+                    reservedTicketAllocations = reservedTicketAllocations
                 )
                 selectedAdmissionTypeName = null
             }
@@ -185,6 +186,7 @@ private fun ReservationApp(
                 viewModel.updateReservation(updatedReservation)
                 selectedReservationId = null
             },
+            onUpdateArrivalCount = viewModel::updateArrivalCount,
             onAddTicketSale = { ticketType, quantity, payments ->
                 viewModel.addTicketSale(reservation.id, ticketType, quantity, payments)
             },

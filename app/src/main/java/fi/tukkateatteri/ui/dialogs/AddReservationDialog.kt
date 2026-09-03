@@ -38,6 +38,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.ui.components.SeatCountSelector
 
 private const val DIALOG_WIDTH_FRACTION = 0.94f
@@ -51,7 +52,8 @@ fun AddAdmissionDialog(
         lastName: String,
         firstName: String,
         contact: String,
-        seatCount: Int
+        seatCount: Int,
+        reservedTicketAllocations: List<ReservedTicketAllocation>
     ) -> Unit
 ) {
     val isDoorSale = admissionType == AdmissionType.DOOR_SALE
@@ -67,6 +69,23 @@ fun AddAdmissionDialog(
     var contact by rememberSaveable(admissionType) { mutableStateOf("") }
     var seatCount by rememberSaveable(admissionType) { mutableIntStateOf(1) }
     var showCustomerDetails by rememberSaveable(admissionType) { mutableStateOf(false) }
+    var reservedTicketAllocations by rememberSaveable(
+        admissionType,
+        stateSaver = reservedTicketAllocationsSaver
+    ) { mutableStateOf(emptyList<ReservedTicketAllocation>()) }
+    var showReservedTicketTypesDialog by rememberSaveable(admissionType) { mutableStateOf(false) }
+
+    if (showReservedTicketTypesDialog) {
+        ReservedTicketTypesDialog(
+            initialAllocations = reservedTicketAllocations,
+            maximumQuantity = seatCount,
+            onDismiss = { showReservedTicketTypesDialog = false },
+            onSave = { allocations ->
+                reservedTicketAllocations = allocations
+                showReservedTicketTypesDialog = false
+            }
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -157,9 +176,16 @@ fun AddAdmissionDialog(
                 if (!isDoorSale) {
                     SeatCountSelector(
                         seatCount = seatCount,
+                        minimumSeatCount = reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity).coerceAtLeast(1),
                         onDecrease = { seatCount-- },
                         onIncrease = { seatCount++ }
                     )
+                    TextButton(onClick = { showReservedTicketTypesDialog = true }) {
+                        Text(
+                            "${stringResource(R.string.reserved_ticket_types)}: " +
+                                reservedTicketTypesSummary(reservedTicketAllocations)
+                        )
+                    }
                 }
 
                 Row(
@@ -172,7 +198,7 @@ fun AddAdmissionDialog(
                     TextButton(
                         enabled = isDoorSale || lastName.isNotBlank() && firstName.isNotBlank(),
                         onClick = {
-                            onSave(lastName, firstName, contact, seatCount)
+                            onSave(lastName, firstName, contact, seatCount, reservedTicketAllocations)
                         }
                     ) {
                         Text(stringResource(R.string.save))

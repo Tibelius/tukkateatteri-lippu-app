@@ -25,6 +25,8 @@ private const val MINIMUM_SEAT_COUNT = 1
 @Composable
 fun SeatCountSelector(
     seatCount: Int,
+    minimumSeatCount: Int = MINIMUM_SEAT_COUNT,
+    labelResId: Int = R.string.seat_count,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit
 ) {
@@ -33,14 +35,14 @@ fun SeatCountSelector(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = stringResource(R.string.seat_count),
+            text = stringResource(labelResId),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.weight(1f))
 
         IconButton(
-            enabled = seatCount > MINIMUM_SEAT_COUNT,
+            enabled = seatCount > minimumSeatCount,
             onClick = onDecrease
         ) {
             Icon(

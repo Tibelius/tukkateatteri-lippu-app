@@ -10,6 +10,7 @@ import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservationRepository
+import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
@@ -51,7 +52,8 @@ class ReservationViewModel(
         firstName: String,
         contact: String,
         seatCount: Int,
-        admissionType: AdmissionType
+        admissionType: AdmissionType,
+        reservedTicketAllocations: List<ReservedTicketAllocation>
     ) {
         viewModelScope.launch {
             val reservationId = reservationRepository.addAdmission(
@@ -59,7 +61,8 @@ class ReservationViewModel(
                 firstName = firstName,
                 contact = contact,
                 seatCount = seatCount,
-                admissionType = admissionType
+                admissionType = admissionType,
+                reservedTicketAllocations = reservedTicketAllocations
             )
             addedReservationIdsChannel.send(reservationId)
         }
@@ -68,6 +71,12 @@ class ReservationViewModel(
     fun updateReservation(reservation: Reservation) {
         viewModelScope.launch {
             reservationRepository.updateReservation(reservation)
+        }
+    }
+
+    fun updateArrivalCount(reservationId: Long, arrivalCount: Int) {
+        viewModelScope.launch {
+            reservationRepository.updateArrivalCount(reservationId, arrivalCount)
         }
     }
 

@@ -2,6 +2,7 @@ package fi.tukkateatteri
 
 import fi.tukkateatteri.data.PaymentAllocation
 import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
@@ -13,13 +14,14 @@ import org.junit.Test
 
 class ReservationTest {
     @Test
-    fun reservation_progress_isDerivedFromTicketSales() {
+    fun reservation_paymentProgress_isSeparateFromArrival() {
         val reservation = Reservation(
             id = 1,
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
             seatCount = 2,
+            arrivalCount = 1,
             ticketSales = listOf(
                 TicketSale(
                     id = 1,
@@ -32,8 +34,27 @@ class ReservationTest {
             )
         )
 
-        assertEquals(1, reservation.redeemedSeatCount)
-        assertEquals(1, reservation.remainingSeatCount)
+        assertEquals(1, reservation.paidSeatCount)
+        assertEquals(1, reservation.unpaidSeatCount)
+        assertEquals(1, reservation.arrivalCount)
+        assertFalse(reservation.isCompleted)
+    }
+
+    @Test
+    fun reservedTicketTypes_doNotCountAsPayments() {
+        val reservation = Reservation(
+            id = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 2,
+            reservedTicketAllocations = listOf(
+                fi.tukkateatteri.data.ReservedTicketAllocation(TicketType.BASIC, 2)
+            )
+        )
+
+        assertEquals(0, reservation.paidSeatCount)
+        assertEquals(0, reservation.arrivalCount)
         assertFalse(reservation.isCompleted)
     }
 
@@ -55,6 +76,58 @@ class ReservationTest {
         assertTrue(ticketSale.isSplitPayment)
     }
 
+    @Test
+    fun doorSales_areExportedAsOneOveltaRow() {
+        val doorSales = listOf(
+            Reservation(
+                id = 1,
+                lastName = "",
+                firstName = "",
+                contact = "",
+                seatCount = 1,
+                arrivalCount = 1,
+                admissionType = AdmissionType.DOOR_SALE,
+                ticketSales = listOf(
+                    TicketSale(
+                        id = 1,
+                        reservationId = 1,
+                        ticketType = TicketType.BASIC,
+                        quantity = 1,
+                        unitPriceCents = 2_200,
+                        payments = listOf(PaymentAllocation(1, 1, PaymentMethod.CASH, 2_200))
+                    )
+                )
+            ),
+            Reservation(
+                id = 2,
+                lastName = "",
+                firstName = "",
+                contact = "",
+                seatCount = 1,
+                arrivalCount = 1,
+                admissionType = AdmissionType.DOOR_SALE,
+                ticketSales = listOf(
+                    TicketSale(
+                        id = 2,
+                        reservationId = 2,
+                        ticketType = TicketType.DISCOUNT,
+                        quantity = 1,
+                        unitPriceCents = 1_300,
+                        payments = listOf(PaymentAllocation(2, 2, PaymentMethod.CARD, 1_300))
+                    )
+                )
+            )
+        )
+
+        val rows = ReservationSpreadsheetRow.fromReservations(doorSales)
+
+        assertEquals(1, rows.size)
+        assertEquals("Ovelta", rows.single().lastName)
+        assertEquals(2, rows.single().arrivalCount)
+        assertEquals(1, rows.single().reservedTicketCounts[TicketType.BASIC])
+        assertEquals(1, rows.single().paymentTicketCounts[PaymentMethod.CARD])
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun spreadsheetRows_rejectAnInvalidSeatCount() {
         ReservationSpreadsheetRow(
@@ -62,8 +135,8 @@ class ReservationTest {
             firstName = "Maija",
             contact = "",
             reservedSeatCount = 0,
-            redeemedSeatCount = 0,
-            ticketCounts = emptyMap(),
+            arrivalCount = 0,
+            reservedTicketCounts = emptyMap(),
             paymentTicketCounts = emptyMap(),
             notes = ""
         )

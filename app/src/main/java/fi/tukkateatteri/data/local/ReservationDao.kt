@@ -41,6 +41,9 @@ interface ReservationDao {
     @Insert
     suspend fun insertPaymentAllocations(payments: List<PaymentAllocationEntity>)
 
+    @Insert
+    suspend fun insertReservedTicketAllocations(allocations: List<ReservedTicketAllocationEntity>)
+
     @Update
     suspend fun update(reservation: ReservationEntity)
 
@@ -50,8 +53,17 @@ interface ReservationDao {
     @Query("DELETE FROM ticket_sales WHERE id = :ticketSaleId")
     suspend fun deleteTicketSaleById(ticketSaleId: Long)
 
+    @Query("SELECT * FROM ticket_sales WHERE id = :ticketSaleId")
+    suspend fun getTicketSaleById(ticketSaleId: Long): TicketSaleEntity?
+
     @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId")
     suspend fun deleteTicketSalesForReservation(reservationId: Long)
+
+    @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId AND origin = 'IMPORTED'")
+    suspend fun deleteImportedTicketSalesForReservation(reservationId: Long)
+
+    @Query("DELETE FROM reserved_ticket_allocations WHERE reservation_id = :reservationId")
+    suspend fun deleteReservedTicketAllocationsForReservation(reservationId: Long)
 
     @Query("DELETE FROM reservations")
     suspend fun deleteAll()

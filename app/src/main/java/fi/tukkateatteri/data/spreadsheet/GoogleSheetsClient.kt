@@ -174,8 +174,8 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
             firstName = firstName,
             contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trim(),
             reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT]).toTicketCount().coerceAtLeast(1),
-            redeemedSeatCount = row.valueAt(headerIndexes[HEADER_REDEEMED_COUNT]).toTicketCount(),
-            ticketCounts = ticketHeaders.mapNotNull { (ticketType, header) ->
+            arrivalCount = row.valueAt(headerIndexes[HEADER_ARRIVAL_COUNT]).toTicketCount(),
+            reservedTicketCounts = ticketHeaders.mapNotNull { (ticketType, header) ->
                 row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
             }.toMap(),
             paymentTicketCounts = paymentHeaders.mapNotNull { (paymentMethod, header) ->
@@ -201,8 +201,8 @@ private fun ReservationSpreadsheetRow.toSheetValues(headers: Map<String, Int>): 
     set(HEADER_FIRST_NAME, firstName)
     set(HEADER_CONTACT, contact)
     set(HEADER_RESERVED_COUNT, reservedSeatCount.toString())
-    set(HEADER_REDEEMED_COUNT, redeemedSeatCount.toString())
-    ticketHeaders.forEach { (type, header) -> set(header, ticketCounts[type]?.toString().orEmpty()) }
+    set(HEADER_ARRIVAL_COUNT, arrivalCount.toString())
+    ticketHeaders.forEach { (type, header) -> set(header, reservedTicketCounts[type]?.toString().orEmpty()) }
     paymentHeaders.forEach { (method, header) -> set(header, paymentTicketCounts[method]?.toString().orEmpty()) }
     set(HEADER_NOTES, notes)
     return values
@@ -237,7 +237,7 @@ private const val HEADER_LAST_NAME = "sukunimi"
 private const val HEADER_FIRST_NAME = "etunimi"
 private const val HEADER_CONTACT = "yhteystiedot"
 private const val HEADER_RESERVED_COUNT = "varatut liput kpl"
-private const val HEADER_REDEEMED_COUNT = "saapunut esitykseen eli lunastettujen lippujen lukumäärä"
+private const val HEADER_ARRIVAL_COUNT = "saapunut esitykseen eli lunastettujen lippujen lukumäärä"
 private const val HEADER_NOTES = "huom! (merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
 private const val HEADER_PERFORMANCE = "esitys:"
 private const val HEADER_DATE = "pvm:"

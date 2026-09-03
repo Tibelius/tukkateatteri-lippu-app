@@ -240,10 +240,10 @@ private fun ReservationRow(
         else -> MaterialTheme.colorScheme.onSurface
     }
     val statusText = stringResource(
-        R.string.redeemed_overview,
-        reservation.redeemedSeatCount,
+        R.string.payment_overview,
+        reservation.paidSeatCount,
         reservation.seatCount,
-        reservation.remainingSeatCount
+        reservation.unpaidSeatCount
     )
 
     Card(
@@ -273,19 +273,30 @@ private fun ReservationRow(
                 )
             }
             Text(
-            text = stringResource(
-                R.string.reservation_summary,
-                pluralStringResource(
-                    R.plurals.seat_count_summary,
-                    reservation.seatCount,
-                    reservation.seatCount
+                text = stringResource(
+                    R.string.reservation_summary,
+                    pluralStringResource(
+                        R.plurals.seat_count_summary,
+                        reservation.seatCount,
+                        reservation.seatCount
+                    ),
+                    statusText
                 ),
-                statusText
-            ),
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.labelLarge,
                 color = contentColor
             )
+            if (reservation.arrivalCount > 0) {
+                Text(
+                    text = stringResource(
+                        R.string.arrival_overview,
+                        reservation.arrivalCount,
+                        reservation.seatCount
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.8f)
+                )
+            }
         }
     }
 }

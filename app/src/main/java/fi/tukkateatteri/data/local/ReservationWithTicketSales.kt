@@ -4,6 +4,7 @@ import androidx.room.Embedded
 import androidx.room.Relation
 import fi.tukkateatteri.data.PaymentAllocation
 import fi.tukkateatteri.data.Reservation
+import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
 
 data class ReservationWithTicketSales(
@@ -13,7 +14,12 @@ data class ReservationWithTicketSales(
         parentColumn = "id",
         entityColumn = "reservation_id"
     )
-    val ticketSales: List<TicketSaleWithPayments>
+    val ticketSales: List<TicketSaleWithPayments>,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "reservation_id"
+    )
+    val reservedTicketAllocations: List<ReservedTicketAllocationEntity>
 )
 
 data class TicketSaleWithPayments(
@@ -33,6 +39,13 @@ fun ReservationWithTicketSales.toReservation() = Reservation(
     seatCount = reservation.seatCount,
     notes = reservation.notes,
     admissionType = reservation.admissionType,
+    arrivalCount = reservation.arrivalCount,
+    reservedTicketAllocations = reservedTicketAllocations.map { allocation ->
+        ReservedTicketAllocation(
+            ticketType = allocation.ticketType,
+            quantity = allocation.quantity
+        )
+    },
     ticketSales = ticketSales.map(TicketSaleWithPayments::toTicketSale)
 )
 
@@ -42,6 +55,8 @@ private fun TicketSaleWithPayments.toTicketSale() = TicketSale(
     ticketType = ticketSale.ticketType,
     quantity = ticketSale.quantity,
     unitPriceCents = ticketSale.unitPriceCents,
+    origin = ticketSale.origin,
+    countsAsArrival = ticketSale.countsAsArrival,
     payments = payments.map { payment ->
         PaymentAllocation(
             id = payment.id,

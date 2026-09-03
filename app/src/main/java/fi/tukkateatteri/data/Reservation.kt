@@ -11,11 +11,14 @@ data class Reservation(
     val seatCount: Int,
     val notes: String = "",
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
+    val arrivalCount: Int = 0,
+    val reservedTicketAllocations: List<ReservedTicketAllocation> = emptyList(),
     val ticketSales: List<TicketSale> = emptyList()
 ) {
     init {
         require(id > 0) { "Reservation ID must be positive." }
         require(seatCount > 0) { "Seat count must be positive." }
+        require(arrivalCount >= 0) { "Arrival count must not be negative." }
 
         if (admissionType == AdmissionType.RESERVATION) {
             require(lastName.isNotBlank()) { "Last name must not be blank for reservations." }
@@ -26,17 +29,17 @@ data class Reservation(
     val displayName: String
         get() = "$lastName $firstName"
 
-    val redeemedSeatCount: Int
-        get() = ticketSales.sumOf(TicketSale::quantity)
+    val paidSeatCount: Int
+        get() = ticketSales.filter(TicketSale::isPaid).sumOf(TicketSale::quantity)
 
-    val remainingSeatCount: Int
-        get() = (seatCount - redeemedSeatCount).coerceAtLeast(0)
+    val unpaidSeatCount: Int
+        get() = (seatCount - paidSeatCount).coerceAtLeast(0)
 
     val isPresent: Boolean
-        get() = redeemedSeatCount > 0
+        get() = arrivalCount > 0
 
     val isCompleted: Boolean
-        get() = redeemedSeatCount >= seatCount && ticketSales.all(TicketSale::isPaid)
+        get() = paidSeatCount >= seatCount
 }
 
 enum class AdmissionType(@param:StringRes val labelResId: Int) {

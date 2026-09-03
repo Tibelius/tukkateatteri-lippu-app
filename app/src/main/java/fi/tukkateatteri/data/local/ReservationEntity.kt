@@ -23,6 +23,8 @@ data class ReservationEntity(
     val sourceIdentity: String = "",
     @ColumnInfo(name = "admission_type")
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
+    @ColumnInfo(name = "arrival_count")
+    val arrivalCount: Int = 0,
     @ColumnInfo(name = "is_present")
     val isPresent: Boolean = false,
     @ColumnInfo(name = "payment_method")

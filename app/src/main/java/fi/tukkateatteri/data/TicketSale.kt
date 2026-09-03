@@ -9,6 +9,8 @@ data class TicketSale(
     val ticketType: TicketType,
     val quantity: Int,
     val unitPriceCents: Int,
+    val origin: TicketSaleOrigin = TicketSaleOrigin.MANUAL,
+    val countsAsArrival: Boolean = true,
     val payments: List<PaymentAllocation>
 ) {
     init {
@@ -29,6 +31,20 @@ data class TicketSale(
 
     val isSplitPayment: Boolean
         get() = payments.size > 1
+}
+
+enum class TicketSaleOrigin {
+    MANUAL,
+    IMPORTED
+}
+
+data class ReservedTicketAllocation(
+    val ticketType: TicketType,
+    val quantity: Int
+) {
+    init {
+        require(quantity > 0) { "Reserved ticket quantity must be positive." }
+    }
 }
 
 data class PaymentAllocation(

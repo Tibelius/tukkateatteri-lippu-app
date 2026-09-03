@@ -9,8 +9,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ReservationEntity::class, TicketSaleEntity::class, PaymentAllocationEntity::class, GoogleSheetSourceEntity::class],
-    version = 6,
+    entities = [ReservationEntity::class, TicketSaleEntity::class, PaymentAllocationEntity::class, ReservedTicketAllocationEntity::class, GoogleSheetSourceEntity::class],
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(ReservationTypeConverters::class)
@@ -26,7 +26,7 @@ abstract class ReservationDatabase : RoomDatabase() {
                 context.applicationContext,
                 ReservationDatabase::class.java,
                 DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .withBuildSpecificDatabaseConfiguration { database }
                 .build()
 
@@ -119,6 +119,92 @@ abstract class ReservationDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `google_sheet_sources` (`actName` TEXT NOT NULL, `spreadsheetUrl` TEXT NOT NULL, PRIMARY KEY(`actName`))"
+                )
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reservations ADD COLUMN arrival_count INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE ticket_sales ADD COLUMN origin TEXT NOT NULL DEFAULT 'MANUAL'")
+                db.execSQL("ALTER TABLE ticket_sales ADD COLUMN counts_as_arrival INTEGER NOT NULL DEFAULT 1")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `reserved_ticket_allocations` (
+                        `reservation_id` INTEGER NOT NULL,
+                        `ticket_type` TEXT NOT NULL,
+                        `quantity` INTEGER NOT NULL,
+                        PRIMARY KEY(`reservation_id`, `ticket_type`),
+                        FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reserved_ticket_allocations_reservation_id` ON `reserved_ticket_allocations` (`reservation_id`)"
+                )
+                db.execSQL(
+                    """
+                    INSERT OR REPLACE INTO reserved_ticket_allocations (reservation_id, ticket_type, quantity)
+                    SELECT ticket_sales.reservation_id, ticket_sales.ticket_type, SUM(ticket_sales.quantity)
+                    FROM ticket_sales
+                    INNER JOIN reservations ON reservations.id = ticket_sales.reservation_id
+                    WHERE reservations.source_identity != ''
+                        AND NOT EXISTS (
+                            SELECT 1 FROM payment_allocations
+                            WHERE payment_allocations.ticket_sale_id = ticket_sales.id
+                        )
+                    GROUP BY ticket_sales.reservation_id, ticket_sales.ticket_type
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    DELETE FROM ticket_sales
+                    WHERE id IN (
+                        SELECT ticket_sales.id
+                        FROM ticket_sales
+                        INNER JOIN reservations ON reservations.id = ticket_sales.reservation_id
+                        WHERE reservations.source_identity != ''
+                            AND NOT EXISTS (
+                                SELECT 1 FROM payment_allocations
+                                WHERE payment_allocations.ticket_sale_id = ticket_sales.id
+                            )
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE ticket_sales
+                    SET origin = 'IMPORTED', counts_as_arrival = 0
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM payment_allocations
+                        WHERE payment_allocations.ticket_sale_id = ticket_sales.id
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE reservations
+                    SET arrival_count = MIN(
+                        seat_count,
+                        COALESCE(
+                            (
+                                SELECT SUM(quantity)
+                                FROM ticket_sales
+                                WHERE ticket_sales.reservation_id = reservations.id
+                                    AND ticket_sales.counts_as_arrival = 1
+                            ),
+                            0
+                        )
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE reservations SET arrival_count = seat_count, is_present = 1 WHERE admission_type = 'DOOR_SALE'"
                 )
             }
         }
