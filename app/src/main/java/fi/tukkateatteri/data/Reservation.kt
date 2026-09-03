@@ -58,6 +58,7 @@ data class Reservation(
      */
     val hasTicketValueMismatch: Boolean
         get() = isFullyRedeemed &&
+            ticketSales.none { ticketSale -> ticketSale.origin == TicketSaleOrigin.IMPORTED } &&
             reservedTicketCount == seatCount &&
             reservedTicketAllocations.sumOf { allocation ->
                 allocation.ticketType.defaultPriceCents * allocation.quantity

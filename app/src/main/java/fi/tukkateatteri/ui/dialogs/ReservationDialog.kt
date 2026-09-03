@@ -518,13 +518,11 @@ private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (ticketSale.origin == TicketSaleOrigin.MANUAL) {
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = stringResource(R.string.edit_ticket_sale)
-                    )
-                }
+            IconButton(onClick = onEdit) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = stringResource(R.string.edit_ticket_sale)
+                )
             }
         }
     }
@@ -533,7 +531,7 @@ private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
 @Composable
 private fun ticketSaleTitle(ticketSale: TicketSale): String {
     val ticketTypeLabel = stringResource(ticketSale.ticketType.labelResId)
-    if (ticketSale.origin != TicketSaleOrigin.IMPORTED) {
+    if (ticketSale.ticketType != TicketType.UNSPECIFIED) {
         return "$ticketTypeLabel × ${ticketSale.quantity}"
     }
     val paymentMethod = ticketSale.singlePaymentMethod ?: return "$ticketTypeLabel × ${ticketSale.quantity}"
@@ -542,13 +540,6 @@ private fun ticketSaleTitle(ticketSale: TicketSale): String {
 
 @Composable
 private fun ticketSalePaymentText(ticketSale: TicketSale): String {
-    if (ticketSale.payments.isEmpty()) {
-        return stringResource(R.string.ticket_type_free_ticket)
-    }
-    if (ticketSale.origin == TicketSaleOrigin.IMPORTED) {
-        return stringResource(R.string.imported_payment)
-    }
-
     var paymentText = ""
     for ((index, payment) in ticketSale.payments.withIndex()) {
         if (index > 0) {
@@ -556,7 +547,13 @@ private fun ticketSalePaymentText(ticketSale: TicketSale): String {
         }
         paymentText += "${stringResource(payment.method.labelResId)} ${payment.amountCents.toEuroString()}"
     }
-    return paymentText
+    if (ticketSale.origin != TicketSaleOrigin.IMPORTED) {
+        return paymentText.ifBlank { stringResource(R.string.ticket_type_free_ticket) }
+    }
+    if (ticketSale.ticketType == TicketType.UNSPECIFIED) {
+        return stringResource(R.string.imported_payment)
+    }
+    return "${stringResource(R.string.imported_payment)} · $paymentText"
 }
 
 @Composable

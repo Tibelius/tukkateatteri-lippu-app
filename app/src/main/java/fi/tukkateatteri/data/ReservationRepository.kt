@@ -167,7 +167,7 @@ class RoomReservationRepository(
         payments: List<PendingPaymentAllocation>
     ) {
         require(quantity > 0) { "Ticket quantity must be positive." }
-        require(ticketType != TicketType.UNSPECIFIED) { "Manual ticket sales need a ticket type." }
+        require(ticketType != TicketType.UNSPECIFIED) { "Ticket sales need a ticket type." }
         require(payments.all { it.amountCents >= 0 }) { "Payment amounts must not be negative." }
         require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
             "Payment total must match the ticket price."
@@ -231,16 +231,13 @@ class RoomReservationRepository(
         payments: List<PendingPaymentAllocation>
     ) {
         require(quantity > 0) { "Ticket quantity must be positive." }
-        require(ticketType != TicketType.UNSPECIFIED) { "Manual ticket sales need a ticket type." }
+        require(ticketType != TicketType.UNSPECIFIED) { "Ticket sales need a ticket type." }
         require(payments.all { it.amountCents >= 0 }) { "Payment amounts must not be negative." }
         require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
             "Payment total must match the ticket price."
         }
         database.withTransaction {
             val existingTicketSale = requireNotNull(reservationDao.getTicketSaleById(ticketSaleId))
-            require(existingTicketSale.origin == TicketSaleOrigin.MANUAL) {
-                "Imported ticket sales cannot be edited."
-            }
             val reservationWithSales = requireNotNull(
                 reservationDao.getWithTicketSalesById(existingTicketSale.reservationId)
             )
@@ -266,14 +263,16 @@ class RoomReservationRepository(
                     )
                 }
             )
-            val arrivalDifference = quantity - existingTicketSale.quantity
-            reservationDao.update(
-                reservation.copy(
-                    arrivalCount = (reservation.arrivalCount + arrivalDifference)
-                        .coerceIn(0, reservation.seatCount),
-                    isPresent = reservation.arrivalCount + arrivalDifference > 0
+            if (existingTicketSale.countsAsArrival) {
+                val arrivalDifference = quantity - existingTicketSale.quantity
+                reservationDao.update(
+                    reservation.copy(
+                        arrivalCount = (reservation.arrivalCount + arrivalDifference)
+                            .coerceIn(0, reservation.seatCount),
+                        isPresent = reservation.arrivalCount + arrivalDifference > 0
+                    )
                 )
-            )
+            }
         }
     }
 

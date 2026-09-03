@@ -7,6 +7,7 @@ import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
+import fi.tukkateatteri.data.TicketSaleOrigin
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
@@ -110,6 +111,33 @@ class ReservationTest {
                     payments = listOf(
                         PaymentAllocation(1, 1, PaymentMethod.CARD, TicketType.DISCOUNT.defaultPriceCents * 2)
                     )
+                )
+            )
+        )
+
+        assertFalse(reservation.hasTicketValueMismatch)
+    }
+
+    @Test
+    fun importedTicketSales_areNotFlaggedAsValueMismatch() {
+        val reservation = Reservation(
+            id = 1,
+            performanceId = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 1,
+            reservedTicketAllocations = listOf(ReservedTicketAllocation(TicketType.BASIC, 1)),
+            ticketSales = listOf(
+                TicketSale(
+                    id = 1,
+                    reservationId = 1,
+                    ticketType = TicketType.UNSPECIFIED,
+                    quantity = 1,
+                    unitPriceCents = 0,
+                    origin = TicketSaleOrigin.IMPORTED,
+                    countsAsArrival = false,
+                    payments = listOf(PaymentAllocation(1, 1, PaymentMethod.LIPPUAGENTTI, 0))
                 )
             )
         )
