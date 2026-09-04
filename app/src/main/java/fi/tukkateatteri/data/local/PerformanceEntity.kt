@@ -18,12 +18,15 @@ data class PerformanceEntity(
     @ColumnInfo(name = "performance_date")
     val date: String,
     @ColumnInfo(name = "is_active")
-    val isActive: Boolean = false
+    val isActive: Boolean = false,
+    @ColumnInfo(name = "source_sheet_title")
+    val sourceSheetTitle: String? = null
 )
 
 fun PerformanceEntity.toPerformance() = Performance(
     id = id,
     actName = actName,
     date = date,
-    isActive = isActive
+    isActive = isActive,
+    sourceSheetTitle = sourceSheetTitle
 )

@@ -8,13 +8,14 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
+import fi.tukkateatteri.data.GoogleSheetSourceChangedException
+import fi.tukkateatteri.data.NoGoogleSheetImportCandidatesException
 import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
-import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
 import fi.tukkateatteri.R
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,10 +38,7 @@ class ReservationViewModel(
 ) : ViewModel() {
     private val addedReservationIdsChannel = Channel<Long>(Channel.BUFFERED)
     private val _transferMessage = MutableStateFlow<UiMessage?>(null)
-    private val _importCandidates = MutableStateFlow<List<GoogleSheetImportCandidate>>(emptyList())
     private val _isTransferInProgress = MutableStateFlow(false)
-    private var pendingImportUrl: String? = null
-    private var pendingImportAccessToken: String? = null
 
     val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
         scope = viewModelScope,
@@ -73,7 +71,6 @@ class ReservationViewModel(
     )
     val addedReservationIds = addedReservationIdsChannel.receiveAsFlow()
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
-    val importCandidates: StateFlow<List<GoogleSheetImportCandidate>> = _importCandidates
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
 
     fun createPerformance(actName: String, date: String) {
@@ -85,6 +82,12 @@ class ReservationViewModel(
     fun selectPerformance(performanceId: Long) {
         viewModelScope.launch {
             reservationRepository.selectPerformance(performanceId)
+        }
+    }
+
+    fun deletePerformance(performanceId: Long) {
+        viewModelScope.launch {
+            reservationRepository.deletePerformance(performanceId)
         }
     }
 
@@ -165,18 +168,16 @@ class ReservationViewModel(
         viewModelScope.launch {
             _isTransferInProgress.value = true
             try {
-                val candidates = reservationRepository.loadGoogleSheetImportCandidates(
+                val importResult = reservationRepository.importGoogleSheet(
                     spreadsheetUrl,
                     accessToken
                 )
-                if (candidates.isEmpty()) {
-                    dismissImportCandidates()
-                    _transferMessage.value = UiMessage(R.string.google_sheets_no_import_candidates)
-                } else {
-                    pendingImportUrl = spreadsheetUrl
-                    pendingImportAccessToken = accessToken
-                    _importCandidates.value = candidates
-                }
+                _transferMessage.value = UiMessage(
+                    R.string.google_sheets_import_succeeded,
+                    listOf(importResult.performanceCount, importResult.reservationCount)
+                )
+            } catch (_: NoGoogleSheetImportCandidatesException) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_no_import_candidates)
             } catch (_: Exception) {
                 _transferMessage.value = UiMessage(R.string.google_sheets_import_failed)
             } finally {
@@ -185,37 +186,27 @@ class ReservationViewModel(
         }
     }
 
-    fun importGoogleSheet(candidate: GoogleSheetImportCandidate) {
-        val spreadsheetUrl = pendingImportUrl ?: return
-        val accessToken = pendingImportAccessToken ?: return
+    fun syncGoogleSheetPerformance(performanceId: Long, spreadsheetUrl: String, accessToken: String) {
         viewModelScope.launch {
             _isTransferInProgress.value = true
             try {
-                val reservationCount = reservationRepository.importGoogleSheet(
+                val reservationCount = reservationRepository.syncGoogleSheetPerformance(
+                    performanceId,
                     spreadsheetUrl,
-                    accessToken,
-                    candidate
-                )
-                reservationRepository.upsertGoogleSheetSource(
-                    GoogleSheetSource(candidate.performanceName, spreadsheetUrl)
+                    accessToken
                 )
                 _transferMessage.value = UiMessage(
-                    R.string.google_sheets_import_succeeded,
+                    R.string.google_sheets_sync_succeeded,
                     listOf(reservationCount)
                 )
+            } catch (_: GoogleSheetSourceChangedException) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_sync_source_changed)
             } catch (_: Exception) {
-                _transferMessage.value = UiMessage(R.string.google_sheets_import_failed)
+                _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)
             } finally {
                 _isTransferInProgress.value = false
-                dismissImportCandidates()
             }
         }
-    }
-
-    fun dismissImportCandidates() {
-        _importCandidates.value = emptyList()
-        pendingImportUrl = null
-        pendingImportAccessToken = null
     }
 
     fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {

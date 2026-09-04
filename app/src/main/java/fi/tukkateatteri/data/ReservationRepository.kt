@@ -16,7 +16,6 @@ import fi.tukkateatteri.data.local.toGoogleSheetSource
 import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
-import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -28,6 +27,7 @@ interface ReservationRepository {
     fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>>
     suspend fun createPerformance(actName: String, date: String): Long
     suspend fun selectPerformance(performanceId: Long)
+    suspend fun deletePerformance(performanceId: Long)
     suspend fun addAdmission(
         lastName: String,
         firstName: String,
@@ -38,7 +38,12 @@ interface ReservationRepository {
     ): Long
     suspend fun updateReservation(reservation: Reservation)
     suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int)
-    suspend fun addTicketSale(reservationId: Long, ticketType: TicketType, quantity: Int, payments: List<PendingPaymentAllocation>)
+    suspend fun addTicketSale(
+        reservationId: Long,
+        ticketType: TicketType,
+        quantity: Int,
+        payments: List<PendingPaymentAllocation>
+    )
     suspend fun updateTicketSale(
         ticketSaleId: Long,
         ticketType: TicketType,
@@ -48,11 +53,11 @@ interface ReservationRepository {
     suspend fun deleteTicketSale(ticketSaleId: Long)
     suspend fun deleteReservation(reservationId: Long)
     suspend fun deleteAllReservations()
-    suspend fun loadGoogleSheetImportCandidates(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportCandidate>
-    suspend fun importGoogleSheet(
+    suspend fun importGoogleSheet(spreadsheetUrl: String, accessToken: String): GoogleSheetImportResult
+    suspend fun syncGoogleSheetPerformance(
+        performanceId: Long,
         spreadsheetUrl: String,
-        accessToken: String,
-        candidate: GoogleSheetImportCandidate
+        accessToken: String
     ): Int
     suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String)
     suspend fun upsertGoogleSheetSource(source: GoogleSheetSource)
@@ -60,6 +65,15 @@ interface ReservationRepository {
 }
 
 data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: Int)
+
+data class GoogleSheetImportResult(
+    val performanceCount: Int,
+    val reservationCount: Int
+)
+
+class GoogleSheetSourceChangedException : IllegalStateException()
+
+class NoGoogleSheetImportCandidatesException : IllegalStateException()
 
 class RoomReservationRepository(
     private val database: ReservationDatabase,
@@ -97,6 +111,14 @@ class RoomReservationRepository(
 
     override suspend fun selectPerformance(performanceId: Long) {
         performanceDao.setActive(performanceId)
+    }
+
+    override suspend fun deletePerformance(performanceId: Long) {
+        database.withTransaction {
+            requireNotNull(performanceDao.getById(performanceId)) { "Performance does not exist." }
+            reservationDao.deleteAllByPerformance(performanceId)
+            performanceDao.deleteById(performanceId)
+        }
     }
 
     override suspend fun addAdmission(
@@ -309,86 +331,125 @@ class RoomReservationRepository(
         rows: List<ReservationSpreadsheetRow>,
         performanceId: Long
     ) {
-        database.withTransaction {
-            rows.forEach { row ->
-                val existingReservation = if (row.sourceIdentity.isNotBlank()) {
-                    reservationDao.findBySourceIdentity(row.sourceIdentity)
-                } else {
-                    null
-                }
-                val reservationId = existingReservation?.id ?: reservationDao.insert(
-                    ReservationEntity(
-                        performanceId = performanceId,
+        rows.forEach { row ->
+            val existingReservation = if (row.sourceIdentity.isNotBlank()) {
+                reservationDao.findBySourceIdentity(row.sourceIdentity)
+            } else {
+                null
+            }
+            val reservationId = existingReservation?.id ?: reservationDao.insert(
+                ReservationEntity(
+                    performanceId = performanceId,
+                    lastName = row.lastName.trim(),
+                    firstName = row.firstName.trim(),
+                    contact = row.contact.trim(),
+                    seatCount = row.reservedSeatCount,
+                    notes = row.notes,
+                    sourceIdentity = row.sourceIdentity,
+                    admissionType = AdmissionType.RESERVATION,
+                    arrivalCount = row.arrivalCount,
+                    isPresent = row.arrivalCount > 0
+                )
+            )
+            if (existingReservation != null) {
+                reservationDao.update(
+                    existingReservation.copy(
                         lastName = row.lastName.trim(),
                         firstName = row.firstName.trim(),
                         contact = row.contact.trim(),
                         seatCount = row.reservedSeatCount,
                         notes = row.notes,
-                        sourceIdentity = row.sourceIdentity,
-                        admissionType = AdmissionType.RESERVATION,
-                        arrivalCount = row.arrivalCount,
-                        isPresent = row.arrivalCount > 0
+                        arrivalCount = maxOf(existingReservation.arrivalCount, row.arrivalCount),
+                        isPresent = existingReservation.arrivalCount > 0 || row.arrivalCount > 0
                     )
                 )
-                if (existingReservation != null) {
-                    reservationDao.update(
-                        existingReservation.copy(
-                            lastName = row.lastName.trim(),
-                            firstName = row.firstName.trim(),
-                            contact = row.contact.trim(),
-                            seatCount = row.reservedSeatCount,
-                            notes = row.notes,
-                            arrivalCount = maxOf(existingReservation.arrivalCount, row.arrivalCount),
-                            isPresent = existingReservation.arrivalCount > 0 || row.arrivalCount > 0
-                        )
-                    )
+            }
+            replaceReservedTicketAllocations(
+                reservationId,
+                row.reservedTicketCounts.map { (ticketType, quantity) ->
+                    ReservedTicketAllocation(ticketType, quantity)
                 }
-                replaceReservedTicketAllocations(
-                    reservationId,
-                    row.reservedTicketCounts.map { (ticketType, quantity) ->
-                        ReservedTicketAllocation(ticketType, quantity)
-                    }
-                )
-                reservationDao.deleteImportedTicketSalesForReservation(reservationId)
-                row.paymentTicketCounts.forEach { (paymentMethod, quantity) ->
-                    if (quantity > 0) {
-                        val ticketSaleId = reservationDao.insertTicketSale(
-                            TicketSaleEntity(
-                                reservationId = reservationId,
-                                ticketType = TicketType.UNSPECIFIED,
-                                quantity = quantity,
-                                unitPriceCents = 0,
-                                origin = TicketSaleOrigin.IMPORTED,
-                                countsAsArrival = false
+            )
+            reservationDao.deleteImportedTicketSalesForReservation(reservationId)
+            row.paymentTicketCounts.forEach { (paymentMethod, quantity) ->
+                if (quantity > 0) {
+                    val ticketSaleId = reservationDao.insertTicketSale(
+                        TicketSaleEntity(
+                            reservationId = reservationId,
+                            ticketType = TicketType.UNSPECIFIED,
+                            quantity = quantity,
+                            unitPriceCents = 0,
+                            origin = TicketSaleOrigin.IMPORTED,
+                            countsAsArrival = false
+                        )
+                    )
+                    reservationDao.insertPaymentAllocations(
+                        listOf(
+                            PaymentAllocationEntity(
+                                ticketSaleId = ticketSaleId,
+                                paymentMethod = paymentMethod,
+                                amountCents = 0
                             )
                         )
-                        reservationDao.insertPaymentAllocations(
-                            listOf(
-                                PaymentAllocationEntity(
-                                    ticketSaleId = ticketSaleId,
-                                    paymentMethod = paymentMethod,
-                                    amountCents = 0
-                                )
-                            )
-                        )
-                    }
+                    )
                 }
             }
         }
     }
 
-    override suspend fun loadGoogleSheetImportCandidates(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportCandidate> =
-        googleSheetsClient.loadImportCandidates(spreadsheetUrl, accessToken)
-
     override suspend fun importGoogleSheet(
         spreadsheetUrl: String,
-        accessToken: String,
-        candidate: GoogleSheetImportCandidate
+        accessToken: String
+    ): GoogleSheetImportResult {
+        val importedData = googleSheetsClient.loadImportData(spreadsheetUrl, accessToken)
+        if (importedData.isEmpty()) throw NoGoogleSheetImportCandidatesException()
+        val performanceIds = database.withTransaction {
+            val importedPerformanceIds = importedData.map { data ->
+                val performanceId = findOrCreateImportedPerformance(
+                    actName = data.candidate.performanceName,
+                    date = data.candidate.date,
+                    sourceSheetTitle = data.candidate.sheetTitle
+                )
+                importSpreadsheetRows(data.rows, performanceId)
+                performanceId
+            }
+            performanceDao.setActive(importedPerformanceIds.first())
+            importedData
+                .map { it.candidate.performanceName }
+                .distinct()
+                .forEach { actName ->
+                    googleSheetSourceDao.upsert(GoogleSheetSource(actName, spreadsheetUrl).toEntity())
+                }
+            importedPerformanceIds
+        }
+        return GoogleSheetImportResult(
+            performanceCount = performanceIds.distinct().size,
+            reservationCount = importedData.sumOf { it.rows.size }
+        )
+    }
+
+    override suspend fun syncGoogleSheetPerformance(
+        performanceId: Long,
+        spreadsheetUrl: String,
+        accessToken: String
     ): Int {
-        val rows = googleSheetsClient.importTab(spreadsheetUrl, accessToken, candidate.sheetTitle)
-        val performanceId = createPerformance(candidate.performanceName, candidate.date)
-        importSpreadsheetRows(rows, performanceId)
-        return rows.size
+        val performance = requireNotNull(performanceDao.getById(performanceId)) {
+            "Performance does not exist."
+        }
+        val sourceSheetTitle = performance.sourceSheetTitle ?: throw GoogleSheetSourceChangedException()
+        val importData = googleSheetsClient.loadImportData(spreadsheetUrl, accessToken)
+            .firstOrNull { it.candidate.sheetTitle == sourceSheetTitle }
+            ?: throw GoogleSheetSourceChangedException()
+        if (
+            importData.candidate.performanceName != performance.actName ||
+            importData.candidate.date != performance.date
+        ) {
+            throw GoogleSheetSourceChangedException()
+        }
+        database.withTransaction {
+            importSpreadsheetRows(importData.rows, performanceId)
+        }
+        return importData.rows.size
     }
 
     override suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
@@ -409,6 +470,28 @@ class RoomReservationRepository(
 
     override suspend fun deleteGoogleSheetSource(actName: String) {
         googleSheetSourceDao.deleteByActName(actName)
+    }
+
+    private suspend fun findOrCreateImportedPerformance(
+        actName: String,
+        date: String,
+        sourceSheetTitle: String
+    ): Long {
+        val normalizedActName = actName.trim()
+        val normalizedDate = date.trim()
+        val existingPerformance = performanceDao.findByNameAndDate(normalizedActName, normalizedDate)
+        return if (existingPerformance != null) {
+            performanceDao.updateSourceSheetTitle(existingPerformance.id, sourceSheetTitle)
+            existingPerformance.id
+        } else {
+            performanceDao.insert(
+                PerformanceEntity(
+                    actName = normalizedActName,
+                    date = normalizedDate,
+                    sourceSheetTitle = sourceSheetTitle
+                )
+            )
+        }
     }
 
     private suspend fun replaceReservedTicketAllocations(

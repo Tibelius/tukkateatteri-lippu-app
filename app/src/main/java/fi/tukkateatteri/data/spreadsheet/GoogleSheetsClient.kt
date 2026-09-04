@@ -25,6 +25,11 @@ data class GoogleSheetImportCandidate(
     val sortDate: LocalDate?
 )
 
+data class GoogleSheetImportData(
+    val candidate: GoogleSheetImportCandidate,
+    val rows: List<ReservationSpreadsheetRow>
+)
+
 class GoogleSheetsClient {
     suspend fun loadTabs(spreadsheetUrl: String, accessToken: String): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
@@ -69,22 +74,20 @@ class GoogleSheetsClient {
         }
     }
 
-    suspend fun loadImportCandidates(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportCandidate> =
+    suspend fun loadImportData(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportData> =
         loadTabs(spreadsheetUrl, accessToken)
-            .mapNotNull(GoogleSheetTab::toImportCandidateOrNull)
-            .sortedWith(compareBy<GoogleSheetImportCandidate> { it.sortDate ?: LocalDate.MAX }.thenBy { it.date })
-
-    suspend fun importTab(
-        spreadsheetUrl: String,
-        accessToken: String,
-        sheetTitle: String
-    ): List<ReservationSpreadsheetRow> {
-        val tab = loadTabs(spreadsheetUrl, accessToken).firstOrNull { it.title == sheetTitle }
-            ?: throw IllegalArgumentException("Valittua välilehteä ei löytynyt.")
-        val candidate = tab.toImportCandidateOrNull()
-            ?: throw IllegalArgumentException("Välilehdeltä puuttuu Esitys: tai Pvm: -tieto.")
-        return tab.toReservationSpreadsheetRows(candidate)
-    }
+            .mapNotNull { tab ->
+                tab.toImportCandidateOrNull()?.let { candidate ->
+                    GoogleSheetImportData(
+                        candidate = candidate,
+                        rows = tab.toReservationSpreadsheetRows(candidate)
+                    )
+                }
+            }
+            .sortedWith(
+                compareBy<GoogleSheetImportData> { it.candidate.sortDate ?: LocalDate.MAX }
+                    .thenBy { it.candidate.date }
+            )
 
     private fun loadValues(spreadsheetId: String, title: String, accessToken: String): List<List<String>> {
         val range = URLEncoder.encode("$title!A:Z", Charsets.UTF_8.name())

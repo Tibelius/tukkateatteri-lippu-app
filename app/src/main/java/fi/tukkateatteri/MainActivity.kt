@@ -9,6 +9,12 @@ import androidx.activity.viewModels
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +23,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -40,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,7 +60,6 @@ import com.google.android.gms.common.api.Scope
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.Performance
-import fi.tukkateatteri.data.spreadsheet.GoogleSheetImportCandidate
 import fi.tukkateatteri.ui.dialogs.AddAdmissionDialog
 import fi.tukkateatteri.ui.dialogs.AddAdmissionTypeDialog
 import fi.tukkateatteri.ui.dialogs.DeleteAllReservationsDialog
@@ -62,6 +69,8 @@ import fi.tukkateatteri.ui.dialogs.ReservationDialog
 import fi.tukkateatteri.ui.screens.ReservationListScreen
 import fi.tukkateatteri.ui.theme.TukkateatteriTheme
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     private val reservationViewModel: ReservationViewModel by viewModels {
@@ -109,6 +118,15 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
+                        }
+                    },
+                    onGoogleSheetsSync = { performance, spreadsheetUrl ->
+                        authorizeGoogleSheets { accessToken ->
+                            reservationViewModel.syncGoogleSheetPerformance(
+                                performance.id,
+                                spreadsheetUrl,
+                                accessToken
+                            )
                         }
                     },
                     onChangeGoogleAccount = ::revokeGoogleSheetsAccess
@@ -164,13 +182,13 @@ class MainActivity : ComponentActivity() {
 private fun ReservationApp(
     viewModel: ReservationViewModel,
     onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit,
+    onGoogleSheetsSync: (Performance, String) -> Unit,
     onChangeGoogleAccount: () -> Unit
 ) {
     val reservations by viewModel.reservations.collectAsStateWithLifecycle()
     val activePerformance by viewModel.activePerformance.collectAsStateWithLifecycle()
     val performances by viewModel.performances.collectAsStateWithLifecycle()
     val transferMessage by viewModel.transferMessage.collectAsStateWithLifecycle()
-    val importCandidates by viewModel.importCandidates.collectAsStateWithLifecycle()
     val isTransferInProgress by viewModel.isTransferInProgress.collectAsStateWithLifecycle()
     val googleSheetSources by viewModel.googleSheetSources.collectAsStateWithLifecycle()
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -180,6 +198,7 @@ private fun ReservationApp(
     var showDeleteAllReservationsConfirmation by rememberSaveable { mutableStateOf(false) }
     var showGoogleSheetSourceManager by rememberSaveable { mutableStateOf(false) }
     var showPerformanceEditor by rememberSaveable { mutableStateOf(false) }
+    var performanceToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var spreadsheetAction by rememberSaveable { mutableStateOf<SpreadsheetAction?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -189,12 +208,21 @@ private fun ReservationApp(
         drawerContent = {
             PerformanceDrawerContent(
                 performances = performances,
+                googleSheetSources = googleSheetSources,
                 onSelectPerformance = { performance ->
                     viewModel.selectPerformance(performance.id)
                     coroutineScope.launch { drawerState.close() }
                 },
                 onAddPerformance = {
                     showPerformanceEditor = true
+                    coroutineScope.launch { drawerState.close() }
+                },
+                onSyncPerformance = { performance, source ->
+                    onGoogleSheetsSync(performance, source.spreadsheetUrl)
+                    coroutineScope.launch { drawerState.close() }
+                },
+                onDeletePerformance = { performance ->
+                    performanceToDeleteId = performance.id
                     coroutineScope.launch { drawerState.close() }
                 }
             )
@@ -238,6 +266,17 @@ private fun ReservationApp(
             onSave = { actName, date ->
                 viewModel.createPerformance(actName, date)
                 showPerformanceEditor = false
+            }
+        )
+    }
+
+    performances.find { it.id == performanceToDeleteId }?.let { performance ->
+        DeletePerformanceDialog(
+            performance = performance,
+            onDismiss = { performanceToDeleteId = null },
+            onConfirm = {
+                viewModel.deletePerformance(performance.id)
+                performanceToDeleteId = null
             }
         )
     }
@@ -339,14 +378,6 @@ private fun ReservationApp(
         )
     }
 
-    if (importCandidates.isNotEmpty() && !isTransferInProgress) {
-        ImportPerformanceDialog(
-            candidates = importCandidates,
-            onDismiss = viewModel::dismissImportCandidates,
-            onSelect = viewModel::importGoogleSheet
-        )
-    }
-
     spreadsheetAction?.let { action ->
         SpreadsheetTransferDialog(
             action = action,
@@ -358,30 +389,6 @@ private fun ReservationApp(
             }
         )
     }
-}
-
-@Composable
-private fun ImportPerformanceDialog(
-    candidates: List<GoogleSheetImportCandidate>,
-    onDismiss: () -> Unit,
-    onSelect: (GoogleSheetImportCandidate) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.select_performance_date)) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(candidates.first().performanceName, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                candidates.forEach { candidate ->
-                    TextButton(onClick = { onSelect(candidate) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(candidate.date, modifier = Modifier.fillMaxWidth())
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
-    )
 }
 
 @Composable
@@ -455,11 +462,25 @@ private fun SpreadsheetTransferDialog(
 @Composable
 private fun PerformanceDrawerContent(
     performances: List<Performance>,
+    googleSheetSources: List<GoogleSheetSource>,
     onSelectPerformance: (Performance) -> Unit,
-    onAddPerformance: () -> Unit
+    onAddPerformance: () -> Unit,
+    onSyncPerformance: (Performance, GoogleSheetSource) -> Unit,
+    onDeletePerformance: (Performance) -> Unit
 ) {
+    var expandedActName by rememberSaveable { mutableStateOf<String?>(null) }
+    var hasExplicitExpansionSelection by rememberSaveable { mutableStateOf(false) }
+    val performancesByAct = performances
+        .groupBy(Performance::actName)
+        .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+    val sourcesByAct = googleSheetSources.associateBy(GoogleSheetSource::actName)
+
     ModalDrawerSheet {
-        Column(modifier = Modifier.padding(vertical = 16.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(vertical = 16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Text(
                 text = stringResource(R.string.performances),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -472,28 +493,133 @@ private fun PerformanceDrawerContent(
                 Text(stringResource(R.string.add_performance))
             }
             HorizontalDivider()
-            performances.forEach { performance ->
+            performancesByAct.forEach { (actName, actPerformances) ->
+                val isExpanded = if (hasExplicitExpansionSelection) {
+                    expandedActName == actName
+                } else {
+                    actPerformances.any(Performance::isActive)
+                }
                 ListItem(
-                    headlineContent = { Text(performance.actName) },
+                    headlineContent = { Text(actName) },
                     supportingContent = {
-                        if (performance.date.isNotBlank()) {
-                            Text(performance.date)
-                        }
+                        Text(pluralStringResource(R.plurals.performance_date_count, actPerformances.size, actPerformances.size))
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelectPerformance(performance) },
-                    colors = androidx.compose.material3.ListItemDefaults.colors(
-                        containerColor = if (performance.isActive) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        }
-                    )
+                        .clickable {
+                            hasExplicitExpansionSelection = true
+                            expandedActName = if (isExpanded) null else actName
+                        },
+                    trailingContent = {
+                        Icon(
+                            imageVector = if (isExpanded) {
+                                Icons.Filled.ExpandLess
+                            } else {
+                                Icons.Filled.ExpandMore
+                            },
+                            contentDescription = null
+                        )
+                    }
                 )
+                if (isExpanded) {
+                    actPerformances
+                        .sortedWith(
+                            compareBy<Performance> {
+                                it.date.toPerformanceDateOrNull() ?: LocalDate.MAX
+                            }
+                                .thenBy(Performance::date)
+                        )
+                        .forEach { performance ->
+                            PerformanceDrawerDateItem(
+                                performance = performance,
+                                source = sourcesByAct[actName],
+                                onSelect = { onSelectPerformance(performance) },
+                                onSync = { source -> onSyncPerformance(performance, source) },
+                                onDelete = { onDeletePerformance(performance) }
+                            )
+                        }
+                }
             }
         }
     }
+}
+
+private fun String.toPerformanceDateOrNull(): LocalDate? = runCatching {
+    LocalDate.parse(trim(), DateTimeFormatter.ofPattern("d.M.uuuu"))
+}.getOrNull()
+
+@Composable
+private fun PerformanceDrawerDateItem(
+    performance: Performance,
+    source: GoogleSheetSource?,
+    onSelect: () -> Unit,
+    onSync: (GoogleSheetSource) -> Unit,
+    onDelete: () -> Unit
+) {
+    ListItem(
+        headlineContent = { Text(performance.date) },
+        supportingContent = {
+            if (performance.canSyncFromGoogleSheets && source == null) {
+                Text(stringResource(R.string.google_sheets_sync_source_missing))
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp)
+            .clickable(onClick = onSelect),
+        trailingContent = {
+            Row {
+                if (performance.canSyncFromGoogleSheets && source != null) {
+                    IconButton(onClick = { onSync(source) }) {
+                        Icon(
+                            imageVector = Icons.Filled.Sync,
+                            contentDescription = stringResource(R.string.sync_google_sheet)
+                        )
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = stringResource(R.string.delete_performance_action),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        colors = androidx.compose.material3.ListItemDefaults.colors(
+            containerColor = if (performance.isActive) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        )
+    )
+}
+
+@Composable
+private fun DeletePerformanceDialog(
+    performance: Performance,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.delete_performance_title)) },
+        text = { Text(stringResource(R.string.delete_performance_message, performance.displayName)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = stringResource(R.string.delete),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
 }
 
 @Composable

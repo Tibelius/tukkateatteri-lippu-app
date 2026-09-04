@@ -292,6 +292,19 @@ class ReservationTest {
     }
 
     @Test
+    fun importedPerformance_canBeSyncedFromItsOriginalSheetTab() {
+        val performance = Performance(
+            id = 1,
+            actName = "Yön Vuodenaika",
+            date = "24.10.2026",
+            isActive = true,
+            sourceSheetTitle = "24.10"
+        )
+
+        assertTrue(performance.canSyncFromGoogleSheets)
+    }
+
+    @Test
     fun prepaidReservation_isNotCompletedBeforeArrival() {
         val reservation = Reservation(
             id = 1,

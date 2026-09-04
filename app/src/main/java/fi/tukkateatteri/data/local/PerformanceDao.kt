@@ -20,6 +20,9 @@ interface PerformanceDao {
     @Query("SELECT * FROM performances WHERE is_active = 1 LIMIT 1")
     suspend fun getActive(): PerformanceEntity?
 
+    @Query("SELECT * FROM performances WHERE id = :performanceId LIMIT 1")
+    suspend fun getById(performanceId: Long): PerformanceEntity?
+
     @Query("SELECT EXISTS(SELECT 1 FROM performances WHERE id = :performanceId)")
     suspend fun exists(performanceId: Long): Boolean
 
@@ -31,6 +34,12 @@ interface PerformanceDao {
 
     @Insert
     suspend fun insert(performance: PerformanceEntity): Long
+
+    @Query("UPDATE performances SET source_sheet_title = :sourceSheetTitle WHERE id = :performanceId")
+    suspend fun updateSourceSheetTitle(performanceId: Long, sourceSheetTitle: String)
+
+    @Query("DELETE FROM performances WHERE id = :performanceId")
+    suspend fun deleteById(performanceId: Long)
 
     @Query("UPDATE performances SET is_active = 0")
     suspend fun clearActivePerformance()

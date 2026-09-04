@@ -54,8 +54,13 @@
     <string name="no_active_performance">Valitse tai lisää esitys valikosta ennen varausten käsittelyä.</string>
     <string name="open_performance_menu">Avaa esitysvalikko</string>
     <string name="google_sheets_no_import_candidates">Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt.</string>
-    <string name="google_sheets_import_succeeded">Tuotiin %1$d varausta.</string>
+    <string name="google_sheets_import_succeeded">Tuotiin %1$d esitystä ja %2$d varausta.</string>
     <string name="google_sheets_import_failed">Tuonti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
+    <string name="sync_google_sheet">Päivitä Google Sheetsistä</string>
+    <string name="google_sheets_sync_succeeded">Päivitettiin %1$d varausta.</string>
+    <string name="google_sheets_sync_failed">Päivitys epäonnistui. Tarkista yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_sync_source_changed">Tallennettu välilehti tai sen esitys- tai päivämäärätiedot ovat muuttuneet. Tuo taulukko uudelleen.</string>
+    <string name="google_sheets_sync_source_missing">Google Sheets -osoite puuttuu. Lisää se Google Sheets -osoitteista.</string>
     <string name="google_sheets_export_succeeded">Vienti onnistui.</string>
     <string name="google_sheets_export_failed">Vienti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
@@ -66,6 +71,13 @@
     <string name="delete_all_reservations_title">Poistetaanko kaikki varaukset?</string>
     <string name="delete_all_reservations_message">Kaikki varaukset poistetaan pysyvästi.</string>
     <string name="delete_all_reservations_action">Poista kaikki varaukset</string>
+    <string name="delete_performance_title">Poistetaanko esitys?</string>
+    <string name="delete_performance_message">%1$s ja kaikki sen varaukset poistetaan pysyvästi.</string>
+    <string name="delete_performance_action">Poista esitys</string>
+    <plurals name="performance_date_count">
+        <item quantity="one">%1$d esityspäivä</item>
+        <item quantity="other">%1$d esityspäivää</item>
+    </plurals>
 
     <string name="seat_count">Paikkoja</string>
     <string name="decrease_seat_count">Vähennä paikkoja</string>

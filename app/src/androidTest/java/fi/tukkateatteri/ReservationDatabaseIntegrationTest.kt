@@ -161,4 +161,30 @@ class ReservationDatabaseIntegrationTest {
         assertEquals(null, database.reservationDao().getWithTicketSalesById(reservationId))
         assertFalse(database.reservationDao().getByPerformanceWithTicketSales(performanceId).isNotEmpty())
     }
+
+    @Test
+    fun deletingAPerformanceAfterItsReservationsRemovesThePerformance() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(
+                actName = "Yön Vuodenaika",
+                date = "24.10.2026",
+                sourceSheetTitle = "24.10"
+            )
+        )
+        database.reservationDao().insert(
+            ReservationEntity(
+                performanceId = performanceId,
+                lastName = "Poistettava",
+                firstName = "Esitys",
+                contact = "",
+                seatCount = 1
+            )
+        )
+
+        database.reservationDao().deleteAllByPerformance(performanceId)
+        database.performanceDao().deleteById(performanceId)
+
+        assertEquals(null, database.performanceDao().getById(performanceId))
+        assertFalse(database.reservationDao().getByPerformanceWithTicketSales(performanceId).isNotEmpty())
+    }
 }
