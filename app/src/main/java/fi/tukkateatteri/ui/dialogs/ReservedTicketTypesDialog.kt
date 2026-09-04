@@ -3,6 +3,7 @@ package fi.tukkateatteri.ui.dialogs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -60,7 +61,26 @@ fun ReservedTicketTypesDialog(
         ticketType != TicketType.UNSPECIFIED && ticketType.name !in quantities
     }
 
-    ScrollableAppDialog(onDismissRequest = onDismiss) {
+    ScrollableAppDialog(
+        onDismissRequest = onDismiss,
+        actions = {
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            Button(
+                onClick = {
+                    onSave(
+                        quantities.map { (ticketTypeName, quantity) ->
+                            ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
+                        }
+                    )
+                }
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
+    ) {
         Text(
             text = stringResource(R.string.reserved_ticket_types),
             style = MaterialTheme.typography.headlineSmall
@@ -123,25 +143,6 @@ fun ReservedTicketTypesDialog(
                         )
                     }
                 }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            TextButton(
-                onClick = {
-                    onSave(
-                        quantities.map { (ticketTypeName, quantity) ->
-                            ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
-                        }
-                    )
-                }
-            ) {
-                Text(stringResource(R.string.save))
             }
         }
     }

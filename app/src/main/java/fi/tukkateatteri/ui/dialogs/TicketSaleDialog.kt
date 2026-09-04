@@ -1,8 +1,6 @@
 package fi.tukkateatteri.ui.dialogs
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,27 +24,28 @@ import androidx.compose.ui.text.input.KeyboardType
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.PendingPaymentAllocation
+import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
+import fi.tukkateatteri.ui.components.RemainingReservedTicketTypesSummaryCard
 import java.math.RoundingMode
 
 @Composable
 fun TicketSaleDialog(
     maximumQuantity: Int,
     ticketSale: TicketSale? = null,
+    reservedTicketAllocations: List<ReservedTicketAllocation> = emptyList(),
+    ticketSalesList: List<TicketSale> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
     val initialFirstPayment = ticketSale?.payments?.getOrNull(0)
     val initialSecondPayment = ticketSale?.payments?.getOrNull(1)
-    var ticketTypeName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(ticketSale?.ticketType?.name ?: TicketType.BASIC.name)
-    }
     var quantity by rememberSaveable(ticketSale?.id) {
         mutableIntStateOf(ticketSale?.quantity ?: 1)
     }
@@ -69,7 +68,28 @@ fun TicketSaleDialog(
     var secondSplitAmount by rememberSaveable(ticketSale?.id) {
         mutableStateOf(initialSecondPayment?.amountCents?.toDecimalInput().orEmpty())
     }
-    val ticketType = TicketType.valueOf(ticketTypeName)
+
+    val redeemedByType = ticketSalesList
+    .groupBy(TicketSale::ticketType)
+    .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
+
+    val remainingAllocations = reservedTicketAllocations.mapNotNull { allocation ->
+    val remainingQuantity = allocation.quantity -
+        redeemedByType.getOrDefault(allocation.ticketType, 0)
+
+        remainingQuantity
+            .takeIf { it > 0 }
+            ?.let { allocation.copy(quantity = it) }
+    }
+
+    val initialTicketType = ticketSale?.ticketType
+        ?: remainingAllocations.firstOrNull()?.ticketType
+        ?: TicketType.BASIC
+
+    var ticketTypeName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialTicketType.name)
+    }
+    var ticketType = TicketType.valueOf(ticketTypeName)
     val totalPriceCents = ticketType.defaultPriceCents * quantity
     val selectedPayment = selectedPaymentName?.let(PaymentMethod::valueOf)
     val firstSplitMethod = PaymentMethod.valueOf(firstSplitMethodName)
@@ -95,13 +115,40 @@ fun TicketSaleDialog(
                 ))
         )
 
-    ScrollableAppDialog(onDismissRequest = onDismiss) {
+    ScrollableAppDialog(
+        onDismissRequest = onDismiss,
+        actions = {
+            onDelete?.let { delete ->
+                TextButton(onClick = delete) {
+                    Text(
+                        text = stringResource(R.string.delete_ticket_sale),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            Button(
+                onClick = { onSave(ticketType, quantity, payments) },
+                enabled = quantity in 1..maximumQuantity && isPaymentValid
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
+    ) {
         Text(
             text = stringResource(
                 if (ticketSale == null) R.string.add_ticket_sale else R.string.edit_ticket_sale
             ),
             style = MaterialTheme.typography.headlineSmall
         )
+
+        if (reservedTicketAllocations.isNotEmpty()) {
+            RemainingReservedTicketTypesSummaryCard(remainingAllocations)
+        }
+
         Text(
             text = stringResource(R.string.ticket_type),
             style = MaterialTheme.typography.titleMedium
@@ -147,31 +194,6 @@ fun TicketSaleDialog(
                 TextButton(onClick = { isSplitPayment = true }) {
                     Text(stringResource(R.string.split_payment))
                 }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            onDelete?.let { delete ->
-                TextButton(onClick = delete) {
-                    Text(
-                        text = stringResource(R.string.delete_ticket_sale),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            TextButton(
-                onClick = { onSave(ticketType, quantity, payments) },
-                enabled = quantity in 1..maximumQuantity && isPaymentValid
-            ) {
-                Text(stringResource(R.string.save))
             }
         }
     }

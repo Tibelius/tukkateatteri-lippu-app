@@ -4,12 +4,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -76,7 +78,23 @@ fun AddAdmissionDialog(
         )
     }
 
-    ScrollableAppDialog(onDismissRequest = onDismiss) {
+    ScrollableAppDialog(
+        onDismissRequest = onDismiss,
+        actions = {
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            Button(
+                enabled = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank()),
+                onClick = {
+                    onSave(lastName, firstName, contact, seatCount, reservedTicketAllocations)
+                }
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
+    ) {
         Text(
             text = stringResource(admissionType.labelResId),
             style = MaterialTheme.typography.headlineSmall
@@ -158,21 +176,5 @@ fun AddAdmissionDialog(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            TextButton(
-                enabled = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank()),
-                onClick = {
-                    onSave(lastName, firstName, contact, seatCount, reservedTicketAllocations)
-                }
-            ) {
-                Text(stringResource(R.string.save))
-            }
-        }
     }
 }

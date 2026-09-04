@@ -88,6 +88,7 @@
     <string name="ticket_type_free_ticket">Vapaalippu</string>
     <string name="ticket_type_unspecified">Määrittelemätön</string>
     <string name="reserved_ticket_types">Varatut lipputyypit</string>
+    <string name="reserved_ticket_types_remaining">Lunastamattomat lipputyypit</string>
     <string name="reserved_ticket_types_total">%1$d / %2$d paikkaa määritelty</string>
     <string name="reserved_ticket_types_summary">%d lipputyyppiä varattu</string>
     <string name="no_reserved_ticket_types">Ei määritelty</string>

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -51,6 +52,8 @@ import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
+import fi.tukkateatteri.ui.components.reservedTicketTypesDetails
+import fi.tukkateatteri.ui.components.ReservedTicketTypesSummaryCard
 
 @Composable
 fun ReservationDialog(
@@ -78,6 +81,8 @@ fun ReservationDialog(
     if (showTicketSaleDialog) {
         TicketSaleDialog(
             maximumQuantity = reservation.unpaidSeatCount,
+            reservedTicketAllocations = reservation.reservedTicketAllocations,
+            ticketSalesList = reservation.ticketSales,
             onDismiss = { showTicketSaleDialog = false },
             onSave = { ticketType, quantity, payments ->
                 onAddTicketSale(ticketType, quantity, payments)
@@ -90,6 +95,8 @@ fun ReservationDialog(
         TicketSaleDialog(
             maximumQuantity = reservation.unpaidSeatCount + ticketSale.quantity,
             ticketSale = ticketSale,
+            reservedTicketAllocations = reservation.reservedTicketAllocations,
+            ticketSalesList = reservation.ticketSales,
             onDismiss = { ticketSaleToEditId = null },
             onSave = { ticketType, quantity, payments ->
                 onUpdateTicketSale(ticketSale.id, ticketType, quantity, payments)
@@ -150,6 +157,7 @@ fun ReservationDialog(
         if (!isDoorSale && reservation.reservedTicketAllocations.isNotEmpty()) {
             ReservedTicketTypesSummaryCard(reservation.reservedTicketAllocations)
         }
+
         if (reservation.arrivalCount > 0 || reservation.paidSeatCount > 0) {
             ArrivalSection(
                 arrivalCount = reservation.arrivalCount,
@@ -231,7 +239,6 @@ private fun ReservationEditorDialog(
     ) {
         mutableStateOf(reservation.reservedTicketAllocations)
     }
-    var showReservedTicketTypesDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
     val minimumSeatCount = maxOf(
         1,
         reservation.paidSeatCount,
@@ -240,6 +247,7 @@ private fun ReservationEditorDialog(
     )
     val canSave = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
 
+    var showReservedTicketTypesDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
     if (showReservedTicketTypesDialog) {
         ReservedTicketTypesDialog(
             initialAllocations = reservedTicketAllocations,
@@ -252,7 +260,32 @@ private fun ReservationEditorDialog(
         )
     }
 
-    ScrollableAppDialog(onDismissRequest = onDismiss) {
+    ScrollableAppDialog(
+        onDismissRequest = onDismiss,
+        actions = {
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+            Button(
+                onClick = {
+                    onSave(
+                        reservation.copy(
+                            lastName = lastName.trim(),
+                            firstName = firstName.trim(),
+                            contact = contact.trim(),
+                            notes = notes.trim(),
+                            seatCount = seatCount,
+                            reservedTicketAllocations = reservedTicketAllocations
+                        )
+                    )
+                },
+                enabled = canSave
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
+    ) {
         Text(
             text = stringResource(R.string.edit_reservation),
             style = MaterialTheme.typography.headlineSmall
@@ -286,54 +319,6 @@ private fun ReservationEditorDialog(
             label = { Text(stringResource(R.string.reservation_notes)) },
             minLines = 2
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            TextButton(
-                onClick = {
-                    onSave(
-                        reservation.copy(
-                            lastName = lastName.trim(),
-                            firstName = firstName.trim(),
-                            contact = contact.trim(),
-                            notes = notes.trim(),
-                            seatCount = seatCount,
-                            reservedTicketAllocations = reservedTicketAllocations
-                        )
-                    )
-                },
-                enabled = canSave
-            ) {
-                Text(stringResource(R.string.save))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReservedTicketTypesSummaryCard(allocations: List<ReservedTicketAllocation>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = stringResource(R.string.reserved_ticket_types),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-            Text(
-                text = reservedTicketTypesDetails(allocations),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-        }
     }
 }
 
@@ -355,18 +340,6 @@ private fun ReservedTicketTypesEditorRow(
         }
         Icon(Icons.Filled.ExpandMore, contentDescription = null)
     }
-}
-
-@Composable
-private fun reservedTicketTypesDetails(allocations: List<ReservedTicketAllocation>): String {
-    var details = ""
-    for ((index, allocation) in allocations.withIndex()) {
-        if (index > 0) {
-            details += "\n"
-        }
-        details += "${stringResource(allocation.ticketType.labelResId)} × ${allocation.quantity}"
-    }
-    return details
 }
 
 @Composable
