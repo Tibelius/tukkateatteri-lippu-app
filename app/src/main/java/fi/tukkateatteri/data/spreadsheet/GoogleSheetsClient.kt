@@ -43,9 +43,8 @@ class GoogleSheetsClient {
                 add(sheets.getJSONObject(index).getJSONObject("properties").getString("title"))
             }
         }
-        return@withContext titles.map { title ->
-            GoogleSheetTab(title = title, rows = loadValues(spreadsheetId, title, accessToken))
-        }
+        val rowsByTitle = loadValuesForTabs(spreadsheetId, titles, accessToken)
+        return@withContext titles.map { title -> GoogleSheetTab(title, rowsByTitle.getValue(title)) }
     }
 
     suspend fun exportRows(
@@ -89,10 +88,46 @@ class GoogleSheetsClient {
                     .thenBy { it.candidate.date }
             )
 
+    suspend fun loadImportDataForTab(
+        spreadsheetUrl: String,
+        accessToken: String,
+        sheetTitle: String
+    ): GoogleSheetImportData = withContext(Dispatchers.IO) {
+        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
+        val tab = GoogleSheetTab(
+            title = sheetTitle,
+            rows = loadValuesForTabs(spreadsheetId, listOf(sheetTitle), accessToken).getValue(sheetTitle)
+        )
+        val candidate = requireNotNull(tab.toImportCandidateOrNull()) {
+            "Välilehdeltä puuttuu Esitys: tai Pvm: -tieto."
+        }
+        GoogleSheetImportData(candidate, tab.toReservationSpreadsheetRows(candidate))
+    }
+
     private fun loadValues(spreadsheetId: String, title: String, accessToken: String): List<List<String>> {
-        val range = URLEncoder.encode("$title!A:Z", Charsets.UTF_8.name())
+        val range = URLEncoder.encode(valuesRange(title), Charsets.UTF_8.name())
         val response = getJson("$API_BASE/spreadsheets/$spreadsheetId/values/$range", accessToken)
-        val values = response.optJSONArray("values") ?: return emptyList()
+        return response.optJSONArray("values").toRows()
+    }
+
+    private fun loadValuesForTabs(
+        spreadsheetId: String,
+        titles: List<String>,
+        accessToken: String
+    ): Map<String, List<List<String>>> {
+        if (titles.isEmpty()) return emptyMap()
+        val ranges = titles.joinToString("&") { title ->
+            "ranges=${URLEncoder.encode(valuesRange(title), Charsets.UTF_8.name())}"
+        }
+        val response = getJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchGet?$ranges", accessToken)
+        val valueRanges = response.optJSONArray("valueRanges")
+        return titles.mapIndexed { index, title ->
+            title to valueRanges?.optJSONObject(index)?.optJSONArray("values").toRows()
+        }.toMap()
+    }
+
+    private fun JSONArray?.toRows(): List<List<String>> {
+        val values = this ?: return emptyList()
         return buildList {
             for (rowIndex in 0 until values.length()) {
                 val row = values.getJSONArray(rowIndex)
@@ -102,6 +137,9 @@ class GoogleSheetsClient {
             }
         }
     }
+
+    private fun valuesRange(sheetTitle: String): String =
+        "'${sheetTitle.replace("'", "''")}'!A:Z"
 
     private fun getJson(url: String, accessToken: String): JSONObject {
         val connection = URI(url).toURL().openConnection() as HttpURLConnection

@@ -437,9 +437,15 @@ class RoomReservationRepository(
             "Performance does not exist."
         }
         val sourceSheetTitle = performance.sourceSheetTitle ?: throw GoogleSheetSourceChangedException()
-        val importData = googleSheetsClient.loadImportData(spreadsheetUrl, accessToken)
-            .firstOrNull { it.candidate.sheetTitle == sourceSheetTitle }
-            ?: throw GoogleSheetSourceChangedException()
+        val importData = try {
+            googleSheetsClient.loadImportDataForTab(
+                spreadsheetUrl = spreadsheetUrl,
+                accessToken = accessToken,
+                sheetTitle = sourceSheetTitle
+            )
+        } catch (_: IllegalArgumentException) {
+            throw GoogleSheetSourceChangedException()
+        }
         if (
             importData.candidate.performanceName != performance.actName ||
             importData.candidate.date != performance.date

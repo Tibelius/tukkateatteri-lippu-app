@@ -1,5 +1,6 @@
 package fi.tukkateatteri
 
+import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -201,7 +202,8 @@ class ReservationViewModel(
                 )
             } catch (_: GoogleSheetSourceChangedException) {
                 _transferMessage.value = UiMessage(R.string.google_sheets_sync_source_changed)
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+                Log.e(TAG, "Google Sheets performance sync failed", exception)
                 _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)
             } finally {
                 _isTransferInProgress.value = false
@@ -246,6 +248,7 @@ class ReservationViewModel(
     }
 
     companion object {
+        private const val TAG = "ReservationViewModel"
         fun factory(repository: ReservationRepository): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ReservationViewModel(repository)
