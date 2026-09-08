@@ -33,6 +33,7 @@ obj/
 
 # Signing keys and configuration
 *.jks
+*.jks.gpg
 *.keystore
 *.p12
 *.pfx
