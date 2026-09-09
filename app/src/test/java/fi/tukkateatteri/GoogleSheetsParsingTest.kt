@@ -104,15 +104,8 @@ class GoogleSheetsParsingTest {
 
     @Test
     fun importRows_normalizesHeaderCapitalizationAndWhitespace() {
-        val normalizedHeaders = headers.mapIndexed { index, value ->
-            when (index) {
-                0 -> "  SUKUNIMI "
-                3 -> "Varatut   liput  kpl"
-                4 -> "Saapunut esitykseen eli lunastettujen lippujen lukumäärä"
-                5 -> "PERUS 22 €"
-                17 -> "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
-                else -> value
-            }
+        val normalizedHeaders = headers.map { value ->
+            "\u00A0 ${value.uppercase().replace(" ", "  \n\t")} \u00A0"
         }
         val tab = GoogleSheetTab(
             title = "24.10",
@@ -131,6 +124,25 @@ class GoogleSheetsParsingTest {
         assertEquals("Testaaja", row.lastName)
         assertEquals(1, row.arrivalCount)
         assertEquals(1, row.reservedTicketCounts[TicketType.BASIC])
+    }
+
+    @Test
+    fun importCandidate_trimsSpreadsheetWhitespaceFromLabelsAndValues() {
+        val tab = GoogleSheetTab(
+            title = "24.10. ",
+            rows = listOf(
+                headers,
+                emptyRow(),
+                listOf("\u00A0 ESITYS: \t", "\u00A0Yön Vuodenaika\u00A0"),
+                listOf("  PVM:\n", "\t24.10.2026 ")
+            )
+        )
+
+        val candidate = requireNotNull(tab.toImportCandidateOrNull())
+
+        assertEquals("Yön Vuodenaika", candidate.performanceName)
+        assertEquals("24.10.2026", candidate.date)
+        assertEquals("24.10. ", candidate.sheetTitle)
     }
 
     @Test

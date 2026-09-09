@@ -93,7 +93,7 @@ class GoogleSheetsClient(
         action: suspend () -> T
     ): T = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        val performanceKey = "$spreadsheetId|$sheetTitle"
+        val performanceKey = performanceLockKey(spreadsheetId, sheetTitle)
         localPerformanceLocks.withLock(performanceKey) {
             withRemotePerformanceLock(
                 spreadsheetId = spreadsheetId,
@@ -206,7 +206,7 @@ class GoogleSheetsClient(
         val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, existingRows, headerRowIndex, accessToken)
         requireApplicationHeaders(headers)
         val existingById = existingRows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            row.valueAt(headers[HEADER_SHEET_ROW_ID]).trim()
+            row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
                 .takeIf(String::isNotBlank)
                 ?.let { it to headerRowIndex + index + 2 }
         }.toMap()
@@ -261,7 +261,8 @@ class GoogleSheetsClient(
         val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, rows, headerRowIndex, accessToken)
         requireApplicationHeaders(headers)
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            val matchesId = sheetRowId.isNotBlank() && row.valueAt(headers[HEADER_SHEET_ROW_ID]) == sheetRowId
+            val matchesId = sheetRowId.isNotBlank() &&
+                row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace() == sheetRowId
             val matchesSourceIdentity = sourceIdentity.toNameKeyOrNull() == (
                 row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
                     row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
@@ -297,7 +298,8 @@ class GoogleSheetsClient(
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, rows, headerRowIndex, accessToken)
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            val matchesId = sheetRowId.isNotBlank() && row.valueAt(headers[HEADER_SHEET_ROW_ID]) == sheetRowId
+            val matchesId = sheetRowId.isNotBlank() &&
+                row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace() == sheetRowId
             val matchesSourceIdentity = sourceIdentity.toNameKeyOrNull() == (
                 row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
                     row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
@@ -771,10 +773,10 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
         if (row.valueAt(headerIndexes[HEADER_APP_OPERATION]).normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()) {
             return@mapIndexedNotNull null
         }
-        val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trim()
-        val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trim()
+        val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
+        val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
         if (lastName.isBlank() && firstName.isBlank()) return@mapIndexedNotNull null
-        val sheetRowId = row.valueAt(headerIndexes[HEADER_SHEET_ROW_ID]).trim()
+        val sheetRowId = row.valueAt(headerIndexes[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
         val sourceIdentity = if (sheetRowId.isNotBlank()) {
             "sheet:$sheetRowId"
         } else if (lastName.isDoorSaleSheetLabel()) {
@@ -785,7 +787,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
         ReservationSpreadsheetRow(
             lastName = lastName,
             firstName = firstName,
-            contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trim(),
+            contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trimSpreadsheetWhitespace(),
             reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT])
                 .toTicketCount()
                 .coerceAtLeast(MINIMUM_SEAT_COUNT),
@@ -796,7 +798,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
             paymentTicketCounts = paymentHeaders.mapNotNull { (paymentMethod, header) ->
                 row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { paymentMethod to it }
             }.toMap(),
-            notes = row.valueAt(headerIndexes[HEADER_NOTES]).trim(),
+            notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
             sourceIdentity = sourceIdentity,
             sheetRowId = sheetRowId
         )
@@ -806,7 +808,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
 private fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.firstNotNullOfOrNull { row ->
     row.indexOfFirst { value -> value.normalizedHeader() == label }
         .takeIf { index -> index >= 0 }
-        ?.let { index -> row.getOrNull(index + 1)?.trim() }
+        ?.let { index -> row.getOrNull(index + 1)?.trimSpreadsheetWhitespace() }
         ?.takeIf(String::isNotBlank)
 }
 
@@ -936,14 +938,16 @@ private fun List<List<String>>.toLockTable(): LockTable {
         "Sovelluslukot-välilehden otsikot eivät vastaa sovittua muotoa."
     }
     val rows = drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-        val performanceKey = row.valueAt(headers[LOCK_HEADER_PERFORMANCE_ID]).trim()
+        val performanceKey = row.valueAt(headers[LOCK_HEADER_PERFORMANCE_ID]).trimSpreadsheetWhitespace()
         performanceKey.takeIf(String::isNotBlank)?.let {
             LockRow(
                 performanceKey = performanceKey,
                 rowNumber = headerRowIndex + index + 2,
-                lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trim(),
-                expiresAt = runCatching { Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trim()) }.getOrNull(),
-                deviceId = row.valueAt(headers[LOCK_HEADER_DEVICE_LABEL]).trim()
+                lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trimSpreadsheetWhitespace(),
+                expiresAt = runCatching {
+                    Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trimSpreadsheetWhitespace())
+                }.getOrNull(),
+                deviceId = row.valueAt(headers[LOCK_HEADER_DEVICE_LABEL]).trimSpreadsheetWhitespace()
             )
         }
     }
@@ -985,23 +989,35 @@ private fun String.toSpreadsheetId(): String {
     return match.groupValues[1]
 }
 
-private fun String.normalizedHeader(): String = lowercase()
-    .replace(WHITESPACE_REGEX, " ")
+private fun String.normalizedHeader(): String = trimSpreadsheetWhitespace()
+    .replace(SPREADSHEET_WHITESPACE_REGEX, " ")
+    .lowercase()
     .replace("*", "")
     .trim()
 
-private fun String.normalizedIdentity(): String = trim().lowercase().replace(WHITESPACE_REGEX, " ")
+private fun String.normalizedIdentity(): String = trimSpreadsheetWhitespace()
+    .replace(SPREADSHEET_WHITESPACE_REGEX, " ")
+    .lowercase()
+
+private fun String.trimSpreadsheetWhitespace(): String = trim { character ->
+    character.isWhitespace() || character == NON_BREAKING_SPACE
+}
 
 private fun List<String>.valueAt(index: Int?): String = index?.let { getOrNull(it) }.orEmpty()
 
 private fun String.toTicketCount(): Int {
-    val normalizedValue = trim().lowercase()
+    val normalizedValue = trimSpreadsheetWhitespace().lowercase()
     return normalizedValue.toIntOrNull() ?: if (normalizedValue in TICKET_MARKERS) 1 else 0
 }
 
 private val SPREADSHEET_ID_REGEX = Regex("/spreadsheets/d/([a-zA-Z0-9_-]+)")
-private val WHITESPACE_REGEX = Regex("\\s+")
+private val SPREADSHEET_WHITESPACE_REGEX = Regex("[\\s\\u00A0]+")
 private val TICKET_MARKERS = setOf("x", "✓", "k")
+private const val NON_BREAKING_SPACE = '\u00A0'
+
+internal fun performanceLockKey(spreadsheetId: String, sheetTitle: String): String =
+    "$spreadsheetId|${sheetTitle.trimSpreadsheetWhitespace()}"
+
 private const val LOCK_SHEET_TITLE = "Sovelluslukot"
 private const val HEADER_LAST_NAME = "sukunimi"
 private const val HEADER_FIRST_NAME = "etunimi"
