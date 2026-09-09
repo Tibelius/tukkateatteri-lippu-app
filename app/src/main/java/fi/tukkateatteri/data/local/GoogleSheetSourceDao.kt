@@ -11,6 +11,9 @@ interface GoogleSheetSourceDao {
     @Query("SELECT * FROM google_sheet_sources ORDER BY actName COLLATE NOCASE")
     fun observeAll(): Flow<List<GoogleSheetSourceEntity>>
 
+    @Query("SELECT * FROM google_sheet_sources WHERE actName = :actName LIMIT 1")
+    suspend fun findByActName(actName: String): GoogleSheetSourceEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(source: GoogleSheetSourceEntity)
 

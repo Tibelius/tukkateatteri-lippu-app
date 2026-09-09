@@ -11,6 +11,8 @@ data class Reservation(
     val contact: String,
     val seatCount: Int,
     val notes: String = "",
+    val sourceIdentity: String = "",
+    val sheetRowId: String = "",
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
     val arrivalCount: Int = 0,
     val reservedTicketAllocations: List<ReservedTicketAllocation> = emptyList(),

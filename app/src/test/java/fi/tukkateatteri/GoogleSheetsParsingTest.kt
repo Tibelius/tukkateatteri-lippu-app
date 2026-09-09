@@ -181,6 +181,27 @@ class GoogleSheetsParsingTest {
         assertFalse(originalRow.contact == modifiedRow.contact)
     }
 
+    @Test
+    fun importRows_usesAppRowIdAndSkipsSoftDeletedRows() {
+        val tab = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                headers,
+                dataRow(0 to "Kippari", 1 to "Kalle", 3 to "1", 18 to "row-uuid"),
+                dataRow(0 to "Poistettu", 1 to "Paavo", 3 to "0", 19 to "Poisto", 20 to "delete-uuid"),
+                emptyRow(),
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            )
+        )
+
+        val rows = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull()))
+
+        assertEquals(1, rows.size)
+        assertEquals("row-uuid", rows.single().sheetRowId)
+        assertEquals("sheet:row-uuid", rows.single().sourceIdentity)
+    }
+
     private fun testTab(
         includePerformance: Boolean = true,
         includeDate: Boolean = true,
@@ -237,7 +258,10 @@ class GoogleSheetsParsingTest {
             "KÄTEINEN",
             "EPASSI",
             "LIPPUAGENTTI",
-            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
+            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)",
+            "Sovellus-ID",
+            "Sovellus-toiminto",
+            "Sovellus-muokkaus-ID"
         )
     }
 }

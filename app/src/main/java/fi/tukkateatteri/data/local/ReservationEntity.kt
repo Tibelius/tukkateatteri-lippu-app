@@ -18,7 +18,7 @@ import fi.tukkateatteri.data.PaymentMethod
             onDelete = ForeignKey.RESTRICT
         )
     ],
-    indices = [Index("source_identity"), Index("performance_id")]
+    indices = [Index("source_identity"), Index("sheet_row_id"), Index("performance_id")]
 )
 data class ReservationEntity(
     @PrimaryKey(autoGenerate = true)
@@ -35,6 +35,8 @@ data class ReservationEntity(
     val notes: String = "",
     @ColumnInfo(name = "source_identity")
     val sourceIdentity: String = "",
+    @ColumnInfo(name = "sheet_row_id")
+    val sheetRowId: String = "",
     @ColumnInfo(name = "admission_type")
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
     @ColumnInfo(name = "arrival_count")

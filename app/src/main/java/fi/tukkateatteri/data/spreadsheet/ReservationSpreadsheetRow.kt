@@ -16,7 +16,8 @@ data class ReservationSpreadsheetRow(
     val reservedTicketCounts: Map<TicketType, Int>,
     val paymentTicketCounts: Map<PaymentMethod, Int>,
     val notes: String,
-    val sourceIdentity: String = ""
+    val sourceIdentity: String = "",
+    val sheetRowId: String = ""
 ) {
     init {
         require(reservedSeatCount > 0) { "Reserved seat count must be positive." }
@@ -27,11 +28,13 @@ data class ReservationSpreadsheetRow(
 
     companion object {
         fun fromReservations(reservations: List<Reservation>): List<ReservationSpreadsheetRow> {
-            val reservationRows = reservations
-                .filter { reservation -> reservation.admissionType == AdmissionType.RESERVATION }
-                .map(::fromReservation)
-            val doorSales = reservations.filter { reservation -> reservation.admissionType == AdmissionType.DOOR_SALE }
-            return if (doorSales.isEmpty()) reservationRows else reservationRows + fromDoorSales(doorSales)
+            return reservations.map { reservation ->
+                if (reservation.admissionType == AdmissionType.DOOR_SALE) {
+                    fromDoorSale(reservation)
+                } else {
+                    fromReservation(reservation)
+                }
+            }
         }
 
         fun fromReservation(reservation: Reservation): ReservationSpreadsheetRow {
@@ -54,35 +57,34 @@ data class ReservationSpreadsheetRow(
                 arrivalCount = reservation.arrivalCount,
                 reservedTicketCounts = reservedTicketCounts,
                 paymentTicketCounts = paymentTicketCounts,
-                notes = listOf(reservation.notes, splitPaymentNotes).filter(String::isNotBlank).joinToString("; ")
+                notes = listOf(reservation.notes, splitPaymentNotes).filter(String::isNotBlank).joinToString("; "),
+                sourceIdentity = reservation.sourceIdentity,
+                sheetRowId = reservation.sheetRowId
             )
         }
 
-        private fun fromDoorSales(doorSales: List<Reservation>): ReservationSpreadsheetRow {
+        private fun fromDoorSale(doorSale: Reservation): ReservationSpreadsheetRow {
             val ticketTypeCounts = TicketType.entries.associateWith { ticketType ->
-                doorSales.sumOf { reservation ->
-                    reservation.ticketSales
-                        .filter { ticketSale -> ticketSale.ticketType == ticketType }
-                        .sumOf { ticketSale -> ticketSale.quantity }
-                }
+                doorSale.ticketSales
+                    .filter { ticketSale -> ticketSale.ticketType == ticketType }
+                    .sumOf { ticketSale -> ticketSale.quantity }
             }.filterValues { it > 0 }
             val paymentTicketCounts = PaymentMethod.entries.associateWith { paymentMethod ->
-                doorSales.sumOf { reservation ->
-                    reservation.ticketSales
-                        .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
-                        .sumOf { ticketSale -> ticketSale.quantity }
-                }
+                doorSale.ticketSales
+                    .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
+                    .sumOf { ticketSale -> ticketSale.quantity }
             }.filterValues { it > 0 }
-            val splitPaymentNotes = doorSales.flatMap(Reservation::ticketSales).toSplitPaymentNotes()
+            val splitPaymentNotes = doorSale.ticketSales.toSplitPaymentNotes()
             return ReservationSpreadsheetRow(
                 lastName = DOOR_SALE_SHEET_LABEL,
                 firstName = "",
                 contact = "",
-                reservedSeatCount = doorSales.sumOf(Reservation::seatCount),
-                arrivalCount = doorSales.sumOf(Reservation::arrivalCount),
+                reservedSeatCount = doorSale.seatCount,
+                arrivalCount = doorSale.arrivalCount,
                 reservedTicketCounts = ticketTypeCounts,
                 paymentTicketCounts = paymentTicketCounts,
-                notes = splitPaymentNotes
+                notes = splitPaymentNotes,
+                sheetRowId = doorSale.sheetRowId
             )
         }
 

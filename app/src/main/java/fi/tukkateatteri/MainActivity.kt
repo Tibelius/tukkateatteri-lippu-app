@@ -129,6 +129,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
+                    onGoogleSheetsMutation = ::authorizeGoogleSheets,
                     onChangeGoogleAccount = ::revokeGoogleSheetsAccess
                 )
             }
@@ -183,6 +184,7 @@ private fun ReservationApp(
     viewModel: ReservationViewModel,
     onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit,
     onGoogleSheetsSync: (Performance, String) -> Unit,
+    onGoogleSheetsMutation: ((String) -> Unit) -> Unit,
     onChangeGoogleAccount: () -> Unit
 ) {
     val reservations by viewModel.reservations.collectAsStateWithLifecycle()
@@ -287,14 +289,17 @@ private fun ReservationApp(
             admissionType = admissionType,
             onDismiss = { selectedAdmissionTypeName = null },
             onSave = { lastName, firstName, contact, seatCount, reservedTicketAllocations ->
-                viewModel.addAdmission(
-                    lastName = lastName,
-                    firstName = firstName,
-                    contact = contact,
-                    seatCount = seatCount,
-                    admissionType = admissionType,
-                    reservedTicketAllocations = reservedTicketAllocations
-                )
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.addAdmission(
+                        lastName = lastName,
+                        firstName = firstName,
+                        contact = contact,
+                        seatCount = seatCount,
+                        admissionType = admissionType,
+                        reservedTicketAllocations = reservedTicketAllocations,
+                        accessToken = accessToken
+                    )
+                }
                 selectedAdmissionTypeName = null
             }
         )
@@ -305,15 +310,31 @@ private fun ReservationApp(
             reservation = reservation,
             onDismiss = { selectedReservationId = null },
             onSave = { updatedReservation ->
-                viewModel.updateReservation(updatedReservation)
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.updateReservation(updatedReservation, accessToken)
+                }
                 selectedReservationId = null
             },
-            onUpdateArrivalCount = viewModel::updateArrivalCount,
-            onAddTicketSale = { ticketType, quantity, payments ->
-                viewModel.addTicketSale(reservation.id, ticketType, quantity, payments)
+            onUpdateArrivalCount = { reservationId, arrivalCount ->
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.updateArrivalCount(reservationId, arrivalCount, accessToken)
+                }
             },
-            onUpdateTicketSale = viewModel::updateTicketSale,
-            onDeleteTicketSale = viewModel::deleteTicketSale,
+            onAddTicketSale = { ticketType, quantity, payments ->
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.addTicketSale(reservation.id, ticketType, quantity, payments, accessToken)
+                }
+            },
+            onUpdateTicketSale = { ticketSaleId, ticketType, quantity, payments ->
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.updateTicketSale(ticketSaleId, ticketType, quantity, payments, accessToken)
+                }
+            },
+            onDeleteTicketSale = { ticketSaleId ->
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.deleteTicketSale(ticketSaleId, accessToken)
+                }
+            },
             onDelete = {
                 selectedReservationId = null
                 reservationToDeleteId = reservation.id
@@ -326,7 +347,9 @@ private fun ReservationApp(
             reservation = reservation,
             onDismiss = { reservationToDeleteId = null },
             onConfirm = {
-                viewModel.deleteReservation(reservation.id)
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.deleteReservation(reservation.id, accessToken)
+                }
                 reservationToDeleteId = null
             }
         )
@@ -336,7 +359,9 @@ private fun ReservationApp(
         DeleteAllReservationsDialog(
             onDismiss = { showDeleteAllReservationsConfirmation = false },
             onConfirm = {
-                viewModel.deleteAllReservations()
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.deleteAllReservations(accessToken)
+                }
                 showDeleteAllReservationsConfirmation = false
             }
         )

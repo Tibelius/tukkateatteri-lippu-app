@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.GoogleSheetSourceChangedException
+import fi.tukkateatteri.data.spreadsheet.GoogleSheetLockedException
 import fi.tukkateatteri.data.NoGoogleSheetImportCandidatesException
 import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Performance
@@ -74,20 +75,36 @@ class ReservationViewModel(
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
 
-    fun createPerformance(actName: String, date: String) {
+    private fun launchReservationMutation(action: suspend () -> Unit) {
         viewModelScope.launch {
+            _isTransferInProgress.value = true
+            try {
+                action()
+            } catch (_: GoogleSheetLockedException) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_performance_locked)
+            } catch (exception: Exception) {
+                Log.e(TAG, "Reservation change failed", exception)
+                _transferMessage.value = UiMessage(R.string.google_sheets_change_failed)
+            } finally {
+                _isTransferInProgress.value = false
+            }
+        }
+    }
+
+    fun createPerformance(actName: String, date: String) {
+        launchReservationMutation {
             reservationRepository.createPerformance(actName, date)
         }
     }
 
     fun selectPerformance(performanceId: Long) {
-        viewModelScope.launch {
+        launchReservationMutation {
             reservationRepository.selectPerformance(performanceId)
         }
     }
 
     fun deletePerformance(performanceId: Long) {
-        viewModelScope.launch {
+        launchReservationMutation {
             reservationRepository.deletePerformance(performanceId)
         }
     }
@@ -98,30 +115,32 @@ class ReservationViewModel(
         contact: String,
         seatCount: Int,
         admissionType: AdmissionType,
-        reservedTicketAllocations: List<ReservedTicketAllocation>
+        reservedTicketAllocations: List<ReservedTicketAllocation>,
+        accessToken: String? = null
     ) {
-        viewModelScope.launch {
+        launchReservationMutation {
             val reservationId = reservationRepository.addAdmission(
                 lastName = lastName,
                 firstName = firstName,
                 contact = contact,
                 seatCount = seatCount,
                 admissionType = admissionType,
-                reservedTicketAllocations = reservedTicketAllocations
+                reservedTicketAllocations = reservedTicketAllocations,
+                accessToken = accessToken
             )
             addedReservationIdsChannel.send(reservationId)
         }
     }
 
-    fun updateReservation(reservation: Reservation) {
-        viewModelScope.launch {
-            reservationRepository.updateReservation(reservation)
+    fun updateReservation(reservation: Reservation, accessToken: String? = null) {
+        launchReservationMutation {
+            reservationRepository.updateReservation(reservation, accessToken)
         }
     }
 
-    fun updateArrivalCount(reservationId: Long, arrivalCount: Int) {
-        viewModelScope.launch {
-            reservationRepository.updateArrivalCount(reservationId, arrivalCount)
+    fun updateArrivalCount(reservationId: Long, arrivalCount: Int, accessToken: String? = null) {
+        launchReservationMutation {
+            reservationRepository.updateArrivalCount(reservationId, arrivalCount, accessToken)
         }
     }
 
@@ -129,10 +148,11 @@ class ReservationViewModel(
         reservationId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String? = null
     ) {
-        viewModelScope.launch {
-            reservationRepository.addTicketSale(reservationId, ticketType, quantity, payments)
+        launchReservationMutation {
+            reservationRepository.addTicketSale(reservationId, ticketType, quantity, payments, accessToken)
         }
     }
 
@@ -140,28 +160,29 @@ class ReservationViewModel(
         ticketSaleId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String? = null
     ) {
-        viewModelScope.launch {
-            reservationRepository.updateTicketSale(ticketSaleId, ticketType, quantity, payments)
+        launchReservationMutation {
+            reservationRepository.updateTicketSale(ticketSaleId, ticketType, quantity, payments, accessToken)
         }
     }
 
-    fun deleteTicketSale(ticketSaleId: Long) {
-        viewModelScope.launch {
-            reservationRepository.deleteTicketSale(ticketSaleId)
+    fun deleteTicketSale(ticketSaleId: Long, accessToken: String? = null) {
+        launchReservationMutation {
+            reservationRepository.deleteTicketSale(ticketSaleId, accessToken)
         }
     }
 
-    fun deleteReservation(reservationId: Long) {
-        viewModelScope.launch {
-            reservationRepository.deleteReservation(reservationId)
+    fun deleteReservation(reservationId: Long, accessToken: String? = null) {
+        launchReservationMutation {
+            reservationRepository.deleteReservation(reservationId, accessToken)
         }
     }
 
-    fun deleteAllReservations() {
-        viewModelScope.launch {
-            reservationRepository.deleteAllReservations()
+    fun deleteAllReservations(accessToken: String? = null) {
+        launchReservationMutation {
+            reservationRepository.deleteAllReservations(accessToken)
         }
     }
 

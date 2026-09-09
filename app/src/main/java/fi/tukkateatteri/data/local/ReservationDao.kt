@@ -42,6 +42,9 @@ interface ReservationDao {
     @Query("SELECT * FROM reservations WHERE source_identity = :sourceIdentity LIMIT 1")
     suspend fun findBySourceIdentity(sourceIdentity: String): ReservationEntity?
 
+    @Query("SELECT * FROM reservations WHERE sheet_row_id = :sheetRowId LIMIT 1")
+    suspend fun findBySheetRowId(sheetRowId: String): ReservationEntity?
+
     @Insert
     suspend fun insertTicketSale(ticketSale: TicketSaleEntity): Long
 

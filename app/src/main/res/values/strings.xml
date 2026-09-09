@@ -63,13 +63,15 @@
     <string name="google_sheets_sync_source_missing">Google Sheets -osoite puuttuu. Lisää se Google Sheets -osoitteista.</string>
     <string name="google_sheets_export_succeeded">Vienti onnistui.</string>
     <string name="google_sheets_export_failed">Vienti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_change_failed">Muutosta ei tallennettu. Tarkista yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
 
     <string name="delete_reservation_title">Poistetaanko varaus?</string>
-    <string name="delete_reservation_message">%1$s poistetaan pysyvästi.</string>
+    <string name="delete_reservation_message">%1$s poistetaan sovelluksesta. Google Sheetsissä se merkitään poistetuksi.</string>
     <string name="delete_reservation_action">Poista varaus</string>
     <string name="delete_all_reservations_title">Poistetaanko kaikki varaukset?</string>
-    <string name="delete_all_reservations_message">Kaikki varaukset poistetaan pysyvästi.</string>
+    <string name="delete_all_reservations_message">Kaikki varaukset poistetaan sovelluksesta. Google Sheetsissä ne merkitään poistetuiksi.</string>
     <string name="delete_all_reservations_action">Poista kaikki varaukset</string>
     <string name="delete_performance_title">Poistetaanko esitys?</string>
     <string name="delete_performance_message">%1$s ja kaikki sen varaukset poistetaan pysyvästi.</string>

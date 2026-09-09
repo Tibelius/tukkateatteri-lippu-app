@@ -18,6 +18,7 @@ import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 
 interface ReservationRepository {
     val performances: Flow<List<Performance>>
@@ -34,25 +35,28 @@ interface ReservationRepository {
         contact: String,
         seatCount: Int,
         admissionType: AdmissionType,
-        reservedTicketAllocations: List<ReservedTicketAllocation>
+        reservedTicketAllocations: List<ReservedTicketAllocation>,
+        accessToken: String? = null
     ): Long
-    suspend fun updateReservation(reservation: Reservation)
-    suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int)
+    suspend fun updateReservation(reservation: Reservation, accessToken: String? = null)
+    suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int, accessToken: String? = null)
     suspend fun addTicketSale(
         reservationId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String? = null
     )
     suspend fun updateTicketSale(
         ticketSaleId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String? = null
     )
-    suspend fun deleteTicketSale(ticketSaleId: Long)
-    suspend fun deleteReservation(reservationId: Long)
-    suspend fun deleteAllReservations()
+    suspend fun deleteTicketSale(ticketSaleId: Long, accessToken: String? = null)
+    suspend fun deleteReservation(reservationId: Long, accessToken: String? = null)
+    suspend fun deleteAllReservations(accessToken: String? = null)
     suspend fun importGoogleSheet(spreadsheetUrl: String, accessToken: String): GoogleSheetImportResult
     suspend fun syncGoogleSheetPerformance(
         performanceId: Long,
@@ -69,6 +73,12 @@ data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: 
 data class GoogleSheetImportResult(
     val performanceCount: Int,
     val reservationCount: Int
+)
+
+private data class CloudSheetTarget(
+    val performanceId: Long,
+    val spreadsheetUrl: String,
+    val sheetTitle: String
 )
 
 class GoogleSheetSourceChangedException : IllegalStateException()
@@ -92,6 +102,55 @@ class RoomReservationRepository(
     override fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>> =
         reservationDao.observeByPerformanceWithTicketSales(performanceId)
             .map { reservations -> reservations.map { reservation -> reservation.toReservation() } }
+
+    private suspend fun <T> runCloudMutation(
+        accessToken: String?,
+        mutation: suspend () -> T,
+        affectedReservationIds: suspend (T) -> List<Long>
+    ): T {
+        val target = activeCloudTarget() ?: return mutation()
+        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
+        return googleSheetsClient.withPerformanceLock(
+            spreadsheetUrl = target.spreadsheetUrl,
+            sheetTitle = target.sheetTitle,
+            accessToken = token
+        ) {
+            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
+            mutation().also { result ->
+                exportAffectedReservations(target, affectedReservationIds(result), token)
+            }
+        }
+    }
+
+    private suspend fun activeCloudTarget(): CloudSheetTarget? {
+        val performance = performanceDao.getActive() ?: return null
+        val sheetTitle = performance.sourceSheetTitle ?: return null
+        val source = googleSheetSourceDao.findByActName(performance.actName) ?: return null
+        return CloudSheetTarget(performance.id, source.spreadsheetUrl, sheetTitle)
+    }
+
+    private suspend fun exportAffectedReservations(
+        target: CloudSheetTarget,
+        reservationIds: List<Long>,
+        accessToken: String
+    ) {
+        val distinctIds = reservationIds.distinct()
+        ensureSheetRowIds(distinctIds)
+        val rows = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
+            .filter { reservation -> reservation.reservation.id in distinctIds }
+            .map { reservation -> reservation.toReservation() }
+            .let(ReservationSpreadsheetRow::fromReservations)
+        googleSheetsClient.exportRows(target.spreadsheetUrl, target.sheetTitle, accessToken, rows)
+    }
+
+    private suspend fun ensureSheetRowIds(reservationIds: List<Long>) {
+        reservationIds.distinct().forEach { reservationId ->
+            val reservation = reservationDao.getById(reservationId) ?: return@forEach
+            if (reservation.sheetRowId.isBlank()) {
+                reservationDao.update(reservation.copy(sheetRowId = UUID.randomUUID().toString()))
+            }
+        }
+    }
 
     override suspend fun createPerformance(actName: String, date: String): Long = database.withTransaction {
         val normalizedActName = actName.trim()
@@ -127,8 +186,12 @@ class RoomReservationRepository(
         contact: String,
         seatCount: Int,
         admissionType: AdmissionType,
-        reservedTicketAllocations: List<ReservedTicketAllocation>
-    ): Long = database.withTransaction {
+        reservedTicketAllocations: List<ReservedTicketAllocation>,
+        accessToken: String?
+    ): Long = runCloudMutation(
+        accessToken = accessToken,
+        mutation = {
+            database.withTransaction {
         val activePerformance = requireNotNull(performanceDao.getActive()) {
             "Select a performance before adding reservations."
         }
@@ -146,11 +209,17 @@ class RoomReservationRepository(
             )
         )
         replaceReservedTicketAllocations(reservationId, reservedTicketAllocations)
-        reservationId
-    }
+                reservationId
+            }
+        },
+        affectedReservationIds = { reservationId -> listOf(reservationId) }
+    )
 
-    override suspend fun updateReservation(reservation: Reservation) {
-        database.withTransaction {
+    override suspend fun updateReservation(reservation: Reservation, accessToken: String?) {
+        runCloudMutation(
+            accessToken = accessToken,
+            mutation = {
+                database.withTransaction {
             val existingReservation = requireNotNull(reservationDao.getWithTicketSalesById(reservation.id))
             val existingReservationEntity = existingReservation.reservation
             val existingPaidSeatCount = existingReservation.toReservation().paidSeatCount
@@ -168,6 +237,7 @@ class RoomReservationRepository(
                     seatCount = reservation.seatCount,
                     notes = reservation.notes.trim(),
                     sourceIdentity = existingReservationEntity.sourceIdentity,
+                    sheetRowId = existingReservationEntity.sheetRowId,
                     admissionType = reservation.admissionType,
                     arrivalCount = if (reservation.admissionType == AdmissionType.DOOR_SALE) {
                         reservation.seatCount
@@ -179,14 +249,18 @@ class RoomReservationRepository(
                 )
             )
             replaceReservedTicketAllocations(reservation.id, reservation.reservedTicketAllocations)
-        }
+                }
+            },
+            affectedReservationIds = { listOf(reservation.id) }
+        )
     }
 
     override suspend fun addTicketSale(
         reservationId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String?
     ) {
         require(quantity > 0) { "Ticket quantity must be positive." }
         require(ticketType != TicketType.UNSPECIFIED) { "Ticket sales need a ticket type." }
@@ -194,7 +268,10 @@ class RoomReservationRepository(
         require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
             "Payment total must match the ticket price."
         }
-        database.withTransaction {
+        runCloudMutation(
+            accessToken = accessToken,
+            mutation = {
+                database.withTransaction {
             val currentReservation = requireNotNull(reservationDao.getWithTicketSalesById(reservationId))
             val reservation = currentReservation.reservation
             require(quantity <= currentReservation.toReservation().unpaidSeatCount) {
@@ -225,12 +302,18 @@ class RoomReservationRepository(
                     isPresent = true
                 )
             )
-        }
+                }
+            },
+            affectedReservationIds = { listOf(reservationId) }
+        )
     }
 
-    override suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int) {
+    override suspend fun updateArrivalCount(reservationId: Long, arrivalCount: Int, accessToken: String?) {
         require(arrivalCount >= 0) { "Arrival count must not be negative." }
-        database.withTransaction {
+        runCloudMutation(
+            accessToken = accessToken,
+            mutation = {
+                database.withTransaction {
             val reservation = requireNotNull(reservationDao.getById(reservationId))
             val boundedArrivalCount = if (reservation.admissionType == AdmissionType.DOOR_SALE) {
                 reservation.seatCount
@@ -243,14 +326,18 @@ class RoomReservationRepository(
                     isPresent = boundedArrivalCount > 0
                 )
             )
-        }
+                }
+            },
+            affectedReservationIds = { listOf(reservationId) }
+        )
     }
 
     override suspend fun updateTicketSale(
         ticketSaleId: Long,
         ticketType: TicketType,
         quantity: Int,
-        payments: List<PendingPaymentAllocation>
+        payments: List<PendingPaymentAllocation>,
+        accessToken: String?
     ) {
         require(quantity > 0) { "Ticket quantity must be positive." }
         require(ticketType != TicketType.UNSPECIFIED) { "Ticket sales need a ticket type." }
@@ -258,7 +345,10 @@ class RoomReservationRepository(
         require(payments.sumOf(PendingPaymentAllocation::amountCents) == ticketType.defaultPriceCents * quantity) {
             "Payment total must match the ticket price."
         }
-        database.withTransaction {
+        runCloudMutation(
+            accessToken = accessToken,
+            mutation = {
+                database.withTransaction {
             val existingTicketSale = requireNotNull(reservationDao.getTicketSaleById(ticketSaleId))
             val reservationWithSales = requireNotNull(
                 reservationDao.getWithTicketSalesById(existingTicketSale.reservationId)
@@ -295,30 +385,81 @@ class RoomReservationRepository(
                     )
                 )
             }
+                }
+            },
+            affectedReservationIds = {
+                val ticketSale = reservationDao.getTicketSaleById(ticketSaleId)
+                listOfNotNull(ticketSale?.reservationId)
+            }
+        )
+    }
+
+    override suspend fun deleteTicketSale(ticketSaleId: Long, accessToken: String?) {
+        runCloudMutation(
+            accessToken = accessToken,
+            mutation = {
+                database.withTransaction {
+                    val ticketSale = reservationDao.getTicketSaleById(ticketSaleId) ?: return@withTransaction 0L
+                    reservationDao.deleteTicketSaleById(ticketSaleId)
+                    if (ticketSale.countsAsArrival) {
+                        reservationDao.getById(ticketSale.reservationId)?.let { reservation ->
+                            val updatedArrivalCount = (reservation.arrivalCount - ticketSale.quantity).coerceAtLeast(0)
+                            reservationDao.update(
+                                reservation.copy(
+                                    arrivalCount = updatedArrivalCount,
+                                    isPresent = updatedArrivalCount > 0
+                                )
+                            )
+                        }
+                    }
+                    ticketSale.reservationId
+                }
+            },
+            affectedReservationIds = { reservationId -> listOfNotNull(reservationId.takeIf { it > 0 }) }
+        )
+    }
+
+    override suspend fun deleteReservation(reservationId: Long, accessToken: String?) {
+        val target = activeCloudTarget()
+        if (target == null) {
+            reservationDao.deleteById(reservationId)
+            return
+        }
+        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
+        googleSheetsClient.withPerformanceLock(target.spreadsheetUrl, target.sheetTitle, token) {
+            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
+            val reservation = reservationDao.getById(reservationId) ?: return@withPerformanceLock
+            googleSheetsClient.softDeleteRow(
+                spreadsheetUrl = target.spreadsheetUrl,
+                sheetTitle = target.sheetTitle,
+                accessToken = token,
+                sheetRowId = reservation.sheetRowId,
+                sourceIdentity = reservation.sourceIdentity
+            )
+            reservationDao.deleteById(reservationId)
         }
     }
 
-    override suspend fun deleteTicketSale(ticketSaleId: Long) {
-        database.withTransaction {
-            val ticketSale = reservationDao.getTicketSaleById(ticketSaleId) ?: return@withTransaction
-            reservationDao.deleteTicketSaleById(ticketSaleId)
-            if (ticketSale.countsAsArrival) {
-                reservationDao.getById(ticketSale.reservationId)?.let { reservation ->
-                    val updatedArrivalCount = (reservation.arrivalCount - ticketSale.quantity).coerceAtLeast(0)
-                    reservationDao.update(
-                        reservation.copy(
-                            arrivalCount = updatedArrivalCount,
-                            isPresent = updatedArrivalCount > 0
-                        )
-                    )
-                }
-            }
+    override suspend fun deleteAllReservations(accessToken: String?) {
+        val target = activeCloudTarget()
+        if (target == null) {
+            performanceDao.getActive()?.let { reservationDao.deleteAllByPerformance(it.id) }
+            return
         }
-    }
-    override suspend fun deleteReservation(reservationId: Long) = reservationDao.deleteById(reservationId)
-    override suspend fun deleteAllReservations() {
-        val activePerformance = performanceDao.getActive() ?: return
-        reservationDao.deleteAllByPerformance(activePerformance.id)
+        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
+        googleSheetsClient.withPerformanceLock(target.spreadsheetUrl, target.sheetTitle, token) {
+            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
+            reservationDao.getByPerformanceWithTicketSales(target.performanceId).forEach { reservation ->
+                googleSheetsClient.softDeleteRow(
+                    spreadsheetUrl = target.spreadsheetUrl,
+                    sheetTitle = target.sheetTitle,
+                    accessToken = token,
+                    sheetRowId = reservation.reservation.sheetRowId,
+                    sourceIdentity = reservation.reservation.sourceIdentity
+                )
+            }
+            reservationDao.deleteAllByPerformance(target.performanceId)
+        }
     }
 
     private suspend fun exportSpreadsheetRows(performanceId: Long): List<ReservationSpreadsheetRow> =
@@ -332,7 +473,11 @@ class RoomReservationRepository(
         performanceId: Long
     ) {
         rows.forEach { row ->
-            val existingReservation = if (row.sourceIdentity.isNotBlank()) {
+            val existingReservation = if (row.sheetRowId.isNotBlank()) {
+                reservationDao.findBySheetRowId(row.sheetRowId)
+            } else {
+                null
+            } ?: if (row.sourceIdentity.isNotBlank()) {
                 reservationDao.findBySourceIdentity(row.sourceIdentity)
             } else {
                 null
@@ -346,6 +491,7 @@ class RoomReservationRepository(
                     seatCount = row.reservedSeatCount,
                     notes = row.notes,
                     sourceIdentity = row.sourceIdentity,
+                    sheetRowId = row.sheetRowId,
                     admissionType = AdmissionType.RESERVATION,
                     arrivalCount = row.arrivalCount,
                     isPresent = row.arrivalCount > 0
@@ -359,6 +505,7 @@ class RoomReservationRepository(
                         contact = row.contact.trim(),
                         seatCount = row.reservedSeatCount,
                         notes = row.notes,
+                        sheetRowId = row.sheetRowId.ifBlank { existingReservation.sheetRowId },
                         arrivalCount = maxOf(existingReservation.arrivalCount, row.arrivalCount),
                         isPresent = existingReservation.arrivalCount > 0 || row.arrivalCount > 0
                     )
