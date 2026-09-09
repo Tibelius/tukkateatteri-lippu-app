@@ -72,7 +72,6 @@ interface ReservationRepository {
         spreadsheetUrl: String,
         accessToken: String
     ): Int
-    suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String)
     suspend fun upsertGoogleSheetSource(source: GoogleSheetSource)
     suspend fun deleteGoogleSheetSource(actName: String)
 }
@@ -285,14 +284,23 @@ class RoomReservationRepository(
                     baseRow == null && remoteRow?.hasSameSheetContentAs(desired) == true -> {
                         markPendingChangeSynced(change, remoteRow.sheetRowId)
                     }
-                    baseRow != null && remoteRow?.hasSameSheetContentAs(baseRow) == true -> {
+                    baseRow != null && remoteRow != null -> {
+                        val merge = mergePendingSheetRow(baseRow, desired, remoteRow)
+                        if (merge.hasConflict) {
+                            markPendingChangeConflict(change, remoteRow)
+                            return
+                        }
                         val exported = googleSheetsClient.exportRows(
                             target.spreadsheetUrl,
                             target.sheetTitle,
                             accessToken,
-                            listOf(desired)
+                            listOf(merge.row)
                         ).single()
-                        markPendingChangeSynced(change, exported.sheetRowId)
+                        markPendingChangeSynced(
+                            change = change,
+                            exportedSheetRowId = exported.sheetRowId,
+                            importedSheetRow = merge.row.takeUnless { it.hasSameSheetContentAs(desired) }
+                        )
                     }
                     else -> markPendingChangeConflict(change, remoteRow)
                 }
@@ -316,7 +324,11 @@ class RoomReservationRepository(
         }
     }
 
-    private suspend fun markPendingChangeSynced(change: PendingSheetChangeEntity, exportedSheetRowId: String) {
+    private suspend fun markPendingChangeSynced(
+        change: PendingSheetChangeEntity,
+        exportedSheetRowId: String,
+        importedSheetRow: ReservationSpreadsheetRow? = null
+    ) {
         database.withTransaction {
             reservationDao.getById(change.reservationId)?.let { reservation ->
                 reservationDao.update(
@@ -325,6 +337,12 @@ class RoomReservationRepository(
                         syncState = ReservationSyncState.SYNCED
                     )
                 )
+                importedSheetRow?.let { row ->
+                    importSpreadsheetRows(
+                        rows = listOf(row.copy(sheetRowId = exportedSheetRowId)),
+                        performanceId = change.performanceId
+                    )
+                }
             }
             pendingSheetChangeDao.deleteByReservationId(change.reservationId)
         }
@@ -845,22 +863,6 @@ class RoomReservationRepository(
         }
     }
 
-    override suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
-        val activePerformance = requireNotNull(performanceDao.getActive()) {
-            "Select a performance before exporting."
-        }
-        val target = activeCloudTarget()
-        require(
-            target != null &&
-                target.performanceId == activePerformance.id &&
-                target.spreadsheetUrl == spreadsheetUrl &&
-                target.sheetTitle == sheetTitle
-        ) {
-            "Esitykselle ei ole tallennettu vastaavaa Google Sheets -välilehteä. Tuo taulukko ensin."
-        }
-        flushPendingChanges(target, accessToken)
-    }
-
     override suspend fun upsertGoogleSheetSource(source: GoogleSheetSource) {
         googleSheetSourceDao.upsert(source.toEntity())
     }
@@ -940,4 +942,56 @@ private fun ReservationSpreadsheetRow.matches(other: ReservationSpreadsheetRow?)
                 lastName.equals(other.lastName, ignoreCase = true) &&
                 firstName.equals(other.firstName, ignoreCase = true)
             )
+}
+
+private data class PendingSheetRowMerge(
+    val row: ReservationSpreadsheetRow,
+    val hasConflict: Boolean
+)
+
+/**
+ * Keeps direct Sheet edits to fields untouched by the app action. A conflict occurs only when
+ * both sides changed the same exported field to different values.
+ */
+private fun mergePendingSheetRow(
+    base: ReservationSpreadsheetRow,
+    desired: ReservationSpreadsheetRow,
+    remote: ReservationSpreadsheetRow
+): PendingSheetRowMerge {
+    var hasConflict = false
+
+    fun <T> merged(baseValue: T, desiredValue: T, remoteValue: T): T {
+        val appChanged = desiredValue != baseValue
+        val sheetChanged = remoteValue != baseValue
+        if (appChanged && sheetChanged && desiredValue != remoteValue) hasConflict = true
+        return if (appChanged) desiredValue else remoteValue
+    }
+
+    return PendingSheetRowMerge(
+        row = desired.copy(
+            lastName = merged(base.lastName, desired.lastName, remote.lastName),
+            firstName = merged(base.firstName, desired.firstName, remote.firstName),
+            contact = merged(base.contact, desired.contact, remote.contact),
+            reservedSeatCount = merged(
+                base.reservedSeatCount,
+                desired.reservedSeatCount,
+                remote.reservedSeatCount
+            ),
+            arrivalCount = merged(base.arrivalCount, desired.arrivalCount, remote.arrivalCount),
+            reservedTicketCounts = merged(
+                base.reservedTicketCounts,
+                desired.reservedTicketCounts,
+                remote.reservedTicketCounts
+            ),
+            paymentTicketCounts = merged(
+                base.paymentTicketCounts,
+                desired.paymentTicketCounts,
+                remote.paymentTicketCounts
+            ),
+            notes = merged(base.notes, desired.notes, remote.notes),
+            sourceIdentity = desired.sourceIdentity.ifBlank { remote.sourceIdentity },
+            sheetRowId = desired.sheetRowId.ifBlank { remote.sheetRowId }
+        ),
+        hasConflict = hasConflict
+    )
 }

@@ -211,40 +211,57 @@ class ReservationViewModel(
         }
     }
 
-    fun syncGoogleSheetPerformance(performanceId: Long, spreadsheetUrl: String, accessToken: String) {
+    fun syncGoogleSheetPerformance(
+        performanceId: Long,
+        spreadsheetUrl: String,
+        accessToken: String,
+        showError: Boolean = true
+    ) {
         viewModelScope.launch {
             _isTransferInProgress.value = true
             try {
-                val reservationCount = reservationRepository.syncGoogleSheetPerformance(
+                reservationRepository.syncGoogleSheetPerformance(
                     performanceId,
                     spreadsheetUrl,
                     accessToken
                 )
-                _transferMessage.value = UiMessage(
-                    R.string.google_sheets_sync_succeeded,
-                    listOf(reservationCount)
-                )
             } catch (_: GoogleSheetSourceChangedException) {
-                _transferMessage.value = UiMessage(R.string.google_sheets_sync_source_changed)
+                if (showError) {
+                    _transferMessage.value = UiMessage(R.string.google_sheets_sync_source_changed)
+                }
             } catch (_: GoogleSheetLockedException) {
-                _transferMessage.value = UiMessage(R.string.google_sheets_performance_locked)
+                if (showError) {
+                    _transferMessage.value = UiMessage(R.string.google_sheets_performance_locked)
+                }
             } catch (exception: Exception) {
                 Log.e(TAG, "Google Sheets performance sync failed", exception)
-                _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)
+                if (showError) {
+                    _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)
+                }
             } finally {
                 _isTransferInProgress.value = false
             }
         }
     }
 
-    fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
+    fun syncGoogleSheetPerformances(
+        performanceIds: List<Long>,
+        spreadsheetUrl: String,
+        accessToken: String
+    ) {
         viewModelScope.launch {
             _isTransferInProgress.value = true
             try {
-                reservationRepository.exportGoogleSheet(spreadsheetUrl, sheetTitle, accessToken)
-                _transferMessage.value = UiMessage(R.string.google_sheets_export_succeeded)
-            } catch (_: Exception) {
-                _transferMessage.value = UiMessage(R.string.google_sheets_export_failed)
+                performanceIds.forEach { performanceId ->
+                    reservationRepository.syncGoogleSheetPerformance(
+                        performanceId = performanceId,
+                        spreadsheetUrl = spreadsheetUrl,
+                        accessToken = accessToken
+                    )
+                }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Google Sheets act import failed", exception)
+                _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)
             } finally {
                 _isTransferInProgress.value = false
             }

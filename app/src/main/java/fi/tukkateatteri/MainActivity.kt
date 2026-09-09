@@ -8,9 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Sync
@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -104,29 +105,28 @@ class MainActivity : ComponentActivity() {
             TukkateatteriTheme {
                 ReservationApp(
                     viewModel = reservationViewModel,
-                    onGoogleSheetsTransfer = { action, spreadsheetUrl, sheetTitle ->
+                    onGoogleSheetsTransfer = { spreadsheetUrl ->
                         authorizeGoogleSheets(onAuthorized = { accessToken ->
-                            when (action) {
-                                SpreadsheetAction.IMPORT -> {
-                                    reservationViewModel.prepareGoogleSheetImport(
-                                        spreadsheetUrl,
-                                        accessToken
-                                    )
-                                }
-                                SpreadsheetAction.EXPORT -> {
-                                    reservationViewModel.exportGoogleSheet(
-                                        spreadsheetUrl,
-                                        sheetTitle,
-                                        accessToken
-                                    )
-                                }
-                            }
+                            reservationViewModel.prepareGoogleSheetImport(
+                                spreadsheetUrl,
+                                accessToken
+                            )
                         })
                     },
-                    onGoogleSheetsSync = { performance, spreadsheetUrl ->
+                    onGoogleSheetsSync = { performance, spreadsheetUrl, showError ->
                         authorizeGoogleSheets(onAuthorized = { accessToken ->
                             reservationViewModel.syncGoogleSheetPerformance(
                                 performance.id,
+                                spreadsheetUrl,
+                                accessToken,
+                                showError
+                            )
+                        })
+                    },
+                    onGoogleSheetsSyncAll = { performances, spreadsheetUrl ->
+                        authorizeGoogleSheets(onAuthorized = { accessToken ->
+                            reservationViewModel.syncGoogleSheetPerformances(
+                                performances.map(Performance::id),
                                 spreadsheetUrl,
                                 accessToken
                             )
@@ -201,8 +201,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun ReservationApp(
     viewModel: ReservationViewModel,
-    onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit,
-    onGoogleSheetsSync: (Performance, String) -> Unit,
+    onGoogleSheetsTransfer: (String) -> Unit,
+    onGoogleSheetsSync: (Performance, String, Boolean) -> Unit,
+    onGoogleSheetsSyncAll: (List<Performance>, String) -> Unit,
     onGoogleSheetsMutation: ((String?) -> Unit) -> Unit,
     onChangeGoogleAccount: () -> Unit
 ) {
@@ -220,7 +221,9 @@ private fun ReservationApp(
     var showGoogleSheetSourceManager by rememberSaveable { mutableStateOf(false) }
     var showPerformanceEditor by rememberSaveable { mutableStateOf(false) }
     var performanceToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var spreadsheetAction by rememberSaveable { mutableStateOf<SpreadsheetAction?>(null) }
+    var performancesToImport by remember { mutableStateOf<List<Performance>?>(null) }
+    var spreadsheetUrlToImport by remember { mutableStateOf<String?>(null) }
+    var showImportDialog by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
@@ -239,7 +242,12 @@ private fun ReservationApp(
                     coroutineScope.launch { drawerState.close() }
                 },
                 onSyncPerformance = { performance, source ->
-                    onGoogleSheetsSync(performance, source.spreadsheetUrl)
+                    onGoogleSheetsSync(performance, source.spreadsheetUrl, true)
+                    coroutineScope.launch { drawerState.close() }
+                },
+                onSyncAct = { actPerformances, source ->
+                    performancesToImport = actPerformances
+                    spreadsheetUrlToImport = source.spreadsheetUrl
                     coroutineScope.launch { drawerState.close() }
                 },
                 onDeletePerformance = { performance ->
@@ -257,15 +265,14 @@ private fun ReservationApp(
             onAddClick = {
                 if (activePerformance == null) showPerformanceEditor = true else showAdmissionTypeDialog = true
             },
-            onImportClick = { spreadsheetAction = SpreadsheetAction.IMPORT },
-            onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
+            onImportClick = { showImportDialog = true },
             onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
             onChangeGoogleAccountClick = onChangeGoogleAccount,
             onSyncPendingClick = {
                 activePerformance?.let { performance ->
                     googleSheetSources
                         .firstOrNull { source -> source.actName == performance.actName }
-                        ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl) }
+                        ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
                 }
             },
             onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
@@ -283,8 +290,23 @@ private fun ReservationApp(
             googleSheetSources
                 .firstOrNull { source -> source.actName == performance.actName }
                 ?.takeIf { performance.canSyncFromGoogleSheets }
-                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl) }
+                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, false) }
         }
+    }
+
+    performancesToImport?.let { selectedPerformances ->
+        ConfirmActImportDialog(
+            performances = selectedPerformances,
+            onDismiss = {
+                performancesToImport = null
+                spreadsheetUrlToImport = null
+            },
+            onConfirm = {
+                onGoogleSheetsSyncAll(selectedPerformances, requireNotNull(spreadsheetUrlToImport))
+                performancesToImport = null
+                spreadsheetUrlToImport = null
+            }
+        )
     }
 
     if (showAdmissionTypeDialog) {
@@ -438,14 +460,13 @@ private fun ReservationApp(
         )
     }
 
-    spreadsheetAction?.let { action ->
+    if (showImportDialog) {
         SpreadsheetTransferDialog(
-            action = action,
             sources = googleSheetSources,
-            onDismiss = { spreadsheetAction = null },
-            onTransfer = { spreadsheetUrl, sheetTitle ->
-                onGoogleSheetsTransfer(action, spreadsheetUrl, sheetTitle)
-                spreadsheetAction = null
+            onDismiss = { showImportDialog = false },
+            onTransfer = { spreadsheetUrl ->
+                onGoogleSheetsTransfer(spreadsheetUrl)
+                showImportDialog = false
             }
         )
     }
@@ -453,21 +474,19 @@ private fun ReservationApp(
 
 @Composable
 private fun SpreadsheetTransferDialog(
-    action: SpreadsheetAction,
     sources: List<GoogleSheetSource>,
     onDismiss: () -> Unit,
-    onTransfer: (String, String) -> Unit
+    onTransfer: (String) -> Unit
 ) {
-    var spreadsheetUrl by rememberSaveable(action) { mutableStateOf("") }
-    var sheetTitle by rememberSaveable(action) { mutableStateOf("") }
-    var isSourceMenuExpanded by rememberSaveable(action) { mutableStateOf(false) }
-    var selectedSourceName by rememberSaveable(action) { mutableStateOf<String?>(null) }
+    var spreadsheetUrl by rememberSaveable { mutableStateOf("") }
+    var isSourceMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(action.titleResId)) },
+        title = { Text(stringResource(R.string.import_spreadsheet)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(action.messageResId))
+                Text(stringResource(R.string.import_spreadsheet_message))
                 if (sources.isNotEmpty()) {
                     Box {
                         OutlinedButton(
@@ -502,18 +521,10 @@ private fun SpreadsheetTransferDialog(
                     label = { Text(stringResource(R.string.google_sheet_url)) },
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (action == SpreadsheetAction.EXPORT) {
-                    OutlinedTextField(
-                        value = sheetTitle,
-                        onValueChange = { sheetTitle = it },
-                        label = { Text(stringResource(R.string.google_sheet_tab)) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onTransfer(spreadsheetUrl, sheetTitle) }, enabled = spreadsheetUrl.isNotBlank() && (action == SpreadsheetAction.IMPORT || sheetTitle.isNotBlank())) { Text(stringResource(action.titleResId)) }
+            TextButton(onClick = { onTransfer(spreadsheetUrl) }, enabled = spreadsheetUrl.isNotBlank()) { Text(stringResource(R.string.import_spreadsheet)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
@@ -526,6 +537,7 @@ private fun PerformanceDrawerContent(
     onSelectPerformance: (Performance) -> Unit,
     onAddPerformance: () -> Unit,
     onSyncPerformance: (Performance, GoogleSheetSource) -> Unit,
+    onSyncAct: (List<Performance>, GoogleSheetSource) -> Unit,
     onDeletePerformance: (Performance) -> Unit
 ) {
     var expandedActName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -569,16 +581,32 @@ private fun PerformanceDrawerContent(
                         .clickable {
                             hasExplicitExpansionSelection = true
                             expandedActName = if (isExpanded) null else actName
-                        },
+                    },
                     trailingContent = {
-                        Icon(
-                            imageVector = if (isExpanded) {
-                                Icons.Filled.ExpandLess
-                            } else {
-                                Icons.Filled.ExpandMore
-                            },
-                            contentDescription = null
-                        )
+                        Row {
+                            sourcesByAct[actName]?.let { source ->
+                                val importablePerformances = actPerformances
+                                    .filter(Performance::canSyncFromGoogleSheets)
+                                if (importablePerformances.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { onSyncAct(importablePerformances, source) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Download,
+                                            contentDescription = stringResource(R.string.import_act_data)
+                                        )
+                                    }
+                                }
+                            }
+                            Icon(
+                                imageVector = if (isExpanded) {
+                                    Icons.Filled.ExpandLess
+                                } else {
+                                    Icons.Filled.ExpandMore
+                                },
+                                contentDescription = null
+                            )
+                        }
                     }
                 )
                 if (isExpanded) {
@@ -683,6 +711,37 @@ private fun DeletePerformanceDialog(
 }
 
 @Composable
+private fun ConfirmActImportDialog(
+    performances: List<Performance>,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.import_act_data)) },
+        text = {
+            Text(
+                stringResource(
+                    R.string.import_act_data_confirmation,
+                    performances.firstOrNull()?.actName.orEmpty(),
+                    performances.size
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.import_spreadsheet))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
 private fun PerformanceEditorDialog(
     onDismiss: () -> Unit,
     onSave: (actName: String, date: String) -> Unit
@@ -724,19 +783,5 @@ private fun PerformanceEditorDialog(
                 Text(stringResource(R.string.cancel))
             }
         }
-    )
-}
-
-private enum class SpreadsheetAction(
-    @param:StringRes val titleResId: Int,
-    @param:StringRes val messageResId: Int
-) {
-    IMPORT(
-        R.string.import_spreadsheet,
-        R.string.import_spreadsheet_message
-    ),
-    EXPORT(
-        R.string.export_spreadsheet,
-        R.string.export_spreadsheet_message
     )
 }

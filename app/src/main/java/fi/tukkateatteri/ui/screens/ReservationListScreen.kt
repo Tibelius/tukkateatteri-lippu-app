@@ -65,7 +65,6 @@ fun ReservationListScreen(
     onReservationClick: (Reservation) -> Unit,
     onAddClick: () -> Unit,
     onImportClick: () -> Unit,
-    onExportClick: () -> Unit,
     onManageGoogleSheetSourcesClick: () -> Unit,
     onChangeGoogleAccountClick: () -> Unit,
     onSyncPendingClick: () -> Unit,
@@ -73,7 +72,10 @@ fun ReservationListScreen(
 ) {
     val redeemedCount = reservations.count(Reservation::isFullyRedeemed)
     val totalSeatCount = reservations.sumOf(Reservation::seatCount)
-    val pendingChangeCount = reservations.count { it.syncState != ReservationSyncState.SYNCED }
+    val pendingChangeCount = reservations.count { reservation ->
+        reservation.syncState == ReservationSyncState.PENDING ||
+            reservation.syncState == ReservationSyncState.PENDING_DELETION
+    }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val sortedReservations = remember(reservations) {
         val collator = Collator.getInstance(FINNISH_LOCALE)
@@ -148,7 +150,7 @@ fun ReservationListScreen(
                             expanded = isDataMenuExpanded,
                             onDismissRequest = { isDataMenuExpanded = false }
                         ) {
-                            if (activePerformance?.canSyncFromGoogleSheets == true) {
+                            if (pendingChangeCount > 0) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.sync_pending_changes)) },
                                     leadingIcon = {
@@ -165,13 +167,6 @@ fun ReservationListScreen(
                                 onClick = {
                                     isDataMenuExpanded = false
                                     onImportClick()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.export_spreadsheet)) },
-                                onClick = {
-                                    isDataMenuExpanded = false
-                                    onExportClick()
                                 }
                             )
                             DropdownMenuItem(
