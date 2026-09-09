@@ -657,7 +657,7 @@ private fun ReservationSpreadsheetRow.toSheetCellValues(
     sheetRowId: String,
     operation: String?
 ): List<SheetCellValue> = buildList {
-    fun set(header: String, value: String) {
+    fun set(header: String, value: Any) {
         headers[header]?.let { columnIndex ->
             add(SheetCellValue("$sheetTitle!${columnIndex.toColumnName()}$rowNumber", value))
         }
@@ -665,10 +665,10 @@ private fun ReservationSpreadsheetRow.toSheetCellValues(
     set(HEADER_LAST_NAME, lastName)
     set(HEADER_FIRST_NAME, firstName)
     set(HEADER_CONTACT, contact)
-    set(HEADER_RESERVED_COUNT, reservedSeatCount.toString())
-    set(HEADER_ARRIVAL_COUNT, arrivalCount.toString())
-    ticketHeaders.forEach { (type, header) -> set(header, reservedTicketCounts[type]?.toString().orEmpty()) }
-    paymentHeaders.forEach { (method, header) -> set(header, paymentTicketCounts[method]?.toString().orEmpty()) }
+    set(HEADER_RESERVED_COUNT, reservedSeatCount)
+    set(HEADER_ARRIVAL_COUNT, arrivalCount)
+    ticketHeaders.forEach { (type, header) -> set(header, reservedTicketCounts[type] ?: "") }
+    paymentHeaders.forEach { (method, header) -> set(header, paymentTicketCounts[method] ?: "") }
     set(HEADER_NOTES, notes)
     set(HEADER_SHEET_ROW_ID, sheetRowId)
     operation?.let { set(HEADER_APP_OPERATION, it) }
@@ -682,21 +682,25 @@ private fun deletedRowCellValues(
     headers: Map<String, Int>,
     mutationId: String
 ): List<SheetCellValue> = buildList {
-    fun set(header: String, value: String) {
+    fun set(header: String, value: Any) {
         headers[header]?.let { columnIndex ->
             add(SheetCellValue("$sheetTitle!${columnIndex.toColumnName()}$rowNumber", value))
         }
     }
-    set(HEADER_RESERVED_COUNT, "0")
-    set(HEADER_ARRIVAL_COUNT, "0")
-    ticketHeaders.values.forEach { set(it, "0") }
-    paymentHeaders.values.forEach { set(it, "0") }
+    set(HEADER_RESERVED_COUNT, 0)
+    set(HEADER_ARRIVAL_COUNT, 0)
+    ticketHeaders.values.forEach { set(it, 0) }
+    paymentHeaders.values.forEach { set(it, 0) }
     set(HEADER_APP_OPERATION, APP_OPERATION_DELETE)
     set(HEADER_APP_MODIFIED_AT, Instant.now().toString())
     set(HEADER_APP_MUTATION_ID, mutationId)
 }
 
-private data class SheetCellValue(val range: String, val value: String)
+private data class SheetCellValue(val range: String, val value: Any) {
+    init {
+        require(value is String || value is Int) { "Only text and whole numbers can be written to Google Sheets." }
+    }
+}
 
 private data class LockRow(
     val rowNumber: Int,
@@ -718,7 +722,7 @@ private data class LockTable(
         expiresAt: String,
         deviceId: String = ""
     ): List<SheetCellValue> = buildList {
-        fun set(header: String, value: String) {
+        fun set(header: String, value: Any) {
             headers[header]?.let { columnIndex ->
                 add(SheetCellValue("Sovelluslukot!${columnIndex.toColumnName()}$rowNumber", value))
             }
