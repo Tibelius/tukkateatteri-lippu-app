@@ -10,56 +10,53 @@ import fi.tukkateatteri.data.ReservationSyncState
 class ReservationTypeConverters {
     @TypeConverter
     fun admissionTypeFromStorage(value: String?): AdmissionType =
-        value?.let { storedValue -> AdmissionType.entries.find { it.name == storedValue } }
-            ?: AdmissionType.RESERVATION
+        value.toEnumOrDefault(AdmissionType.entries, AdmissionType.RESERVATION)
 
     @TypeConverter
     fun admissionTypeToStorage(value: AdmissionType): String = value.name
 
     @TypeConverter
     fun paymentMethodFromStorage(value: String?): PaymentMethod? =
-        value?.let { storedValue -> PaymentMethod.entries.find { it.name == storedValue } }
+        value?.let { storedValue -> PaymentMethod.entries.find { entry -> entry.name == storedValue } }
 
     @TypeConverter
     fun paymentMethodToStorage(value: PaymentMethod?): String? = value?.name
 
     @TypeConverter
     fun ticketTypeFromStorage(value: String?): TicketType =
-        value?.let { storedValue -> TicketType.entries.find { it.name == storedValue } }
-            ?: TicketType.UNSPECIFIED
+        value.toEnumOrDefault(TicketType.entries, TicketType.UNSPECIFIED)
 
     @TypeConverter
     fun ticketTypeToStorage(value: TicketType): String = value.name
 
     @TypeConverter
     fun ticketSaleOriginFromStorage(value: String?): TicketSaleOrigin =
-        value?.let { storedValue -> TicketSaleOrigin.entries.find { it.name == storedValue } }
-            ?: TicketSaleOrigin.MANUAL
+        value.toEnumOrDefault(TicketSaleOrigin.entries, TicketSaleOrigin.MANUAL)
 
     @TypeConverter
     fun ticketSaleOriginToStorage(value: TicketSaleOrigin): String = value.name
 
     @TypeConverter
     fun reservationSyncStateFromStorage(value: String?): ReservationSyncState =
-        value?.let { storedValue -> ReservationSyncState.entries.find { it.name == storedValue } }
-            ?: ReservationSyncState.SYNCED
+        value.toEnumOrDefault(ReservationSyncState.entries, ReservationSyncState.SYNCED)
 
     @TypeConverter
     fun reservationSyncStateToStorage(value: ReservationSyncState): String = value.name
 
     @TypeConverter
     fun pendingSheetOperationFromStorage(value: String?): PendingSheetOperation =
-        value?.let { storedValue -> PendingSheetOperation.entries.find { it.name == storedValue } }
-            ?: PendingSheetOperation.UPSERT
+        value.toEnumOrDefault(PendingSheetOperation.entries, PendingSheetOperation.UPSERT)
 
     @TypeConverter
     fun pendingSheetOperationToStorage(value: PendingSheetOperation): String = value.name
 
     @TypeConverter
     fun pendingSheetChangeStatusFromStorage(value: String?): PendingSheetChangeStatus =
-        value?.let { storedValue -> PendingSheetChangeStatus.entries.find { it.name == storedValue } }
-            ?: PendingSheetChangeStatus.PENDING
+        value.toEnumOrDefault(PendingSheetChangeStatus.entries, PendingSheetChangeStatus.PENDING)
 
     @TypeConverter
     fun pendingSheetChangeStatusToStorage(value: PendingSheetChangeStatus): String = value.name
 }
+
+private fun <T : Enum<T>> String?.toEnumOrDefault(entries: List<T>, default: T): T =
+    this?.let { storedValue -> entries.find { entry -> entry.name == storedValue } } ?: default

@@ -41,8 +41,6 @@
     <string name="act_name">Esityksen nimi</string>
     <string name="edit">Muokkaa</string>
     <string name="google_sheets_transfer">Google Sheets</string>
-    <string name="google_sheets_loading">Luetaan Google Sheets -taulukkoa…</string>
-    <string name="select_performance_date">Valitse esityspäivä</string>
     <string name="select_performance">Valitse esitys</string>
     <string name="performances">Esitykset</string>
     <string name="add_performance">Lisää esitys</string>
@@ -51,11 +49,17 @@
     <string name="no_active_performance">Valitse tai lisää esitys valikosta ennen varausten käsittelyä.</string>
     <string name="open_performance_menu">Avaa esitysvalikko</string>
     <string name="google_sheets_no_import_candidates">Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt.</string>
-    <string name="google_sheets_import_succeeded">Tuotiin %1$d esitystä ja %2$d varausta.</string>
+    <plurals name="google_sheets_import_succeeded">
+        <item quantity="one">Tuotiin %1$d esitys ja %2$d varausta.</item>
+        <item quantity="other">Tuotiin %1$d esitystä ja %2$d varausta.</item>
+    </plurals>
     <string name="google_sheets_import_failed">Tuonti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
     <string name="sync_google_sheet">Tuo tiedot</string>
     <string name="import_act_data">Tuo kaikki esityspäivät</string>
-    <string name="import_act_data_confirmation">Tuodaanko esityksen %1$s tiedot kaikilta %2$d esityspäivältä?</string>
+    <plurals name="import_act_data_confirmation">
+        <item quantity="one">Tuodaanko esityksen %1$s tiedot yhdeltä esityspäivältä?</item>
+        <item quantity="other">Tuodaanko esityksen %1$s tiedot kaikilta %2$d esityspäivältä?</item>
+    </plurals>
     <string name="google_sheets_sync_failed">Päivitys epäonnistui. Tarkista yhteys ja Google-oikeudet.</string>
     <string name="google_sheets_sync_source_changed">Tallennettu välilehti tai sen esitys- tai päivämäärätiedot ovat muuttuneet. Tuo taulukko uudelleen.</string>
     <string name="google_sheets_sync_source_missing">Google Sheets -osoite puuttuu. Lisää se Google Sheets -osoitteista.</string>
@@ -64,7 +68,10 @@
     <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
     <string name="sync_pending_changes">Vie odottavat muutokset</string>
-    <string name="pending_sheet_changes">%1$d muutosta odottaa synkronointia</string>
+    <plurals name="pending_sheet_changes">
+        <item quantity="one">%1$d muutos odottaa synkronointia</item>
+        <item quantity="other">%1$d muutosta odottaa synkronointia</item>
+    </plurals>
     <string name="sheet_change_pending">Odottaa Google Sheets -synkronointia</string>
     <string name="sheet_change_conflict">Google Sheetsissä on uudempi muutos</string>
     <string name="sheet_deletion_pending">Poisto odottaa Google Sheets -synkronointia</string>
@@ -87,6 +94,10 @@
     <string name="decrease_seat_count">Vähennä paikkoja</string>
     <string name="increase_seat_count">Lisää paikkoja</string>
     <string name="payment_method">Maksutapa</string>
+    <string name="label_with_value">%1$s: %2$s</string>
+    <string name="ticket_quantity">%1$s × %2$d</string>
+    <string name="payment_allocation">%1$s %2$s</string>
+    <string name="imported_payment_details">%1$s · %2$s</string>
     <string name="reservation_summary">%1$s · %2$s</string>
     <string name="reservation_overview">%1$s · %2$s</string>
 
@@ -105,8 +116,14 @@
     <string name="ticket_type_unspecified">Määrittelemätön</string>
     <string name="reserved_ticket_types">Varatut lipputyypit</string>
     <string name="reserved_ticket_types_remaining">Lunastamattomat lipputyypit</string>
-    <string name="reserved_ticket_types_total">%1$d / %2$d paikkaa määritelty</string>
-    <string name="reserved_ticket_types_summary">%d lipputyyppiä varattu</string>
+    <plurals name="reserved_ticket_types_total">
+        <item quantity="one">%1$d / %2$d paikka määritelty</item>
+        <item quantity="other">%1$d / %2$d paikkaa määritelty</item>
+    </plurals>
+    <plurals name="reserved_ticket_types_summary">
+        <item quantity="one">%d lipputyyppi varattu</item>
+        <item quantity="other">%d lipputyyppiä varattu</item>
+    </plurals>
     <string name="no_reserved_ticket_types">Ei määritelty</string>
     <string name="add_reserved_ticket_type">Lisää lipputyyppi</string>
     <string name="realized_payments">Toteutuneet lunastukset</string>

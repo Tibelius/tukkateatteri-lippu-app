@@ -1,5 +1,6 @@
 package fi.tukkateatteri.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,14 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
-
-private const val MINIMUM_SEAT_COUNT = 1
+import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 
 @Composable
 fun SeatCountSelector(
     seatCount: Int,
     minimumSeatCount: Int = MINIMUM_SEAT_COUNT,
-    labelResId: Int = R.string.seat_count,
+    @StringRes labelResId: Int = R.string.seat_count,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit
 ) {

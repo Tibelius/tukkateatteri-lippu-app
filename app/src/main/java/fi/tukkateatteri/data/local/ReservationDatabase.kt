@@ -30,9 +30,7 @@ abstract class ReservationDatabase : RoomDatabase() {
 
     companion object {
         fun create(context: Context): ReservationDatabase {
-            lateinit var database: ReservationDatabase
-
-            database = Room
+            return Room
                 .databaseBuilder(
                     context.applicationContext,
                     ReservationDatabase::class.java,
@@ -51,10 +49,7 @@ abstract class ReservationDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12
                 )
-                .withBuildSpecificDatabaseConfiguration { database }
                 .build()
-
-            return database
         }
 
         private const val DATABASE_NAME = "tukkateatteri.db"

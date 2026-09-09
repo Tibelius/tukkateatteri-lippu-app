@@ -1,6 +1,7 @@
 package fi.tukkateatteri
 
 import android.app.Application
+import androidx.core.content.edit
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.RoomReservationRepository
 import fi.tukkateatteri.data.local.ReservationDatabase
@@ -16,7 +17,9 @@ class TukkateatteriApplication : Application() {
                 performanceDao = database.performanceDao(),
                 googleSheetSourceDao = database.googleSheetSourceDao(),
                 pendingSheetChangeDao = database.pendingSheetChangeDao(),
-                googleSheetsClient = GoogleSheetsClient("Android ${installationId().take(8)}")
+                googleSheetsClient = GoogleSheetsClient(
+                    deviceId = "$DEVICE_LABEL_PREFIX${installationId().take(INSTALLATION_ID_LABEL_LENGTH)}"
+                )
             )
         }
     }
@@ -25,12 +28,14 @@ class TukkateatteriApplication : Application() {
         val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
         return preferences.getString(PREFERENCE_INSTALLATION_ID, null)
             ?: UUID.randomUUID().toString().also { id ->
-                preferences.edit().putString(PREFERENCE_INSTALLATION_ID, id).apply()
+                preferences.edit { putString(PREFERENCE_INSTALLATION_ID, id) }
             }
     }
 
     private companion object {
-        const val PREFERENCES_NAME = "tukkateatteri"
-        const val PREFERENCE_INSTALLATION_ID = "installation_id"
+        private const val PREFERENCES_NAME = "tukkateatteri"
+        private const val PREFERENCE_INSTALLATION_ID = "installation_id"
+        private const val DEVICE_LABEL_PREFIX = "Android-"
+        private const val INSTALLATION_ID_LABEL_LENGTH = 8
     }
 }

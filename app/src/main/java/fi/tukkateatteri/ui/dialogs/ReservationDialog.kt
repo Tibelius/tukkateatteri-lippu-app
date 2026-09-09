@@ -1,10 +1,8 @@
 package fi.tukkateatteri.ui.dialogs
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -43,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.ReservedTicketAllocation
@@ -50,6 +49,8 @@ import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketSaleOrigin
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
+import fi.tukkateatteri.ui.components.CancelSaveActions
+import fi.tukkateatteri.ui.components.CustomerDetailsFields
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 import fi.tukkateatteri.ui.components.reservedTicketTypesDetails
@@ -240,7 +241,7 @@ private fun ReservationEditorDialog(
         mutableStateOf(reservation.reservedTicketAllocations)
     }
     val minimumSeatCount = maxOf(
-        1,
+        MINIMUM_SEAT_COUNT,
         reservation.paidSeatCount,
         reservation.arrivalCount,
         reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
@@ -263,12 +264,9 @@ private fun ReservationEditorDialog(
     ScrollableAppDialog(
         onDismissRequest = onDismiss,
         actions = {
-            Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            Button(
-                onClick = {
+            CancelSaveActions(
+                onCancel = onDismiss,
+                onSave = {
                     onSave(
                         reservation.copy(
                             lastName = lastName.trim(),
@@ -280,10 +278,8 @@ private fun ReservationEditorDialog(
                         )
                     )
                 },
-                enabled = canSave
-            ) {
-                Text(stringResource(R.string.save))
-            }
+                saveEnabled = canSave
+            )
         }
     ) {
         Text(
@@ -291,13 +287,13 @@ private fun ReservationEditorDialog(
             style = MaterialTheme.typography.headlineSmall
         )
         CustomerDetailsFields(
-            isDoorSale = isDoorSale,
             lastName = lastName,
             firstName = firstName,
             contact = contact,
             onLastNameChange = { lastName = it },
             onFirstNameChange = { firstName = it },
-            onContactChange = { contact = it }
+            onContactChange = { contact = it },
+            fieldsAreOptional = isDoorSale
         )
         HorizontalDivider()
         SeatCountSelector(
@@ -415,63 +411,6 @@ private fun DetailSectionTitle(
 }
 
 @Composable
-private fun CustomerDetailsFields(
-    isDoorSale: Boolean,
-    lastName: String,
-    firstName: String,
-    contact: String,
-    onLastNameChange: (String) -> Unit,
-    onFirstNameChange: (String) -> Unit,
-    onContactChange: (String) -> Unit
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
-            value = lastName,
-            onValueChange = onLastNameChange,
-            modifier = Modifier.weight(1f),
-            label = {
-                Text(
-                    stringResource(
-                        if (isDoorSale) R.string.last_name_optional else R.string.last_name
-                    )
-                )
-            },
-            singleLine = true
-        )
-        OutlinedTextField(
-            value = firstName,
-            onValueChange = onFirstNameChange,
-            modifier = Modifier.weight(1f),
-            label = {
-                Text(
-                    stringResource(
-                        if (isDoorSale) R.string.first_name_optional else R.string.first_name
-                    )
-                )
-            },
-            singleLine = true
-        )
-    }
-    OutlinedTextField(
-        value = contact,
-        onValueChange = onContactChange,
-        modifier = Modifier.fillMaxWidth(),
-        label = {
-            Text(
-                stringResource(
-                    if (isDoorSale) {
-                        R.string.contact_information_optional
-                    } else {
-                        R.string.contact_information
-                    }
-                )
-            )
-        },
-        singleLine = true
-    )
-}
-
-@Composable
 private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -505,28 +444,37 @@ private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
 private fun ticketSaleTitle(ticketSale: TicketSale): String {
     val ticketTypeLabel = stringResource(ticketSale.ticketType.labelResId)
     if (ticketSale.ticketType != TicketType.UNSPECIFIED) {
-        return "$ticketTypeLabel × ${ticketSale.quantity}"
+        return stringResource(R.string.ticket_quantity, ticketTypeLabel, ticketSale.quantity)
     }
-    val paymentMethod = ticketSale.singlePaymentMethod ?: return "$ticketTypeLabel × ${ticketSale.quantity}"
-    return "${stringResource(paymentMethod.labelResId)} × ${ticketSale.quantity}"
+    val paymentMethod = ticketSale.singlePaymentMethod
+        ?: return stringResource(R.string.ticket_quantity, ticketTypeLabel, ticketSale.quantity)
+    return stringResource(
+        R.string.ticket_quantity,
+        stringResource(paymentMethod.labelResId),
+        ticketSale.quantity
+    )
 }
 
 @Composable
 private fun ticketSalePaymentText(ticketSale: TicketSale): String {
-    var paymentText = ""
-    for ((index, payment) in ticketSale.payments.withIndex()) {
-        if (index > 0) {
-            paymentText += ", "
-        }
-        paymentText += "${stringResource(payment.method.labelResId)} ${payment.amountCents.toEuroString()}"
-    }
+    val paymentText = ticketSale.payments.map { payment ->
+        stringResource(
+            R.string.payment_allocation,
+            stringResource(payment.method.labelResId),
+            payment.amountCents.toEuroString()
+        )
+    }.joinToString(separator = ", ")
     if (ticketSale.origin != TicketSaleOrigin.IMPORTED) {
         return paymentText.ifBlank { stringResource(R.string.ticket_type_free_ticket) }
     }
     if (ticketSale.ticketType == TicketType.UNSPECIFIED) {
         return stringResource(R.string.imported_payment)
     }
-    return "${stringResource(R.string.imported_payment)} · $paymentText"
+    return stringResource(
+        R.string.imported_payment_details,
+        stringResource(R.string.imported_payment),
+        paymentText
+    )
 }
 
 @Composable

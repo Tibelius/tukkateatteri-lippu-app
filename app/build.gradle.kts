@@ -34,7 +34,6 @@ android {
         targetSdk = 37
         versionCode = 7
         versionName = "0.4.0"
-
     }
 
     signingConfigs {
@@ -72,6 +71,7 @@ room {
 }
 
 dependencies {
+    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

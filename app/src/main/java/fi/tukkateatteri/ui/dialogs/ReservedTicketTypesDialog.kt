@@ -3,7 +3,6 @@ package fi.tukkateatteri.ui.dialogs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,7 +16,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,12 +24,14 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 
 internal val reservedTicketAllocationsSaver = listSaver<List<ReservedTicketAllocation>, String>(
@@ -64,21 +64,16 @@ fun ReservedTicketTypesDialog(
     ScrollableAppDialog(
         onDismissRequest = onDismiss,
         actions = {
-            Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            Button(
-                onClick = {
+            CancelSaveActions(
+                onCancel = onDismiss,
+                onSave = {
                     onSave(
                         quantities.map { (ticketTypeName, quantity) ->
                             ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
                         }
                     )
                 }
-            ) {
-                Text(stringResource(R.string.save))
-            }
+            )
         }
     ) {
         Text(
@@ -86,8 +81,9 @@ fun ReservedTicketTypesDialog(
             style = MaterialTheme.typography.headlineSmall
         )
         Text(
-            text = stringResource(
-                R.string.reserved_ticket_types_total,
+            text = pluralStringResource(
+                R.plurals.reserved_ticket_types_total,
+                allocatedQuantity,
                 allocatedQuantity,
                 maximumQuantity
             ),
@@ -178,6 +174,13 @@ private fun ReservedTicketTypeRow(
 @Composable
 fun reservedTicketTypesSummary(allocations: List<ReservedTicketAllocation>): String = when (allocations.size) {
     0 -> stringResource(R.string.no_reserved_ticket_types)
-    1 -> stringResource(allocations.single().ticketType.labelResId) + " × " + allocations.single().quantity
-    else -> stringResource(R.string.reserved_ticket_types_summary, allocations.sumOf(ReservedTicketAllocation::quantity))
+    1 -> stringResource(
+        R.string.ticket_quantity,
+        stringResource(allocations.single().ticketType.labelResId),
+        allocations.single().quantity
+    )
+    else -> {
+        val quantity = allocations.sumOf(ReservedTicketAllocation::quantity)
+        pluralStringResource(R.plurals.reserved_ticket_types_summary, quantity, quantity)
+    }
 }

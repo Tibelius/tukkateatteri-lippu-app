@@ -105,8 +105,11 @@ private fun PaymentOptionCard(
         colors = CardDefaults.cardColors(containerColor = backgroundColor),
         border = BorderStroke(
             width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.outlineVariant
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
         )
     ) {
         Row(

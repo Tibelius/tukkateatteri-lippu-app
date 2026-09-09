@@ -16,7 +16,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -30,7 +31,10 @@ fun ScrollableAppDialog(
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val maximumHeight = LocalConfiguration.current.screenHeightDp.dp * DIALOG_MAX_HEIGHT_FRACTION
+    val containerHeight = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
+    }
+    val maximumHeight = containerHeight * DIALOG_MAX_HEIGHT_FRACTION
 
     Dialog(
         onDismissRequest = onDismissRequest,

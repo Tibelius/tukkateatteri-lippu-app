@@ -1,7 +1,9 @@
 package fi.tukkateatteri.data.spreadsheet
 
 import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.toPerformanceDateOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -11,8 +13,6 @@ import java.net.URI
 import java.net.URLEncoder
 import java.time.Instant
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.UUID
 
 data class GoogleSheetTab(
@@ -42,7 +42,10 @@ data class ExportedSpreadsheetRow(
 class GoogleSheetsClient(
     private val deviceId: String = "Android"
 ) {
-    suspend fun loadTabs(spreadsheetUrl: String, accessToken: String): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
+    private suspend fun loadTabs(
+        spreadsheetUrl: String,
+        accessToken: String
+    ): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val metadata = getJson(
             url = "$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false",
@@ -217,9 +220,9 @@ class GoogleSheetsClient(
             spreadsheetId,
             accessToken,
             listOf(
-                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_OPERATION).toColumnName()}$rowNumber", ""),
-                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_MODIFIED_AT).toColumnName()}$rowNumber", ""),
-                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_MUTATION_ID).toColumnName()}$rowNumber", "")
+                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_OPERATION), rowNumber), ""),
+                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_MODIFIED_AT), rowNumber), ""),
+                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_MUTATION_ID), rowNumber), "")
             )
         )
         clearStrikeThroughRow(
@@ -297,18 +300,17 @@ class GoogleSheetsClient(
     }
 
     private fun valuesRange(sheetTitle: String): String =
-        "'${sheetTitle.replace("'", "''")}'!A:Z"
+        "${sheetTitle.toQuotedSheetName()}!$SHEET_VALUE_COLUMNS"
 
     private fun getJson(url: String, accessToken: String): JSONObject {
-        val connection = URI(url).toURL().openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
+        val connection = openConnection(url, accessToken)
+        connection.requestMethod = HTTP_GET
         connection.setRequestProperty("Authorization", "Bearer $accessToken")
         connection.setRequestProperty("Accept", "application/json")
         try {
             val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-            val response = stream.bufferedReader().use { it.readText() }
-            if (responseCode !in 200..299) {
+            val response = connection.responseText(responseCode)
+            if (responseCode !in HTTP_SUCCESS_CODES) {
                 throw IllegalStateException("Google Sheets -pyyntö epäonnistui ($responseCode): $response")
             }
             return JSONObject(response)
@@ -332,7 +334,7 @@ class GoogleSheetsClient(
                 accessToken,
                 listOf(
                     SheetCellValue(
-                        "$sheetTitle!${columnIndex.toColumnName()}${headerRowIndex + 1}",
+                        sheetCellRange(sheetTitle, columnIndex, headerRowIndex + 1),
                         "Sovellus-ID"
                     )
                 )
@@ -371,14 +373,7 @@ class GoogleSheetsClient(
         rowNumber: Int,
         accessToken: String
     ) {
-        val sheetId = getJson("$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false", accessToken)
-            .getJSONArray("sheets")
-            .let { sheets ->
-                (0 until sheets.length())
-                    .map { sheets.getJSONObject(it).getJSONObject("properties") }
-                    .first { properties -> properties.getString("title") == sheetTitle }
-                    .getInt("sheetId")
-            }
+        val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
             JSONArray().put(
@@ -388,14 +383,14 @@ class GoogleSheetsClient(
                         "range",
                         JSONObject()
                             .put("sheetId", sheetId)
-                            .put("dimension", "ROWS")
+                            .put("dimension", SHEET_DIMENSION_ROWS)
                             .put("startIndex", rowNumber - 1)
                             .put("endIndex", rowNumber)
                     ).put("inheritFromBefore", true)
                 )
             )
         )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     private fun deleteReservationRow(
@@ -404,14 +399,7 @@ class GoogleSheetsClient(
         rowNumber: Int,
         accessToken: String
     ) {
-        val sheetId = getJson("$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false", accessToken)
-            .getJSONArray("sheets")
-            .let { sheets ->
-                (0 until sheets.length())
-                    .map { sheets.getJSONObject(it).getJSONObject("properties") }
-                    .first { properties -> properties.getString("title") == sheetTitle }
-                    .getInt("sheetId")
-            }
+        val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
             JSONArray().put(
@@ -421,14 +409,14 @@ class GoogleSheetsClient(
                         "range",
                         JSONObject()
                             .put("sheetId", sheetId)
-                            .put("dimension", "ROWS")
+                            .put("dimension", SHEET_DIMENSION_ROWS)
                             .put("startIndex", rowNumber - 1)
                             .put("endIndex", rowNumber)
                     )
                 )
             )
         )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     private fun updateCells(
@@ -451,7 +439,7 @@ class GoogleSheetsClient(
                     }
                 }
             )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchUpdate", "POST", request, accessToken)
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     private fun releasePerformanceLock(
@@ -483,14 +471,7 @@ class GoogleSheetsClient(
         lastColumnIndex: Int,
         accessToken: String
     ) {
-        val sheetId = getJson("$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false", accessToken)
-            .getJSONArray("sheets")
-            .let { sheets ->
-                (0 until sheets.length())
-                    .map { sheets.getJSONObject(it).getJSONObject("properties") }
-                    .first { properties -> properties.getString("title") == sheetTitle }
-                    .getInt("sheetId")
-            }
+        val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
             JSONArray().put(
@@ -517,7 +498,7 @@ class GoogleSheetsClient(
                 )
             )
         )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     private fun clearStrikeThroughRow(
@@ -527,14 +508,7 @@ class GoogleSheetsClient(
         lastColumnIndex: Int,
         accessToken: String
     ) {
-        val sheetId = getJson("$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false", accessToken)
-            .getJSONArray("sheets")
-            .let { sheets ->
-                (0 until sheets.length())
-                    .map { sheets.getJSONObject(it).getJSONObject("properties") }
-                    .first { properties -> properties.getString("title") == sheetTitle }
-                    .getInt("sheetId")
-            }
+        val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
             JSONArray().put(
@@ -561,29 +535,68 @@ class GoogleSheetsClient(
                 )
             )
         )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
+    }
+
+    private fun loadSheetId(
+        spreadsheetId: String,
+        sheetTitle: String,
+        accessToken: String
+    ): Int {
+        val sheets = getJson(
+            "$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false",
+            accessToken
+        ).getJSONArray("sheets")
+        return (0 until sheets.length())
+            .asSequence()
+            .map { index -> sheets.getJSONObject(index).getJSONObject("properties") }
+            .first { properties -> properties.getString("title") == sheetTitle }
+            .getInt("sheetId")
     }
 
     private fun sendJson(url: String, method: String, request: JSONObject, accessToken: String) {
         val requestBody = request.toString().toByteArray()
-        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        val connection = openConnection(url, accessToken)
         try {
             connection.requestMethod = method
             connection.doOutput = true
-            connection.setRequestProperty("Authorization", "Bearer $accessToken")
             connection.setRequestProperty("Content-Type", "application/json")
             connection.outputStream.use { it.write(requestBody) }
-            if (connection.responseCode !in 200..299) throw IllegalStateException("Google Sheets -pyyntö epäonnistui: ${connection.responseCode}")
+            val responseCode = connection.responseCode
+            if (responseCode !in HTTP_SUCCESS_CODES) {
+                throw IllegalStateException(
+                    "Google Sheets -pyyntö epäonnistui ($responseCode): " +
+                        connection.responseText(responseCode)
+                )
+            }
         } finally {
             connection.disconnect()
         }
     }
 
+    private fun openConnection(url: String, accessToken: String): HttpURLConnection =
+        (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+            connectTimeout = CONNECT_TIMEOUT_MILLIS
+            readTimeout = READ_TIMEOUT_MILLIS
+            setRequestProperty("Authorization", "Bearer $accessToken")
+        }
+
+    private fun HttpURLConnection.responseText(responseCode: Int): String {
+        val stream = if (responseCode in HTTP_SUCCESS_CODES) inputStream else errorStream
+        return stream?.bufferedReader()?.use { reader -> reader.readText() }.orEmpty()
+    }
+
     companion object {
         private const val API_BASE = "https://sheets.googleapis.com/v4"
-        private const val LOCK_SHEET_TITLE = "Sovelluslukot"
         private const val LOCK_DURATION_SECONDS = 10L
         private const val HARD_DELETE_FROM_SHEET = false
+        private const val CONNECT_TIMEOUT_MILLIS = 15_000
+        private const val READ_TIMEOUT_MILLIS = 30_000
+        private const val HTTP_GET = "GET"
+        private const val HTTP_POST = "POST"
+        private const val SHEET_DIMENSION_ROWS = "ROWS"
+        private const val SHEET_VALUE_COLUMNS = "A:Z"
+        private val HTTP_SUCCESS_CODES = 200..299
     }
 }
 
@@ -594,7 +607,7 @@ fun GoogleSheetTab.toImportCandidateOrNull(): GoogleSheetImportCandidate? {
         sheetTitle = title,
         performanceName = performanceName,
         date = date,
-        sortDate = date.toLocalDateOrNull()
+        sortDate = date.toPerformanceDateOrNull()
     )
 }
 
@@ -623,7 +636,9 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
             lastName = lastName,
             firstName = firstName,
             contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trim(),
-            reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT]).toTicketCount().coerceAtLeast(1),
+            reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT])
+                .toTicketCount()
+                .coerceAtLeast(MINIMUM_SEAT_COUNT),
             arrivalCount = row.valueAt(headerIndexes[HEADER_ARRIVAL_COUNT]).toTicketCount(),
             reservedTicketCounts = ticketHeaders.mapNotNull { (ticketType, header) ->
                 row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
@@ -659,7 +674,7 @@ private fun ReservationSpreadsheetRow.toSheetCellValues(
 ): List<SheetCellValue> = buildList {
     fun set(header: String, value: Any) {
         headers[header]?.let { columnIndex ->
-            add(SheetCellValue("$sheetTitle!${columnIndex.toColumnName()}$rowNumber", value))
+            add(SheetCellValue(sheetCellRange(sheetTitle, columnIndex, rowNumber), value))
         }
     }
     set(HEADER_LAST_NAME, lastName)
@@ -684,7 +699,7 @@ private fun deletedRowCellValues(
 ): List<SheetCellValue> = buildList {
     fun set(header: String, value: Any) {
         headers[header]?.let { columnIndex ->
-            add(SheetCellValue("$sheetTitle!${columnIndex.toColumnName()}$rowNumber", value))
+            add(SheetCellValue(sheetCellRange(sheetTitle, columnIndex, rowNumber), value))
         }
     }
     set(HEADER_RESERVED_COUNT, 0)
@@ -724,7 +739,7 @@ private data class LockTable(
     ): List<SheetCellValue> = buildList {
         fun set(header: String, value: Any) {
             headers[header]?.let { columnIndex ->
-                add(SheetCellValue("Sovelluslukot!${columnIndex.toColumnName()}$rowNumber", value))
+                add(SheetCellValue(sheetCellRange(LOCK_SHEET_TITLE, columnIndex, rowNumber), value))
             }
         }
         set(LOCK_HEADER_PERFORMANCE_ID, performanceKey)
@@ -773,6 +788,11 @@ private fun String.toLegacyDoorSaleDataRowIndexOrNull(): Int? = split("|")
     ?.lastOrNull()
     ?.toIntOrNull()
 
+private fun sheetCellRange(sheetTitle: String, columnIndex: Int, rowNumber: Int): String =
+    "${sheetTitle.toQuotedSheetName()}!${columnIndex.toColumnName()}$rowNumber"
+
+private fun String.toQuotedSheetName(): String = "'${replace("'", "''")}'"
+
 private fun Int.toColumnName(): String {
     var value = this + 1
     return buildString {
@@ -791,24 +811,23 @@ private fun String.toSpreadsheetId(): String {
 }
 
 private fun String.normalizedHeader(): String = lowercase()
-    .replace(Regex("\\s+"), " ")
+    .replace(WHITESPACE_REGEX, " ")
     .replace("*", "")
     .trim()
 
-private fun String.normalizedIdentity(): String = trim().lowercase().replace(Regex("\\s+"), " ")
-
-private fun String.toLocalDateOrNull(): LocalDate? = try {
-    LocalDate.parse(trim().take(10), DateTimeFormatter.ofPattern("d.M.uuuu"))
-} catch (_: DateTimeParseException) {
-    null
-}
+private fun String.normalizedIdentity(): String = trim().lowercase().replace(WHITESPACE_REGEX, " ")
 
 private fun List<String>.valueAt(index: Int?): String = index?.let { getOrNull(it) }.orEmpty()
 
-private fun String.toTicketCount(): Int = trim().toIntOrNull()
-    ?: if (trim().lowercase() in setOf("x", "✓", "k")) 1 else 0
+private fun String.toTicketCount(): Int {
+    val normalizedValue = trim().lowercase()
+    return normalizedValue.toIntOrNull() ?: if (normalizedValue in TICKET_MARKERS) 1 else 0
+}
 
 private val SPREADSHEET_ID_REGEX = Regex("/spreadsheets/d/([a-zA-Z0-9_-]+)")
+private val WHITESPACE_REGEX = Regex("\\s+")
+private val TICKET_MARKERS = setOf("x", "✓", "k")
+private const val LOCK_SHEET_TITLE = "Sovelluslukot"
 private const val HEADER_LAST_NAME = "sukunimi"
 private const val HEADER_FIRST_NAME = "etunimi"
 private const val HEADER_CONTACT = "yhteystiedot"

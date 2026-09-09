@@ -1,6 +1,7 @@
 package fi.tukkateatteri.data.spreadsheet
 
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.TicketSale
@@ -20,7 +21,7 @@ data class ReservationSpreadsheetRow(
     val sheetRowId: String = ""
 ) {
     init {
-        require(reservedSeatCount > 0) { "Reserved seat count must be positive." }
+        require(reservedSeatCount >= MINIMUM_SEAT_COUNT) { "Reserved seat count must be positive." }
         require(arrivalCount in 0..reservedSeatCount) { "Arrival count must be within the reserved seat count." }
         require(reservedTicketCounts.values.all { it >= 0 }) { "Reserved ticket counts must not be negative." }
         require(paymentTicketCounts.values.all { it >= 0 }) { "Payment ticket counts must not be negative." }
@@ -38,16 +39,9 @@ data class ReservationSpreadsheetRow(
         }
 
         fun fromReservation(reservation: Reservation): ReservationSpreadsheetRow {
-            val reservedTicketCounts = TicketType.entries.associateWith { ticketType ->
-                reservation.reservedTicketAllocations
-                    .filter { it.ticketType == ticketType }
-                    .sumOf { it.quantity }
-            }.filterValues { it > 0 }
-            val paymentTicketCounts = PaymentMethod.entries.associateWith { paymentMethod ->
-                reservation.ticketSales
-                    .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
-                    .sumOf { ticketSale -> ticketSale.quantity }
-            }.filterValues { it > 0 }
+            val reservedTicketCounts = reservation.reservedTicketAllocations.associate { allocation ->
+                allocation.ticketType to allocation.quantity
+            }
             val splitPaymentNotes = reservation.ticketSales.toSplitPaymentNotes()
             return ReservationSpreadsheetRow(
                 lastName = reservation.lastName,
@@ -56,7 +50,7 @@ data class ReservationSpreadsheetRow(
                 reservedSeatCount = reservation.seatCount,
                 arrivalCount = reservation.arrivalCount,
                 reservedTicketCounts = reservedTicketCounts,
-                paymentTicketCounts = paymentTicketCounts,
+                paymentTicketCounts = reservation.ticketSales.paymentTicketCounts(),
                 notes = listOf(reservation.notes, splitPaymentNotes).filter(String::isNotBlank).joinToString("; "),
                 sourceIdentity = reservation.sourceIdentity,
                 sheetRowId = reservation.sheetRowId
@@ -64,16 +58,6 @@ data class ReservationSpreadsheetRow(
         }
 
         private fun fromDoorSale(doorSale: Reservation): ReservationSpreadsheetRow {
-            val ticketTypeCounts = TicketType.entries.associateWith { ticketType ->
-                doorSale.ticketSales
-                    .filter { ticketSale -> ticketSale.ticketType == ticketType }
-                    .sumOf { ticketSale -> ticketSale.quantity }
-            }.filterValues { it > 0 }
-            val paymentTicketCounts = PaymentMethod.entries.associateWith { paymentMethod ->
-                doorSale.ticketSales
-                    .filter { ticketSale -> ticketSale.singlePaymentMethod == paymentMethod }
-                    .sumOf { ticketSale -> ticketSale.quantity }
-            }.filterValues { it > 0 }
             val splitPaymentNotes = doorSale.ticketSales.toSplitPaymentNotes()
             return ReservationSpreadsheetRow(
                 lastName = DOOR_SALE_SHEET_LABEL,
@@ -81,17 +65,25 @@ data class ReservationSpreadsheetRow(
                 contact = "",
                 reservedSeatCount = doorSale.seatCount,
                 arrivalCount = doorSale.arrivalCount,
-                reservedTicketCounts = ticketTypeCounts,
-                paymentTicketCounts = paymentTicketCounts,
+                reservedTicketCounts = doorSale.ticketSales.ticketTypeCounts(),
+                paymentTicketCounts = doorSale.ticketSales.paymentTicketCounts(),
                 notes = splitPaymentNotes,
                 sheetRowId = doorSale.sheetRowId
             )
         }
-
     }
 }
 
 internal const val DOOR_SALE_SHEET_LABEL = "Ovimyynti"
+
+private fun List<TicketSale>.ticketTypeCounts(): Map<TicketType, Int> =
+    groupBy(TicketSale::ticketType)
+        .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
+
+private fun List<TicketSale>.paymentTicketCounts(): Map<PaymentMethod, Int> =
+    mapNotNull { sale -> sale.singlePaymentMethod?.let { method -> method to sale.quantity } }
+        .groupingBy(Pair<PaymentMethod, Int>::first)
+        .fold(0) { quantity, (_, saleQuantity) -> quantity + saleQuantity }
 
 private fun List<TicketSale>.toSplitPaymentNotes(): String = filter(TicketSale::isSplitPayment)
     .joinToString(separator = "; ") { ticketSale ->

@@ -44,13 +44,17 @@ fun ReservationWithTicketSales.toReservation() = Reservation(
     syncState = reservation.syncState,
     admissionType = reservation.admissionType,
     arrivalCount = reservation.arrivalCount,
-    reservedTicketAllocations = reservedTicketAllocations.map { allocation ->
-        ReservedTicketAllocation(
-            ticketType = allocation.ticketType,
-            quantity = allocation.quantity
-        )
-    },
-    ticketSales = ticketSales.map(TicketSaleWithPayments::toTicketSale)
+    reservedTicketAllocations = reservedTicketAllocations
+        .sortedBy { allocation -> allocation.ticketType.ordinal }
+        .map { allocation ->
+            ReservedTicketAllocation(
+                ticketType = allocation.ticketType,
+                quantity = allocation.quantity
+            )
+        },
+    ticketSales = ticketSales
+        .sortedBy { sale -> sale.ticketSale.id }
+        .map(TicketSaleWithPayments::toTicketSale)
 )
 
 private fun TicketSaleWithPayments.toTicketSale() = TicketSale(

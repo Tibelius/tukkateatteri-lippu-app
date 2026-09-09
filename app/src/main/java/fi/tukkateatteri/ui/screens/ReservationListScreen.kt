@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,14 +15,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -52,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.Performance
@@ -89,16 +91,19 @@ fun ReservationListScreen(
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
     val collator = remember { Collator.getInstance(FINNISH_LOCALE) }
-    val sortedReservations = reservations.sortedWith { first, second ->
-        val syncStateComparison = first.syncState.sortOrder.compareTo(second.syncState.sortOrder)
-        if (syncStateComparison != 0) {
-            syncStateComparison
-        } else {
-            val lastNameComparison = collator.compare(first.lastName, second.lastName)
-            if (lastNameComparison != 0) {
-                lastNameComparison
+    val sortedReservations = remember(reservations, collator) {
+        reservations.sortedWith { first, second ->
+            val syncStateComparison = first.syncState.sortPriority
+                .compareTo(second.syncState.sortPriority)
+            if (syncStateComparison != 0) {
+                syncStateComparison
             } else {
-                collator.compare(first.firstName, second.firstName)
+                val lastNameComparison = collator.compare(first.lastName, second.lastName)
+                if (lastNameComparison != 0) {
+                    lastNameComparison
+                } else {
+                    collator.compare(first.firstName, second.firstName)
+                }
             }
         }
     }
@@ -140,7 +145,11 @@ fun ReservationListScreen(
                         )
                         if (pendingChangeCount > 0) {
                             Text(
-                                text = stringResource(R.string.pending_sheet_changes, pendingChangeCount),
+                                text = pluralStringResource(
+                                    R.plurals.pending_sheet_changes,
+                                    pendingChangeCount,
+                                    pendingChangeCount
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -398,14 +407,14 @@ private fun ReservationRow(
 
 @Composable
 private fun ReservationForegroundCard(
+    modifier: Modifier = Modifier,
     reservation: Reservation,
     displayName: String,
     statusText: String,
     backgroundColor: Color,
     contentColor: Color,
     onClick: () -> Unit,
-    drawSyncBorder: Boolean = false,
-    modifier: Modifier = Modifier
+    drawSyncBorder: Boolean = false
 ) {
     Card(
         modifier = modifier
@@ -510,13 +519,19 @@ private fun SyncStatusUndercard(
     }
 }
 
-private val ReservationSyncState.sortOrder: Int
+private val ReservationSyncState.sortPriority: SyncSortPriority
     get() = when (this) {
-        ReservationSyncState.CONFLICT -> 0
+        ReservationSyncState.CONFLICT -> SyncSortPriority.CONFLICT
         ReservationSyncState.PENDING,
-        ReservationSyncState.PENDING_DELETION -> 1
-        ReservationSyncState.SYNCED -> 2
+        ReservationSyncState.PENDING_DELETION -> SyncSortPriority.PENDING
+        ReservationSyncState.SYNCED -> SyncSortPriority.SYNCED
     }
+
+private enum class SyncSortPriority {
+    CONFLICT,
+    PENDING,
+    SYNCED
+}
 
 @Composable
 private fun ReservationSyncState.toSyncUndercard(): SyncUndercard? = when (this) {
@@ -553,13 +568,13 @@ private const val UNDERCARD_BORDER_ALPHA = 0.34f
 
 @Composable
 private fun ReservationStatusRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     text: String,
     modifier: Modifier = Modifier,
-    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.labelLarge,
-    contentColor: androidx.compose.ui.graphics.Color
+    style: TextStyle = MaterialTheme.typography.labelLarge,
+    contentColor: Color
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {

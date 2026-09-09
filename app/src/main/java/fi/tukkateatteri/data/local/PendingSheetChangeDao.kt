@@ -29,6 +29,4 @@ interface PendingSheetChangeDao {
     @Query("DELETE FROM pending_sheet_changes WHERE reservation_id = :reservationId")
     suspend fun deleteByReservationId(reservationId: Long)
 
-    @Query("DELETE FROM pending_sheet_changes WHERE performance_id = :performanceId")
-    suspend fun deleteByPerformanceId(performanceId: Long)
 }

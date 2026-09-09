@@ -36,9 +36,6 @@ interface ReservationDao {
     @Insert
     suspend fun insert(reservation: ReservationEntity): Long
 
-    @Insert
-    suspend fun insertAll(reservations: List<ReservationEntity>)
-
     @Query("SELECT * FROM reservations WHERE source_identity = :sourceIdentity LIMIT 1")
     suspend fun findBySourceIdentity(sourceIdentity: String): ReservationEntity?
 
@@ -71,9 +68,6 @@ interface ReservationDao {
 
     @Query("SELECT * FROM ticket_sales WHERE id = :ticketSaleId")
     suspend fun getTicketSaleById(ticketSaleId: Long): TicketSaleEntity?
-
-    @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId AND origin = 'IMPORTED'")
-    suspend fun deleteImportedTicketSalesForReservation(reservationId: Long)
 
     @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId")
     suspend fun deleteAllTicketSalesForReservation(reservationId: Long)

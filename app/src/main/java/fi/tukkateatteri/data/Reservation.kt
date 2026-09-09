@@ -3,6 +3,8 @@ package fi.tukkateatteri.data
 import androidx.annotation.StringRes
 import fi.tukkateatteri.R
 
+const val MINIMUM_SEAT_COUNT = 1
+
 data class Reservation(
     val id: Long,
     val performanceId: Long,
@@ -22,7 +24,7 @@ data class Reservation(
     init {
         require(id > 0) { "Reservation ID must be positive." }
         require(performanceId > 0) { "Performance ID must be positive." }
-        require(seatCount > 0) { "Seat count must be positive." }
+        require(seatCount >= MINIMUM_SEAT_COUNT) { "Seat count must be positive." }
         require(arrivalCount in 0..seatCount) { "Arrival count must be within the seat count." }
         require(reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {
             "Reserved ticket quantities must not exceed the seat count."
@@ -38,7 +40,9 @@ data class Reservation(
     }
 
     val displayName: String
-        get() = "$lastName $firstName"
+        get() = listOf(lastName, firstName)
+            .filter(String::isNotBlank)
+            .joinToString(separator = " ")
 
     val paidSeatCount: Int
         get() = ticketSales.filter(TicketSale::isPaid).sumOf(TicketSale::quantity)

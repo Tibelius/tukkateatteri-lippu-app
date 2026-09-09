@@ -1,9 +1,7 @@
 package fi.tukkateatteri.ui.dialogs
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -27,12 +25,14 @@ import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.toDecimalInput
+import fi.tukkateatteri.data.toEuroCentsOrNull
 import fi.tukkateatteri.data.toEuroString
+import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 import fi.tukkateatteri.ui.components.RemainingReservedTicketTypesSummaryCard
-import java.math.RoundingMode
 
 @Composable
 fun TicketSaleDialog(
@@ -70,32 +70,33 @@ fun TicketSaleDialog(
     }
 
     val redeemedByType = ticketSalesList
-    .groupBy(TicketSale::ticketType)
-    .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
+        .filterNot { sale -> sale.id == ticketSale?.id }
+        .groupBy(TicketSale::ticketType)
+        .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
 
     val remainingAllocations = reservedTicketAllocations.mapNotNull { allocation ->
-    val remainingQuantity = allocation.quantity -
-        redeemedByType.getOrDefault(allocation.ticketType, 0)
+        val remainingQuantity = allocation.quantity -
+            redeemedByType.getOrDefault(allocation.ticketType, 0)
 
         remainingQuantity
             .takeIf { it > 0 }
             ?.let { allocation.copy(quantity = it) }
     }
 
-    val initialTicketType = ticketSale?.ticketType
+    val initialTicketType = ticketSale?.ticketType?.takeUnless { type -> type == TicketType.UNSPECIFIED }
         ?: remainingAllocations.firstOrNull()?.ticketType
         ?: TicketType.BASIC
 
     var ticketTypeName by rememberSaveable(ticketSale?.id) {
         mutableStateOf(initialTicketType.name)
     }
-    var ticketType = TicketType.valueOf(ticketTypeName)
+    val ticketType = TicketType.valueOf(ticketTypeName)
     val totalPriceCents = ticketType.defaultPriceCents * quantity
     val selectedPayment = selectedPaymentName?.let(PaymentMethod::valueOf)
     val firstSplitMethod = PaymentMethod.valueOf(firstSplitMethodName)
     val secondSplitMethod = PaymentMethod.valueOf(secondSplitMethodName)
-    val firstSplitCents = firstSplitAmount.toCentsOrNull()
-    val secondSplitCents = secondSplitAmount.toCentsOrNull()
+    val firstSplitCents = firstSplitAmount.toEuroCentsOrNull()
+    val secondSplitCents = secondSplitAmount.toEuroCentsOrNull()
     val payments = when {
         totalPriceCents == 0 -> emptyList()
         !isSplitPayment && selectedPayment != null -> listOf(PendingPaymentAllocation(selectedPayment, totalPriceCents))
@@ -126,16 +127,11 @@ fun TicketSaleDialog(
                     )
                 }
             }
-            Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            Button(
-                onClick = { onSave(ticketType, quantity, payments) },
-                enabled = quantity in 1..maximumQuantity && isPaymentValid
-            ) {
-                Text(stringResource(R.string.save))
-            }
+            CancelSaveActions(
+                onCancel = onDismiss,
+                onSave = { onSave(ticketType, quantity, payments) },
+                saveEnabled = quantity in 1..maximumQuantity && isPaymentValid
+            )
         }
     ) {
         Text(
@@ -169,7 +165,11 @@ fun TicketSaleDialog(
             onIncrease = { if (quantity < maximumQuantity) quantity++ }
         )
         Text(
-            text = "${stringResource(R.string.payment_amount)}: ${totalPriceCents.toEuroString()}",
+            text = stringResource(
+                R.string.label_with_value,
+                stringResource(R.string.payment_amount),
+                totalPriceCents.toEuroString()
+            ),
             style = MaterialTheme.typography.titleMedium
         )
         if (totalPriceCents > 0) {
@@ -301,18 +301,3 @@ private fun PaymentAmountField(value: String, onValueChange: (String) -> Unit) {
         singleLine = true
     )
 }
-
-private fun String.toCentsOrNull(): Int? {
-    val normalizedValue = trim().replace(',', '.')
-    if (normalizedValue.isEmpty()) return null
-    return runCatching {
-        normalizedValue
-            .toBigDecimal()
-            .movePointRight(2)
-            .setScale(0, RoundingMode.UNNECESSARY)
-            .intValueExact()
-    }.getOrNull()
-}
-
-private fun Int.toDecimalInput(): String =
-    "${this / 100},${(this % 100).toString().padStart(2, '0')}"

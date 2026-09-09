@@ -12,7 +12,7 @@ Gradle käyttää Java 25:tä.
 ./gradlew installDebug
 ```
 
-Tiedot tallennetaan paikalliseen Room-tietokantaan. Tietokantaskeeman muutos vaatii migraation, tietokantaversion noston ja `app/schemas`-tiedostojen päivittämisen. Esimerkkidata on vain debug-versiossa; julkaisuversio alkaa tyhjästä.
+Tiedot tallennetaan paikalliseen Room-tietokantaan. Tietokantaskeeman muutos vaatii migraation, tietokantaversion noston ja `app/schemas`-tiedostojen päivittämisen. Sekä debug- että julkaisuversio käynnistyvät tyhjällä tietokannalla.
 
 ## Google Sheets
 

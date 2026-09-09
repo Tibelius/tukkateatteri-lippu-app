@@ -1,20 +1,11 @@
 package fi.tukkateatteri.ui.dialogs
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,16 +14,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
+import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.ReservedTicketAllocation
+import fi.tukkateatteri.ui.components.CancelSaveActions
+import fi.tukkateatteri.ui.components.CustomerDetailsFields
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 
@@ -49,16 +37,10 @@ fun AddAdmissionDialog(
     ) -> Unit
 ) {
     val isDoorSale = admissionType == AdmissionType.DOOR_SALE
-    val focusManager = LocalFocusManager.current
-    val nextFieldAction = KeyboardActions(
-        onNext = { focusManager.moveFocus(FocusDirection.Next) }
-    )
-    val nextFieldOptions = KeyboardOptions(imeAction = ImeAction.Next)
-    val nextFieldOptionsNames = KeyboardOptions(imeAction = ImeAction.Next, capitalization = KeyboardCapitalization.Sentences)
     var lastName by rememberSaveable(admissionType) { mutableStateOf("") }
     var firstName by rememberSaveable(admissionType) { mutableStateOf("") }
     var contact by rememberSaveable(admissionType) { mutableStateOf("") }
-    var seatCount by rememberSaveable(admissionType) { mutableIntStateOf(1) }
+    var seatCount by rememberSaveable(admissionType) { mutableIntStateOf(MINIMUM_SEAT_COUNT) }
     var showCustomerDetails by rememberSaveable(admissionType) { mutableStateOf(false) }
     var reservedTicketAllocations by rememberSaveable(
         admissionType,
@@ -81,18 +63,13 @@ fun AddAdmissionDialog(
     ScrollableAppDialog(
         onDismissRequest = onDismiss,
         actions = {
-            Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-            Button(
-                enabled = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank()),
-                onClick = {
+            CancelSaveActions(
+                onCancel = onDismiss,
+                onSave = {
                     onSave(lastName, firstName, contact, seatCount, reservedTicketAllocations)
-                }
-            ) {
-                Text(stringResource(R.string.save))
-            }
+                },
+                saveEnabled = isDoorSale || (lastName.isNotBlank() && firstName.isNotBlank())
+            )
         }
     ) {
         Text(
@@ -125,38 +102,15 @@ fun AddAdmissionDialog(
         }
 
         AnimatedVisibility(visible = !isDoorSale || showCustomerDetails) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = lastName,
-                        onValueChange = { lastName = it },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(stringResource(R.string.last_name)) },
-                        keyboardOptions = nextFieldOptionsNames,
-                        keyboardActions = nextFieldAction,
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = firstName,
-                        onValueChange = { firstName = it },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(stringResource(R.string.first_name)) },
-                        keyboardOptions = nextFieldOptionsNames,
-                        keyboardActions = nextFieldAction,
-                        singleLine = true
-                    )
-                }
-
-                OutlinedTextField(
-                    value = contact,
-                    onValueChange = { contact = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.contact_information)) },
-                    keyboardOptions = nextFieldOptions,
-                    keyboardActions = nextFieldAction,
-                    singleLine = true
-                )
-            }
+            CustomerDetailsFields(
+                lastName = lastName,
+                firstName = firstName,
+                contact = contact,
+                onLastNameChange = { lastName = it },
+                onFirstNameChange = { firstName = it },
+                onContactChange = { contact = it },
+                fieldsAreOptional = isDoorSale
+            )
         }
 
         if (!isDoorSale) {
@@ -164,14 +118,17 @@ fun AddAdmissionDialog(
                 seatCount = seatCount,
                 minimumSeatCount = reservedTicketAllocations
                     .sumOf(ReservedTicketAllocation::quantity)
-                    .coerceAtLeast(1),
+                    .coerceAtLeast(MINIMUM_SEAT_COUNT),
                 onDecrease = { seatCount-- },
                 onIncrease = { seatCount++ }
             )
             TextButton(onClick = { showReservedTicketTypesDialog = true }) {
                 Text(
-                    "${stringResource(R.string.reserved_ticket_types)}: " +
+                    stringResource(
+                        R.string.label_with_value,
+                        stringResource(R.string.reserved_ticket_types),
                         reservedTicketTypesSummary(reservedTicketAllocations)
+                    )
                 )
             }
         }
