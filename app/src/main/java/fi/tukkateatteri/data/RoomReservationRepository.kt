@@ -20,6 +20,7 @@ import fi.tukkateatteri.data.local.toGoogleSheetSource
 import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
+import fi.tukkateatteri.data.spreadsheet.ApplicationMutationMetadataState
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.hasSameSheetContentAs
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRowSnapshot
@@ -166,6 +167,29 @@ class RoomReservationRepository(
             accessToken = token
         ) {
             val importData = loadAndValidatePerformance(target, token)
+            googleSheetsClient.clearManualRowStrikethrough(
+                spreadsheetUrl = target.spreadsheetUrl,
+                sheetTitle = target.sheetTitle,
+                accessToken = token,
+                rowNumbers = importData.rows
+                    .filter {
+                        it.applicationMutationMetadataState != ApplicationMutationMetadataState.VALID
+                    }
+                    .mapNotNull(ReservationSpreadsheetRow::sourceRowNumber)
+            )
+            importData.rows
+                .filter {
+                    it.applicationMutationMetadataState == ApplicationMutationMetadataState.INVALID
+                }
+                .forEach { row ->
+                    googleSheetsClient.clearApplicationMetadata(
+                        spreadsheetUrl = target.spreadsheetUrl,
+                        sheetTitle = target.sheetTitle,
+                        accessToken = token,
+                        sheetRowId = row.sheetRowId,
+                        sourceIdentity = row.sourceIdentity
+                    )
+                }
             val localRowsBeforeImport = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
                 .map(ReservationWithTicketSales::toReservation)
             val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId)

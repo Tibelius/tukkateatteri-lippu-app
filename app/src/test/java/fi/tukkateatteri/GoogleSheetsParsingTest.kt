@@ -2,6 +2,7 @@ package fi.tukkateatteri
 
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.spreadsheet.ApplicationMutationMetadataState
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetTab
 import fi.tukkateatteri.data.spreadsheet.toImportCandidateOrNull
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRows
@@ -45,6 +46,8 @@ class GoogleSheetsParsingTest {
         assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
         assertEquals(1, rows[0].paymentTicketCounts[PaymentMethod.LIPPUAGENTTI])
         assertEquals("Ennakkoon ostettu", rows[0].notes)
+        assertEquals(2, rows[0].sourceRowNumber)
+        assertEquals(ApplicationMutationMetadataState.NONE, rows[0].applicationMutationMetadataState)
 
         assertEquals(4, rows[1].reservedSeatCount)
         assertEquals(4, rows[1].arrivalCount)
@@ -199,8 +202,24 @@ class GoogleSheetsParsingTest {
             title = "24.10",
             rows = listOf(
                 headers,
-                dataRow(0 to "Kippari", 1 to "Kalle", 3 to "1", 18 to "row-uuid"),
-                dataRow(0 to "Poistettu", 1 to "Paavo", 3 to "0", 19 to "Poisto", 20 to "delete-uuid"),
+                dataRow(
+                    0 to "Kippari",
+                    1 to "Kalle",
+                    3 to "1",
+                    18 to "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe",
+                    19 to "Lisäys",
+                    20 to "2026-09-09T12:00:00Z",
+                    21 to "4e97744e-ef31-4d40-84d7-28e821af23a9"
+                ),
+                dataRow(
+                    0 to "Poistettu",
+                    1 to "Paavo",
+                    3 to "0",
+                    18 to "4975807c-18a8-40af-b217-e5e856e65bf4",
+                    19 to "Poisto",
+                    20 to "2026-09-09T12:00:00Z",
+                    21 to "be4193d3-26a5-478e-ac9e-7d0ec2085b49"
+                ),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
                 listOf("Pvm:", "24.10.2026")
@@ -210,8 +229,39 @@ class GoogleSheetsParsingTest {
         val rows = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull()))
 
         assertEquals(1, rows.size)
-        assertEquals("row-uuid", rows.single().sheetRowId)
-        assertEquals("sheet:row-uuid", rows.single().sourceIdentity)
+        assertEquals("e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe", rows.single().sheetRowId)
+        assertEquals("sheet:e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe", rows.single().sourceIdentity)
+        assertEquals(ApplicationMutationMetadataState.VALID, rows.single().applicationMutationMetadataState)
+    }
+
+    @Test
+    fun importRows_treatsPartialOrInvalidApplicationMetadataAsManualEdits() {
+        val tab = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                headers,
+                dataRow(
+                    0 to "Korjattu",
+                    1 to "Kaisa",
+                    3 to "1",
+                    18 to "ei-kelpaa",
+                    19 to "Poisto",
+                    21 to "not-a-uuid"
+                ),
+                emptyRow(),
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            )
+        )
+
+        val row = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull())).single()
+
+        assertEquals("Korjattu", row.lastName)
+        assertEquals(ApplicationMutationMetadataState.INVALID, row.applicationMutationMetadataState)
+        assertEquals(
+            "yön vuodenaika|24.10.2026|korjattu|kaisa",
+            row.sourceIdentity
+        )
     }
 
     private fun testTab(
@@ -273,6 +323,7 @@ class GoogleSheetsParsingTest {
             "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)",
             "Sovellus-ID",
             "Sovellus-toiminto",
+            "Sovellus-muokattu",
             "Sovellus-muokkaus-ID"
         )
     }

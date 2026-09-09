@@ -8,6 +8,13 @@ import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 
+/** Describes whether the app-maintained mutation fields still form a trustworthy record. */
+enum class ApplicationMutationMetadataState {
+    NONE,
+    VALID,
+    INVALID
+}
+
 data class ReservationSpreadsheetRow(
     val lastName: String,
     val firstName: String,
@@ -18,7 +25,9 @@ data class ReservationSpreadsheetRow(
     val paymentTicketCounts: Map<PaymentMethod, Int>,
     val notes: String,
     val sourceIdentity: String = "",
-    val sheetRowId: String = ""
+    val sheetRowId: String = "",
+    val sourceRowNumber: Int? = null,
+    val applicationMutationMetadataState: ApplicationMutationMetadataState = ApplicationMutationMetadataState.NONE
 ) {
     init {
         require(reservedSeatCount >= MINIMUM_SEAT_COUNT) { "Reserved seat count must be positive." }

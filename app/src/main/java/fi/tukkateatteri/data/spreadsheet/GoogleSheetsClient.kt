@@ -258,7 +258,9 @@ class GoogleSheetsClient(
         val rows = loadValues(spreadsheetId, sheetTitle, accessToken)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
-        val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, rows, headerRowIndex, accessToken)
+        val headers = rows[headerRowIndex]
+            .mapIndexed { index, header -> header.normalizedHeader() to index }
+            .toMap()
         requireApplicationHeaders(headers)
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
             val matchesId = sheetRowId.isNotBlank() &&
@@ -296,7 +298,9 @@ class GoogleSheetsClient(
         val rows = loadValues(spreadsheetId, sheetTitle, accessToken)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
-        val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, rows, headerRowIndex, accessToken)
+        val headers = rows[headerRowIndex]
+            .mapIndexed { index, header -> header.normalizedHeader() to index }
+            .toMap()
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
             val matchesId = sheetRowId.isNotBlank() &&
                 row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace() == sheetRowId
@@ -306,21 +310,37 @@ class GoogleSheetsClient(
                 )
             (matchesId || matchesSourceIdentity).takeIf { it }?.let { headerRowIndex + index + 2 }
         }.firstOrNull() ?: return@withContext
-        updateCells(
-            spreadsheetId,
-            accessToken,
-            listOf(
-                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_OPERATION), rowNumber), ""),
-                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_MODIFIED_AT), rowNumber), ""),
-                SheetCellValue(sheetCellRange(sheetTitle, headers.getValue(HEADER_APP_MUTATION_ID), rowNumber), "")
-            )
-        )
+        val metadataCells = APPLICATION_MUTATION_METADATA_HEADERS.mapNotNull { header ->
+            headers[header]?.let { columnIndex ->
+                SheetCellValue(sheetCellRange(sheetTitle, columnIndex, rowNumber), "")
+            }
+        }
+        if (metadataCells.isNotEmpty()) {
+            updateCells(spreadsheetId, accessToken, metadataCells)
+        }
         clearStrikeThroughRow(
             spreadsheetId,
             sheetTitle,
             rowNumber,
             headers.values.maxOrNull() ?: 0,
             accessToken
+        )
+    }
+
+    suspend fun clearManualRowStrikethrough(
+        spreadsheetUrl: String,
+        sheetTitle: String,
+        accessToken: String,
+        rowNumbers: Collection<Int>
+    ) = withContext(Dispatchers.IO) {
+        if (rowNumbers.isEmpty()) return@withContext
+        setRowsStrikethrough(
+            spreadsheetId = spreadsheetUrl.toSpreadsheetId(),
+            sheetTitle = sheetTitle,
+            rowNumbers = rowNumbers,
+            lastColumnIndex = SHEET_VALUE_LAST_COLUMN_INDEX,
+            enabled = false,
+            accessToken = accessToken
         )
     }
 
@@ -622,34 +642,14 @@ class GoogleSheetsClient(
         lastColumnIndex: Int,
         accessToken: String
     ) {
-        val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
-        val request = JSONObject().put(
-            "requests",
-            JSONArray().put(
-                JSONObject().put(
-                    "repeatCell",
-                    JSONObject()
-                        .put(
-                            "range",
-                            JSONObject()
-                                .put("sheetId", sheetId)
-                                .put("startRowIndex", rowNumber - 1)
-                                .put("endRowIndex", rowNumber)
-                                .put("startColumnIndex", 0)
-                                .put("endColumnIndex", lastColumnIndex + 1)
-                        )
-                        .put(
-                            "cell",
-                            JSONObject().put(
-                                "userEnteredFormat",
-                                JSONObject().put("textFormat", JSONObject().put("strikethrough", true))
-                            )
-                        )
-                        .put("fields", "userEnteredFormat.textFormat.strikethrough")
-                )
-            )
+        setRowsStrikethrough(
+            spreadsheetId = spreadsheetId,
+            sheetTitle = sheetTitle,
+            rowNumbers = listOf(rowNumber),
+            lastColumnIndex = lastColumnIndex,
+            enabled = true,
+            accessToken = accessToken
         )
-        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     private fun clearStrikeThroughRow(
@@ -659,10 +659,28 @@ class GoogleSheetsClient(
         lastColumnIndex: Int,
         accessToken: String
     ) {
+        setRowsStrikethrough(
+            spreadsheetId = spreadsheetId,
+            sheetTitle = sheetTitle,
+            rowNumbers = listOf(rowNumber),
+            lastColumnIndex = lastColumnIndex,
+            enabled = false,
+            accessToken = accessToken
+        )
+    }
+
+    private fun setRowsStrikethrough(
+        spreadsheetId: String,
+        sheetTitle: String,
+        rowNumbers: Collection<Int>,
+        lastColumnIndex: Int,
+        enabled: Boolean,
+        accessToken: String
+    ) {
         val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
-        val request = JSONObject().put(
-            "requests",
-            JSONArray().put(
+        val requests = JSONArray()
+        rowNumbers.asSequence().filter { it > 0 }.distinct().forEach { rowNumber ->
+            requests.put(
                 JSONObject().put(
                     "repeatCell",
                     JSONObject()
@@ -679,12 +697,17 @@ class GoogleSheetsClient(
                             "cell",
                             JSONObject().put(
                                 "userEnteredFormat",
-                                JSONObject().put("textFormat", JSONObject().put("strikethrough", false))
+                                JSONObject().put("textFormat", JSONObject().put("strikethrough", enabled))
                             )
                         )
                         .put("fields", "userEnteredFormat.textFormat.strikethrough")
                 )
             )
+        }
+        if (requests.length() == 0) return
+        val request = JSONObject().put(
+            "requests",
+            requests
         )
         sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
@@ -748,6 +771,7 @@ class GoogleSheetsClient(
         private const val HTTP_POST = "POST"
         private const val SHEET_DIMENSION_ROWS = "ROWS"
         private const val SHEET_VALUE_COLUMNS = "A:Z"
+        private const val SHEET_VALUE_LAST_COLUMN_INDEX = 25
         private val HTTP_SUCCESS_CODES = 200..299
     }
 }
@@ -770,14 +794,18 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
     return rows.drop(headerRowIndex + 1).takeWhile { row ->
         row.valueAt(headerIndexes[HEADER_LAST_NAME]).isNotBlank() || row.valueAt(headerIndexes[HEADER_FIRST_NAME]).isNotBlank()
     }.mapIndexedNotNull { dataRowIndex, row ->
-        if (row.valueAt(headerIndexes[HEADER_APP_OPERATION]).normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()) {
+        val metadataState = row.applicationMutationMetadataState(headerIndexes)
+        if (
+            metadataState == ApplicationMutationMetadataState.VALID &&
+            row.valueAt(headerIndexes[HEADER_APP_OPERATION]).normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
+        ) {
             return@mapIndexedNotNull null
         }
         val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
         val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
         if (lastName.isBlank() && firstName.isBlank()) return@mapIndexedNotNull null
         val sheetRowId = row.valueAt(headerIndexes[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
-        val sourceIdentity = if (sheetRowId.isNotBlank()) {
+        val sourceIdentity = if (sheetRowId.isUuid()) {
             "sheet:$sheetRowId"
         } else if (lastName.isDoorSaleSheetLabel()) {
             "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
@@ -800,10 +828,33 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
             }.toMap(),
             notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
             sourceIdentity = sourceIdentity,
-            sheetRowId = sheetRowId
+            sheetRowId = sheetRowId,
+            sourceRowNumber = headerRowIndex + dataRowIndex + 2,
+            applicationMutationMetadataState = metadataState
         )
     }
 }
+
+private fun List<String>.applicationMutationMetadataState(headers: Map<String, Int>): ApplicationMutationMetadataState {
+    val sheetRowId = valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
+    val operation = valueAt(headers[HEADER_APP_OPERATION]).normalizedHeader()
+    val modifiedAt = valueAt(headers[HEADER_APP_MODIFIED_AT]).trimSpreadsheetWhitespace()
+    val mutationId = valueAt(headers[HEADER_APP_MUTATION_ID]).trimSpreadsheetWhitespace()
+    val values = listOf(sheetRowId, operation, modifiedAt, mutationId)
+    if (values.all(String::isBlank)) return ApplicationMutationMetadataState.NONE
+
+    val validOperation = operation.isBlank() || operation in VALID_APPLICATION_OPERATIONS
+    val validTimestamp = runCatching { Instant.parse(modifiedAt) }.isSuccess
+    val validSheetRowId = sheetRowId.isUuid()
+    val validMutationId = mutationId.isUuid()
+    return if (validOperation && validTimestamp && validSheetRowId && validMutationId) {
+        ApplicationMutationMetadataState.VALID
+    } else {
+        ApplicationMutationMetadataState.INVALID
+    }
+}
+
+private fun String.isUuid(): Boolean = runCatching { UUID.fromString(this) }.isSuccess
 
 private fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.firstNotNullOfOrNull { row ->
     row.indexOfFirst { value -> value.normalizedHeader() == label }
@@ -1034,6 +1085,15 @@ private const val HEADER_DATE = "pvm:"
 private const val HEADER_RESERVATION_TOTAL = "varaukset yhteensä"
 private const val APP_OPERATION_ADD = "Lisäys"
 private const val APP_OPERATION_DELETE = "Poisto"
+private val VALID_APPLICATION_OPERATIONS = setOf(
+    APP_OPERATION_ADD.normalizedHeader(),
+    APP_OPERATION_DELETE.normalizedHeader()
+)
+private val APPLICATION_MUTATION_METADATA_HEADERS = listOf(
+    HEADER_APP_OPERATION,
+    HEADER_APP_MODIFIED_AT,
+    HEADER_APP_MUTATION_ID
+)
 private const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
 private const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
 private const val LOCK_HEADER_UUID = "lock_uuid"
