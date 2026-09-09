@@ -113,11 +113,13 @@ class GoogleSheetsClient(
         action: suspend () -> T
     ): T {
         var lockId = UUID.randomUUID().toString()
-        val lockRows = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
-        val lockTable = lockRows.toLockTable()
         val now = Instant.now()
-        val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
-        if (existingLock?.expiresAt?.isAfter(now) == true) {
+        var lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
+        if (removeExpiredLocks(spreadsheetId, lockTable, now, accessToken)) {
+            lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
+        }
+        val existingLock = lockTable.activeLockFor(performanceKey, now)
+        if (existingLock != null) {
             if (existingLock.deviceId != deviceId) {
                 throw GoogleSheetLockedException(
                     failure = GoogleSheetLockFailure.HELD_BY_ANOTHER_DEVICE,
@@ -128,20 +130,33 @@ class GoogleSheetsClient(
             lockId = existingLock.lockId.ifBlank { lockId }
         }
 
-        val lockRowNumber = existingLock?.rowNumber ?: lockTable.firstAvailableRowNumber
         val expiresAt = now.plusSeconds(LOCK_DURATION_SECONDS)
-        updateCells(
-            spreadsheetId = spreadsheetId,
-            accessToken = accessToken,
-            values = lockTable.valuesFor(
-                rowNumber = lockRowNumber,
-                performanceKey = performanceKey,
-                lockId = lockId,
-                lockedAt = now.toString(),
-                expiresAt = expiresAt.toString(),
-                deviceId = deviceId
+        if (existingLock == null) {
+            appendPerformanceLock(
+                spreadsheetId = spreadsheetId,
+                accessToken = accessToken,
+                rowValues = lockTable.rowValuesFor(
+                    performanceKey = performanceKey,
+                    lockId = lockId,
+                    lockedAt = now.toString(),
+                    expiresAt = expiresAt.toString(),
+                    deviceId = deviceId
+                )
             )
-        )
+        } else {
+            updateCells(
+                spreadsheetId = spreadsheetId,
+                accessToken = accessToken,
+                values = lockTable.valuesFor(
+                    rowNumber = existingLock.rowNumber,
+                    performanceKey = performanceKey,
+                    lockId = lockId,
+                    lockedAt = now.toString(),
+                    expiresAt = expiresAt.toString(),
+                    deviceId = deviceId
+                )
+            )
+        }
         val confirmedLock = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
             .toLockTable()
             .rowsByPerformanceKey[performanceKey]
@@ -515,6 +530,42 @@ class GoogleSheetsClient(
         sendJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchUpdate", HTTP_POST, request, accessToken)
     }
 
+    private fun appendPerformanceLock(
+        spreadsheetId: String,
+        accessToken: String,
+        rowValues: List<String>
+    ) {
+        val range = URLEncoder.encode(valuesRange(LOCK_SHEET_TITLE), Charsets.UTF_8.name())
+        val request = JSONObject()
+            .put("majorDimension", SHEET_DIMENSION_ROWS)
+            .put("values", JSONArray().put(JSONArray(rowValues)))
+        sendJson(
+            "$API_BASE/spreadsheets/$spreadsheetId/values/$range:append" +
+                "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+            HTTP_POST,
+            request,
+            accessToken
+        )
+    }
+
+    private fun removeExpiredLocks(
+        spreadsheetId: String,
+        lockTable: LockTable,
+        now: Instant,
+        accessToken: String
+    ): Boolean {
+        val expiredLocks = lockTable.rows.filter { lock ->
+            lock.lockId.isBlank() || lock.expiresAt?.let { !it.isAfter(now) } == true
+        }
+        if (expiredLocks.isEmpty()) return false
+        updateCells(
+            spreadsheetId = spreadsheetId,
+            accessToken = accessToken,
+            values = expiredLocks.flatMap { lockTable.clearValuesFor(it.rowNumber) }
+        )
+        return true
+    }
+
     private fun releasePerformanceLock(
         spreadsheetId: String,
         performanceKey: String,
@@ -527,13 +578,7 @@ class GoogleSheetsClient(
         updateCells(
             spreadsheetId,
             accessToken,
-            lockTable.valuesFor(
-                rowNumber = existingLock.rowNumber,
-                performanceKey = performanceKey,
-                lockId = "",
-                lockedAt = "",
-                expiresAt = ""
-            )
+            lockTable.clearValuesFor(existingLock.rowNumber)
         )
     }
 
@@ -823,6 +868,7 @@ private data class SheetCellValue(val range: String, val value: Any) {
 }
 
 private data class LockRow(
+    val performanceKey: String,
     val rowNumber: Int,
     val lockId: String,
     val expiresAt: Instant?,
@@ -831,9 +877,13 @@ private data class LockRow(
 
 private data class LockTable(
     val headers: Map<String, Int>,
-    val rowsByPerformanceKey: Map<String, LockRow>,
-    val firstAvailableRowNumber: Int
+    val rows: List<LockRow>,
+    val rowsByPerformanceKey: Map<String, LockRow>
 ) {
+    fun activeLockFor(performanceKey: String, now: Instant): LockRow? = rows.lastOrNull { lock ->
+        lock.performanceKey == performanceKey && lock.expiresAt?.isAfter(now) == true
+    }
+
     fun valuesFor(
         rowNumber: Int,
         performanceKey: String,
@@ -853,35 +903,55 @@ private data class LockTable(
         set(LOCK_HEADER_EXPIRES_AT, expiresAt)
         set(LOCK_HEADER_DEVICE_LABEL, deviceId)
     }
+
+    fun rowValuesFor(
+        performanceKey: String,
+        lockId: String,
+        lockedAt: String,
+        expiresAt: String,
+        deviceId: String
+    ): List<String> = MutableList((headers.values.maxOrNull() ?: -1) + 1) { "" }.apply {
+        fun set(header: String, value: String) {
+            headers[header]?.let { columnIndex -> this@apply[columnIndex] = value }
+        }
+        set(LOCK_HEADER_PERFORMANCE_ID, performanceKey)
+        set(LOCK_HEADER_UUID, lockId)
+        set(LOCK_HEADER_LOCKED_AT, lockedAt)
+        set(LOCK_HEADER_EXPIRES_AT, expiresAt)
+        set(LOCK_HEADER_DEVICE_LABEL, deviceId)
+    }
+
+    fun clearValuesFor(rowNumber: Int): List<SheetCellValue> = REQUIRED_LOCK_HEADERS.mapNotNull { header ->
+        headers[header]?.let { columnIndex ->
+            SheetCellValue(sheetCellRange(LOCK_SHEET_TITLE, columnIndex, rowNumber), "")
+        }
+    }
 }
 
 private fun List<List<String>>.toLockTable(): LockTable {
     val headerRowIndex = indexOfFirst { row -> row.any { it.normalizedHeader() == LOCK_HEADER_PERFORMANCE_ID } }
     require(headerRowIndex >= 0) { "Sovelluslukot-välilehdeltä puuttuu performance_id-sarake." }
     val headers = get(headerRowIndex).mapIndexed { index, header -> header.normalizedHeader() to index }.toMap()
-    val requiredHeaders = listOf(
-        LOCK_HEADER_PERFORMANCE_ID,
-        LOCK_HEADER_UUID,
-        LOCK_HEADER_LOCKED_AT,
-        LOCK_HEADER_EXPIRES_AT,
-        LOCK_HEADER_DEVICE_LABEL
-    )
-    require(requiredHeaders.all(headers::containsKey)) { "Sovelluslukot-välilehden otsikot eivät vastaa sovittua muotoa." }
+    require(REQUIRED_LOCK_HEADERS.all(headers::containsKey)) {
+        "Sovelluslukot-välilehden otsikot eivät vastaa sovittua muotoa."
+    }
     val rows = drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
         val performanceKey = row.valueAt(headers[LOCK_HEADER_PERFORMANCE_ID]).trim()
         performanceKey.takeIf(String::isNotBlank)?.let {
-            it to LockRow(
+            LockRow(
+                performanceKey = performanceKey,
                 rowNumber = headerRowIndex + index + 2,
                 lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trim(),
                 expiresAt = runCatching { Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trim()) }.getOrNull(),
                 deviceId = row.valueAt(headers[LOCK_HEADER_DEVICE_LABEL]).trim()
             )
         }
-    }.toMap()
-    val nextRow = (headerRowIndex + 1 until size).firstOrNull { rowIndex ->
-        get(rowIndex).valueAt(headers[LOCK_HEADER_PERFORMANCE_ID]).isBlank()
-    }?.plus(1) ?: size + 1
-    return LockTable(headers, rows, nextRow)
+    }
+    return LockTable(
+        headers = headers,
+        rows = rows,
+        rowsByPerformanceKey = rows.associateBy(LockRow::performanceKey)
+    )
 }
 
 private fun String.toNameKeyOrNull(): Pair<String, String>? = split("|")
@@ -954,6 +1024,13 @@ private const val LOCK_HEADER_UUID = "lock_uuid"
 private const val LOCK_HEADER_LOCKED_AT = "locked_at"
 private const val LOCK_HEADER_EXPIRES_AT = "expires_at"
 private const val LOCK_HEADER_DEVICE_LABEL = "device_label"
+private val REQUIRED_LOCK_HEADERS = listOf(
+    LOCK_HEADER_PERFORMANCE_ID,
+    LOCK_HEADER_UUID,
+    LOCK_HEADER_LOCKED_AT,
+    LOCK_HEADER_EXPIRES_AT,
+    LOCK_HEADER_DEVICE_LABEL
+)
 
 private val ticketHeaders = mapOf(
     TicketType.BASIC to "perus 22 €",
