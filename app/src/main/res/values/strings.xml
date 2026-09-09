@@ -61,6 +61,7 @@
         <item quantity="other">Tuodaanko esityksen %1$s tiedot kaikilta %2$d esityspäivältä?</item>
     </plurals>
     <string name="google_sheets_sync_failed">Päivitys epäonnistui. Tarkista yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_sync_dates_failed">Seuraavien esitysten päivitys epäonnistui: %1$s</string>
     <string name="google_sheets_sync_source_changed">Tallennettu välilehti tai sen esitys- tai päivämäärätiedot ovat muuttuneet. Tuo taulukko uudelleen.</string>
     <string name="google_sheets_sync_source_missing">Google Sheets -osoite puuttuu. Lisää se Google Sheets -osoitteista.</string>
     <string name="google_sheets_change_failed">Muutosta ei tallennettu. Tarkista yhteys ja Google-oikeudet.</string>

@@ -4,7 +4,12 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toPerformanceDateOrNull
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,7 +37,25 @@ data class GoogleSheetImportData(
     val rows: List<ReservationSpreadsheetRow>
 )
 
-class GoogleSheetLockedException : IllegalStateException()
+enum class GoogleSheetLockFailure {
+    HELD_BY_ANOTHER_DEVICE,
+    ACQUISITION_LOST,
+    RENEWAL_LOST
+}
+
+class GoogleSheetLockedException(
+    val failure: GoogleSheetLockFailure,
+    sheetTitle: String,
+    holderDeviceId: String? = null
+) : IllegalStateException(
+    buildString {
+        append("Google Sheets lock failed for tab '")
+        append(sheetTitle)
+        append("': ")
+        append(failure.name)
+        holderDeviceId?.takeIf(String::isNotBlank)?.let { append(" (holder: $it)") }
+    }
+)
 
 data class ExportedSpreadsheetRow(
     val sourceIdentity: String,
@@ -42,6 +65,8 @@ data class ExportedSpreadsheetRow(
 class GoogleSheetsClient(
     private val deviceId: String = "Android"
 ) {
+    private val localPerformanceLocks = KeyedMutex()
+
     private suspend fun loadTabs(
         spreadsheetUrl: String,
         accessToken: String
@@ -69,13 +94,37 @@ class GoogleSheetsClient(
     ): T = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val performanceKey = "$spreadsheetId|$sheetTitle"
+        localPerformanceLocks.withLock(performanceKey) {
+            withRemotePerformanceLock(
+                spreadsheetId = spreadsheetId,
+                performanceKey = performanceKey,
+                sheetTitle = sheetTitle,
+                accessToken = accessToken,
+                action = action
+            )
+        }
+    }
+
+    private suspend fun <T> withRemotePerformanceLock(
+        spreadsheetId: String,
+        performanceKey: String,
+        sheetTitle: String,
+        accessToken: String,
+        action: suspend () -> T
+    ): T {
         var lockId = UUID.randomUUID().toString()
         val lockRows = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
         val lockTable = lockRows.toLockTable()
         val now = Instant.now()
         val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
         if (existingLock?.expiresAt?.isAfter(now) == true) {
-            if (existingLock.deviceId != deviceId) throw GoogleSheetLockedException()
+            if (existingLock.deviceId != deviceId) {
+                throw GoogleSheetLockedException(
+                    failure = GoogleSheetLockFailure.HELD_BY_ANOTHER_DEVICE,
+                    sheetTitle = sheetTitle,
+                    holderDeviceId = existingLock.deviceId
+                )
+            }
             lockId = existingLock.lockId.ifBlank { lockId }
         }
 
@@ -96,10 +145,34 @@ class GoogleSheetsClient(
         val confirmedLock = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
             .toLockTable()
             .rowsByPerformanceKey[performanceKey]
-        if (confirmedLock?.lockId != lockId) throw GoogleSheetLockedException()
+        if (confirmedLock?.lockId != lockId || confirmedLock.deviceId != deviceId) {
+            throw GoogleSheetLockedException(
+                failure = GoogleSheetLockFailure.ACQUISITION_LOST,
+                sheetTitle = sheetTitle,
+                holderDeviceId = confirmedLock?.deviceId
+            )
+        }
 
         try {
-            action()
+            return coroutineScope {
+                val renewalJob = launch {
+                    while (isActive) {
+                        delay(LOCK_RENEWAL_INTERVAL_MILLIS)
+                        renewPerformanceLock(
+                            spreadsheetId = spreadsheetId,
+                            performanceKey = performanceKey,
+                            sheetTitle = sheetTitle,
+                            lockId = lockId,
+                            accessToken = accessToken
+                        )
+                    }
+                }
+                try {
+                    action()
+                } finally {
+                    renewalJob.cancelAndJoin()
+                }
+            }
         } finally {
             releasePerformanceLock(spreadsheetId, performanceKey, lockId, accessToken)
         }
@@ -464,6 +537,37 @@ class GoogleSheetsClient(
         )
     }
 
+    private fun renewPerformanceLock(
+        spreadsheetId: String,
+        performanceKey: String,
+        sheetTitle: String,
+        lockId: String,
+        accessToken: String
+    ) {
+        val lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
+        val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
+        if (existingLock?.lockId != lockId || existingLock.deviceId != deviceId) {
+            throw GoogleSheetLockedException(
+                failure = GoogleSheetLockFailure.RENEWAL_LOST,
+                sheetTitle = sheetTitle,
+                holderDeviceId = existingLock?.deviceId
+            )
+        }
+        val now = Instant.now()
+        updateCells(
+            spreadsheetId = spreadsheetId,
+            accessToken = accessToken,
+            values = lockTable.valuesFor(
+                rowNumber = existingLock.rowNumber,
+                performanceKey = performanceKey,
+                lockId = lockId,
+                lockedAt = now.toString(),
+                expiresAt = now.plusSeconds(LOCK_DURATION_SECONDS).toString(),
+                deviceId = deviceId
+            )
+        )
+    }
+
     private fun strikeThroughRow(
         spreadsheetId: String,
         sheetTitle: String,
@@ -588,7 +692,8 @@ class GoogleSheetsClient(
 
     companion object {
         private const val API_BASE = "https://sheets.googleapis.com/v4"
-        private const val LOCK_DURATION_SECONDS = 10L
+        private const val LOCK_DURATION_SECONDS = 30L
+        private const val LOCK_RENEWAL_INTERVAL_MILLIS = 10_000L
         private const val HARD_DELETE_FROM_SHEET = false
         private const val CONNECT_TIMEOUT_MILLIS = 15_000
         private const val READ_TIMEOUT_MILLIS = 30_000

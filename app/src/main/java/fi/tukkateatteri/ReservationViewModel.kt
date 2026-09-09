@@ -106,7 +106,8 @@ class ReservationViewModel(
                 action()
             } catch (_: GoogleSheetChangePendingException) {
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_pending)
-            } catch (_: GoogleSheetLockedException) {
+            } catch (exception: GoogleSheetLockedException) {
+                Log.w(TAG, "Reservation change could not acquire the Google Sheets lock", exception)
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
@@ -250,7 +251,8 @@ class ReservationViewModel(
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_source_changed)
                 }
-            } catch (_: GoogleSheetLockedException) {
+            } catch (exception: GoogleSheetLockedException) {
+                Log.w(TAG, "Google Sheets performance lock unavailable", exception)
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
                 }
@@ -265,23 +267,35 @@ class ReservationViewModel(
     }
 
     fun syncGoogleSheetPerformances(
-        performanceIds: List<Long>,
+        performances: List<Performance>,
         spreadsheetUrl: String,
         accessToken: String
     ) {
         launchTrackedOperation {
-            try {
-                performanceIds.forEach { performanceId ->
-                    reservationRepository.syncGoogleSheetPerformance(
-                        performanceId = performanceId,
-                        spreadsheetUrl = spreadsheetUrl,
-                        accessToken = accessToken
-                    )
+            val failedPerformances = buildList {
+                performances.forEach { performance ->
+                    try {
+                        reservationRepository.syncGoogleSheetPerformance(
+                            performanceId = performance.id,
+                            spreadsheetUrl = spreadsheetUrl,
+                            accessToken = accessToken
+                        )
+                    } catch (exception: Exception) {
+                        exception.rethrowIfCancellation()
+                        Log.e(
+                            TAG,
+                            "Google Sheets sync failed for ${performance.displayName}",
+                            exception
+                        )
+                        add(performance.displayName)
+                    }
                 }
-            } catch (exception: Exception) {
-                exception.rethrowIfCancellation()
-                Log.e(TAG, "Google Sheets act import failed", exception)
-                _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_failed)
+            }
+            if (failedPerformances.isNotEmpty()) {
+                _transferMessage.value = UiMessage.Text(
+                    messageResId = R.string.google_sheets_sync_dates_failed,
+                    formatArgs = listOf(failedPerformances.joinToString())
+                )
             }
         }
     }

@@ -13,7 +13,6 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
-import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.ui.theme.TukkateatteriTheme
 
 class MainActivity : ComponentActivity() {
@@ -68,7 +67,7 @@ class MainActivity : ComponentActivity() {
                     onGoogleSheetsSyncAll = { performances, spreadsheetUrl ->
                         authorizeGoogleSheets { accessToken ->
                             reservationViewModel.syncGoogleSheetPerformances(
-                                performances.map(Performance::id),
+                                performances,
                                 spreadsheetUrl,
                                 accessToken
                             )
