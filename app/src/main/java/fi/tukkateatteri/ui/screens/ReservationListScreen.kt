@@ -62,7 +62,6 @@ import java.util.Locale
 
 private val FLOATING_ACTION_BUTTON_CLEARANCE = 88.dp
 private val SYNC_UNDERCARD_HORIZONTAL_OFFSET = 40.dp
-private val SYNC_UNDERCARD_VERTICAL_OFFSET = 8.dp
 private val SYNC_CARD_BORDER_WIDTH = 1.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,19 +88,17 @@ fun ReservationListScreen(
     }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
-    val sortedReservations = remember(reservations) {
-        val collator = Collator.getInstance(FINNISH_LOCALE)
-        reservations.sortedWith { first, second ->
-            val syncStateComparison = first.syncState.sortOrder.compareTo(second.syncState.sortOrder)
-            if (syncStateComparison != 0) {
-                syncStateComparison
+    val collator = remember { Collator.getInstance(FINNISH_LOCALE) }
+    val sortedReservations = reservations.sortedWith { first, second ->
+        val syncStateComparison = first.syncState.sortOrder.compareTo(second.syncState.sortOrder)
+        if (syncStateComparison != 0) {
+            syncStateComparison
+        } else {
+            val lastNameComparison = collator.compare(first.lastName, second.lastName)
+            if (lastNameComparison != 0) {
+                lastNameComparison
             } else {
-                val lastNameComparison = collator.compare(first.lastName, second.lastName)
-                if (lastNameComparison != 0) {
-                    lastNameComparison
-                } else {
-                    collator.compare(first.firstName, second.firstName)
-                }
+                collator.compare(first.firstName, second.firstName)
             }
         }
     }
@@ -393,10 +390,7 @@ private fun ReservationRow(
                 contentColor = contentColor,
                 onClick = onClick,
                 drawSyncBorder = true,
-                modifier = Modifier.padding(
-                    start = SYNC_UNDERCARD_HORIZONTAL_OFFSET,
-                    top = SYNC_UNDERCARD_VERTICAL_OFFSET
-                )
+                modifier = Modifier.padding(start = SYNC_UNDERCARD_HORIZONTAL_OFFSET)
             )
         }
     }

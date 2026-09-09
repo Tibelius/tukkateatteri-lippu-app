@@ -14,13 +14,18 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -37,6 +42,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -226,6 +233,15 @@ private fun ReservationApp(
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+    val pullToRefreshAction = activePerformance
+        ?.takeIf(Performance::canSyncFromGoogleSheets)
+        ?.let { performance ->
+            googleSheetSources
+                .firstOrNull { source -> source.actName == performance.actName }
+                ?.let { source ->
+                    { onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
+                }
+        }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -257,36 +273,33 @@ private fun ReservationApp(
             )
         }
     ) {
-        ReservationListScreen(
-            activePerformance = activePerformance,
-            reservations = reservations,
-            onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
-            onReservationClick = { reservation -> selectedReservationId = reservation.id },
-            onAddClick = {
-                if (activePerformance == null) showPerformanceEditor = true else showAdmissionTypeDialog = true
-            },
-            onImportClick = { showImportDialog = true },
-            onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
-            onChangeGoogleAccountClick = onChangeGoogleAccount,
-            onSyncPendingClick = {
-                activePerformance?.let { performance ->
-                    googleSheetSources
-                        .firstOrNull { source -> source.actName == performance.actName }
-                        ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
-                }
-            },
-            onDeleteAllClick = { showDeleteAllReservationsConfirmation = true },
-            isRefreshing = isTransferInProgress,
-            onRefresh = activePerformance
-                ?.takeIf(Performance::canSyncFromGoogleSheets)
-                ?.let { performance ->
-                    googleSheetSources
-                        .firstOrNull { source -> source.actName == performance.actName }
-                        ?.let { source ->
-                            { onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
-                        }
-                }
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            ReservationListScreen(
+                activePerformance = activePerformance,
+                reservations = reservations,
+                onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
+                onReservationClick = { reservation -> selectedReservationId = reservation.id },
+                onAddClick = {
+                    if (activePerformance == null) showPerformanceEditor = true else showAdmissionTypeDialog = true
+                },
+                onImportClick = { showImportDialog = true },
+                onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
+                onChangeGoogleAccountClick = onChangeGoogleAccount,
+                onSyncPendingClick = {
+                    activePerformance?.let { performance ->
+                        googleSheetSources
+                            .firstOrNull { source -> source.actName == performance.actName }
+                            ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
+                    }
+                },
+                onDeleteAllClick = { showDeleteAllReservationsConfirmation = true },
+                isRefreshing = isTransferInProgress,
+                onRefresh = pullToRefreshAction
+            )
+            if (isTransferInProgress) {
+                TransferProgressOverlay(showSpinner = pullToRefreshAction == null)
+            }
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -456,20 +469,6 @@ private fun ReservationApp(
         )
     }
 
-    if (isTransferInProgress) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.google_sheets_transfer)) },
-            text = {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator()
-                    Text(stringResource(R.string.google_sheets_loading))
-                }
-            },
-            confirmButton = {}
-        )
-    }
-
     if (showImportDialog) {
         SpreadsheetTransferDialog(
             sources = googleSheetSources,
@@ -541,6 +540,43 @@ private fun SpreadsheetTransferDialog(
 }
 
 @Composable
+private fun TransferProgressOverlay(showSpinner: Boolean) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = TRANSFER_SCRIM_ALPHA))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {}
+            )
+    ) {
+        if (showSpinner) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = TRANSFER_PROGRESS_TOP_OFFSET),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shadowElevation = 4.dp
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .size(32.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+}
+
+private const val TRANSFER_SCRIM_ALPHA = 0.16f
+private val TRANSFER_PROGRESS_TOP_OFFSET = 72.dp
+
+@Composable
 private fun PerformanceDrawerContent(
     performances: List<Performance>,
     googleSheetSources: List<GoogleSheetSource>,
@@ -593,7 +629,7 @@ private fun PerformanceDrawerContent(
                             expandedActName = if (isExpanded) null else actName
                     },
                     trailingContent = {
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             sourcesByAct[actName]?.let { source ->
                                 val importablePerformances = actPerformances
                                     .filter(Performance::canSyncFromGoogleSheets)
