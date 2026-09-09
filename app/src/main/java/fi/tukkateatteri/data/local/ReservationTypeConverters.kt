@@ -5,6 +5,7 @@ import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.TicketSaleOrigin
+import fi.tukkateatteri.data.ReservationSyncState
 
 class ReservationTypeConverters {
     @TypeConverter
@@ -37,4 +38,28 @@ class ReservationTypeConverters {
 
     @TypeConverter
     fun ticketSaleOriginToStorage(value: TicketSaleOrigin): String = value.name
+
+    @TypeConverter
+    fun reservationSyncStateFromStorage(value: String?): ReservationSyncState =
+        value?.let { storedValue -> ReservationSyncState.entries.find { it.name == storedValue } }
+            ?: ReservationSyncState.SYNCED
+
+    @TypeConverter
+    fun reservationSyncStateToStorage(value: ReservationSyncState): String = value.name
+
+    @TypeConverter
+    fun pendingSheetOperationFromStorage(value: String?): PendingSheetOperation =
+        value?.let { storedValue -> PendingSheetOperation.entries.find { it.name == storedValue } }
+            ?: PendingSheetOperation.UPSERT
+
+    @TypeConverter
+    fun pendingSheetOperationToStorage(value: PendingSheetOperation): String = value.name
+
+    @TypeConverter
+    fun pendingSheetChangeStatusFromStorage(value: String?): PendingSheetChangeStatus =
+        value?.let { storedValue -> PendingSheetChangeStatus.entries.find { it.name == storedValue } }
+            ?: PendingSheetChangeStatus.PENDING
+
+    @TypeConverter
+    fun pendingSheetChangeStatusToStorage(value: PendingSheetChangeStatus): String = value.name
 }

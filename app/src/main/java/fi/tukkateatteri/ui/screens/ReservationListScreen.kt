@@ -12,12 +12,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.Reservation
+import fi.tukkateatteri.data.ReservationSyncState
 import java.text.Collator
 import java.util.Locale
 
@@ -64,19 +68,26 @@ fun ReservationListScreen(
     onExportClick: () -> Unit,
     onManageGoogleSheetSourcesClick: () -> Unit,
     onChangeGoogleAccountClick: () -> Unit,
+    onSyncPendingClick: () -> Unit,
     onDeleteAllClick: () -> Unit
 ) {
     val redeemedCount = reservations.count(Reservation::isFullyRedeemed)
     val totalSeatCount = reservations.sumOf(Reservation::seatCount)
+    val pendingChangeCount = reservations.count { it.syncState != ReservationSyncState.SYNCED }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val sortedReservations = remember(reservations) {
         val collator = Collator.getInstance(FINNISH_LOCALE)
         reservations.sortedWith { first, second ->
-            val lastNameComparison = collator.compare(first.lastName, second.lastName)
-            if (lastNameComparison != 0) {
-                lastNameComparison
+            val syncStateComparison = first.syncState.sortOrder.compareTo(second.syncState.sortOrder)
+            if (syncStateComparison != 0) {
+                syncStateComparison
             } else {
-                collator.compare(first.firstName, second.firstName)
+                val lastNameComparison = collator.compare(first.lastName, second.lastName)
+                if (lastNameComparison != 0) {
+                    lastNameComparison
+                } else {
+                    collator.compare(first.firstName, second.firstName)
+                }
             }
         }
     }
@@ -116,6 +127,13 @@ fun ReservationListScreen(
                             ),
                             style = MaterialTheme.typography.titleSmall
                         )
+                        if (pendingChangeCount > 0) {
+                            Text(
+                                text = stringResource(R.string.pending_sheet_changes, pendingChangeCount),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -130,6 +148,18 @@ fun ReservationListScreen(
                             expanded = isDataMenuExpanded,
                             onDismissRequest = { isDataMenuExpanded = false }
                         ) {
+                            if (activePerformance?.canSyncFromGoogleSheets == true) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.sync_pending_changes)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Sync, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        isDataMenuExpanded = false
+                                        onSyncPendingClick()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.import_spreadsheet)) },
                                 onClick = {
@@ -339,6 +369,7 @@ private fun ReservationRow(
                     contentColor = MaterialTheme.colorScheme.error
                 )
             }
+            ReservationSyncStateIndicator(reservation.syncState)
             if (reservation.arrivalCount > 0) {
                 ReservationStatusRow(
                     icon = Icons.Filled.Person,
@@ -353,6 +384,43 @@ private fun ReservationRow(
             }
         }
     }
+}
+
+private val ReservationSyncState.sortOrder: Int
+    get() = when (this) {
+        ReservationSyncState.CONFLICT -> 0
+        ReservationSyncState.PENDING,
+        ReservationSyncState.PENDING_DELETION -> 1
+        ReservationSyncState.SYNCED -> 2
+    }
+
+@Composable
+private fun ReservationSyncStateIndicator(syncState: ReservationSyncState) {
+    val (icon, text, tint) = when (syncState) {
+        ReservationSyncState.SYNCED -> return
+        ReservationSyncState.PENDING -> Triple(
+            Icons.Filled.CloudUpload,
+            stringResource(R.string.sheet_change_pending),
+            MaterialTheme.colorScheme.primary
+        )
+        ReservationSyncState.CONFLICT -> Triple(
+            Icons.Filled.WarningAmber,
+            stringResource(R.string.sheet_change_conflict),
+            MaterialTheme.colorScheme.error
+        )
+        ReservationSyncState.PENDING_DELETION -> Triple(
+            Icons.Filled.DeleteOutline,
+            stringResource(R.string.sheet_deletion_pending),
+            MaterialTheme.colorScheme.error
+        )
+    }
+    ReservationStatusRow(
+        icon = icon,
+        text = text,
+        modifier = Modifier.padding(top = 6.dp),
+        style = MaterialTheme.typography.bodySmall,
+        contentColor = tint
+    )
 }
 
 @Composable

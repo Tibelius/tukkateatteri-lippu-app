@@ -64,8 +64,14 @@
     <string name="google_sheets_export_succeeded">Vienti onnistui.</string>
     <string name="google_sheets_export_failed">Vienti epäonnistui. Tarkista osoite, yhteys ja Google-oikeudet.</string>
     <string name="google_sheets_change_failed">Muutosta ei tallennettu. Tarkista yhteys ja Google-oikeudet.</string>
+    <string name="google_sheets_change_pending">Muutos tallennettiin laitteelle ja odottaa Google Sheets -synkronointia.</string>
     <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
+    <string name="sync_pending_changes">Synkronoi nyt</string>
+    <string name="pending_sheet_changes">%1$d muutosta odottaa synkronointia</string>
+    <string name="sheet_change_pending">Odottaa Google Sheets -synkronointia</string>
+    <string name="sheet_change_conflict">Google Sheetsissä on uudempi muutos</string>
+    <string name="sheet_deletion_pending">Poisto odottaa Google Sheets -synkronointia</string>
 
     <string name="delete_reservation_title">Poistetaanko varaus?</string>
     <string name="delete_reservation_message">%1$s poistetaan sovelluksesta. Google Sheetsissä se merkitään poistetuksi.</string>

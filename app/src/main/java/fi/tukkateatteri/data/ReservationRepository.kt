@@ -3,11 +3,16 @@ package fi.tukkateatteri.data
 import androidx.room.withTransaction
 import fi.tukkateatteri.data.local.PaymentAllocationEntity
 import fi.tukkateatteri.data.local.GoogleSheetSourceDao
+import fi.tukkateatteri.data.local.PendingSheetChangeDao
+import fi.tukkateatteri.data.local.PendingSheetChangeEntity
+import fi.tukkateatteri.data.local.PendingSheetChangeStatus
+import fi.tukkateatteri.data.local.PendingSheetOperation
 import fi.tukkateatteri.data.local.PerformanceDao
 import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDao
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
+import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.ReservedTicketAllocationEntity
 import fi.tukkateatteri.data.local.TicketSaleEntity
 import fi.tukkateatteri.data.local.toReservation
@@ -16,8 +21,12 @@ import fi.tukkateatteri.data.local.toGoogleSheetSource
 import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
+import fi.tukkateatteri.data.spreadsheet.hasSameSheetContentAs
+import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRowSnapshot
+import fi.tukkateatteri.data.spreadsheet.toSnapshotJson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CancellationException
 import java.util.UUID
 
 interface ReservationRepository {
@@ -85,11 +94,15 @@ class GoogleSheetSourceChangedException : IllegalStateException()
 
 class NoGoogleSheetImportCandidatesException : IllegalStateException()
 
+/** The change was saved on this device and will be retried after a Sheet sync. */
+class GoogleSheetChangePendingException : IllegalStateException()
+
 class RoomReservationRepository(
     private val database: ReservationDatabase,
     private val reservationDao: ReservationDao,
     private val performanceDao: PerformanceDao,
     private val googleSheetSourceDao: GoogleSheetSourceDao,
+    private val pendingSheetChangeDao: PendingSheetChangeDao,
     private val googleSheetsClient: GoogleSheetsClient = GoogleSheetsClient()
 ) : ReservationRepository {
     override val performances: Flow<List<Performance>> = performanceDao.observeAll()
@@ -108,18 +121,30 @@ class RoomReservationRepository(
         mutation: suspend () -> T,
         affectedReservationIds: suspend (T) -> List<Long>
     ): T {
-        val target = activeCloudTarget() ?: return mutation()
-        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
-        return googleSheetsClient.withPerformanceLock(
-            spreadsheetUrl = target.spreadsheetUrl,
-            sheetTitle = target.sheetTitle,
-            accessToken = token
-        ) {
-            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
-            mutation().also { result ->
-                exportAffectedReservations(target, affectedReservationIds(result), token)
+        val target = activeCloudTarget()
+        val baseRows = target?.let { cloudTarget ->
+            reservationDao.getByPerformanceWithTicketSales(cloudTarget.performanceId)
+                .associate { reservation ->
+                    reservation.reservation.id to ReservationSpreadsheetRow.fromReservations(
+                        listOf(reservation.toReservation())
+                    ).single()
+                }
+        }.orEmpty()
+        val result = mutation()
+        if (target != null) {
+            val affectedIds = affectedReservationIds(result).distinct()
+            database.withTransaction {
+                ensureSheetRowIds(affectedIds)
+                stagePendingChanges(target.performanceId, affectedIds, baseRows)
+            }
+            try {
+                flushPendingChanges(target, accessToken)
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                throw GoogleSheetChangePendingException()
             }
         }
+        return result
     }
 
     private suspend fun activeCloudTarget(): CloudSheetTarget? {
@@ -129,26 +154,223 @@ class RoomReservationRepository(
         return CloudSheetTarget(performance.id, source.spreadsheetUrl, sheetTitle)
     }
 
-    private suspend fun exportAffectedReservations(
-        target: CloudSheetTarget,
-        reservationIds: List<Long>,
-        accessToken: String
-    ) {
-        val distinctIds = reservationIds.distinct()
-        ensureSheetRowIds(distinctIds)
-        val rows = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
-            .filter { reservation -> reservation.reservation.id in distinctIds }
-            .map { reservation -> reservation.toReservation() }
-            .let(ReservationSpreadsheetRow::fromReservations)
-        googleSheetsClient.exportRows(target.spreadsheetUrl, target.sheetTitle, accessToken, rows)
-    }
-
     private suspend fun ensureSheetRowIds(reservationIds: List<Long>) {
         reservationIds.distinct().forEach { reservationId ->
             val reservation = reservationDao.getById(reservationId) ?: return@forEach
             if (reservation.sheetRowId.isBlank()) {
                 reservationDao.update(reservation.copy(sheetRowId = UUID.randomUUID().toString()))
             }
+        }
+    }
+
+    private suspend fun stagePendingChanges(
+        performanceId: Long,
+        reservationIds: List<Long>,
+        baseRows: Map<Long, ReservationSpreadsheetRow>
+    ) {
+        reservationIds.forEach { reservationId ->
+            val existingChange = pendingSheetChangeDao.findByReservationId(reservationId)
+            val reservation = reservationDao.getWithTicketSalesById(reservationId)
+            val desiredRow = reservation?.toReservation()?.let { value ->
+                ReservationSpreadsheetRow.fromReservations(listOf(value)).single()
+            }
+            val isDeletion = reservation?.reservation?.syncState == ReservationSyncState.PENDING_DELETION
+            val operation = if (isDeletion) PendingSheetOperation.DELETE else PendingSheetOperation.UPSERT
+            val baseRowJson = if (existingChange?.status == PendingSheetChangeStatus.CONFLICT) {
+                baseRows[reservationId]?.toSnapshotJson()
+            } else {
+                existingChange?.baseRowJson ?: baseRows[reservationId]?.toSnapshotJson()
+            }
+            pendingSheetChangeDao.upsert(
+                PendingSheetChangeEntity(
+                    id = existingChange?.id ?: UUID.randomUUID().toString(),
+                    reservationId = reservationId,
+                    performanceId = performanceId,
+                    operation = operation,
+                    baseRowJson = baseRowJson,
+                    desiredRowJson = desiredRow?.toSnapshotJson(),
+                    status = PendingSheetChangeStatus.PENDING,
+                    lastError = "",
+                    createdAt = existingChange?.createdAt ?: System.currentTimeMillis()
+                )
+            )
+            reservation?.reservation?.let { entity ->
+                reservationDao.update(
+                    entity.copy(
+                        syncState = if (isDeletion) {
+                            ReservationSyncState.PENDING_DELETION
+                        } else {
+                            ReservationSyncState.PENDING
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    /**
+     * Reads the selected tab under its lock, imports its current truth, then replays this device's
+     * local outbox only when the row has not changed in the meantime.
+     */
+    private suspend fun flushPendingChanges(target: CloudSheetTarget, accessToken: String?): Int {
+        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
+        return googleSheetsClient.withPerformanceLock(
+            spreadsheetUrl = target.spreadsheetUrl,
+            sheetTitle = target.sheetTitle,
+            accessToken = token
+        ) {
+            val importData = loadAndValidatePerformance(target, token)
+            val localRowsBeforeImport = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
+                .map(ReservationWithTicketSales::toReservation)
+            val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId)
+            val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
+            val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
+
+            val directlyEditedRows = localRowsBeforeImport
+                .filter { it.id !in pendingReservationIds && it.syncState == ReservationSyncState.SYNCED }
+                .mapNotNull { localReservation ->
+                    val remoteRow = importData.rows.find { row -> row.matches(localReservation) }
+                        ?: return@mapNotNull null
+                    val localRow = ReservationSpreadsheetRow.fromReservations(listOf(localReservation)).single()
+                    remoteRow.takeUnless { it.hasSameSheetContentAs(localRow) }
+                }
+            directlyEditedRows.forEach { row ->
+                googleSheetsClient.clearApplicationMetadata(
+                    spreadsheetUrl = target.spreadsheetUrl,
+                    sheetTitle = target.sheetTitle,
+                    accessToken = token,
+                    sheetRowId = row.sheetRowId,
+                    sourceIdentity = row.sourceIdentity
+                )
+            }
+
+            database.withTransaction {
+                importSpreadsheetRows(
+                    rows = importData.rows,
+                    performanceId = target.performanceId,
+                    preserveReservationIds = pendingReservationIds
+                )
+                removeMissingSheetReservations(target.performanceId, importData.rows, pendingReservationIds)
+            }
+
+            pendingChanges.forEach { change ->
+                replayPendingChange(target, token, importData.rows, change)
+            }
+            importData.rows.size
+        }
+    }
+
+    private suspend fun replayPendingChange(
+        target: CloudSheetTarget,
+        accessToken: String,
+        remoteRows: List<ReservationSpreadsheetRow>,
+        change: PendingSheetChangeEntity
+    ) {
+        val baseRow = change.baseRowJson?.toReservationSpreadsheetRowSnapshot()
+        val desiredRow = change.desiredRowJson?.toReservationSpreadsheetRowSnapshot()
+        val remoteRow = remoteRows.find { row -> row.matches(baseRow ?: desiredRow) }
+        when (change.operation) {
+            PendingSheetOperation.UPSERT -> {
+                val desired = requireNotNull(desiredRow)
+                when {
+                    baseRow == null && remoteRow == null -> {
+                        val exported = googleSheetsClient.exportRows(
+                            target.spreadsheetUrl,
+                            target.sheetTitle,
+                            accessToken,
+                            listOf(desired)
+                        ).single()
+                        markPendingChangeSynced(change, exported.sheetRowId)
+                    }
+                    baseRow == null && remoteRow?.hasSameSheetContentAs(desired) == true -> {
+                        markPendingChangeSynced(change, remoteRow.sheetRowId)
+                    }
+                    baseRow != null && remoteRow?.hasSameSheetContentAs(baseRow) == true -> {
+                        val exported = googleSheetsClient.exportRows(
+                            target.spreadsheetUrl,
+                            target.sheetTitle,
+                            accessToken,
+                            listOf(desired)
+                        ).single()
+                        markPendingChangeSynced(change, exported.sheetRowId)
+                    }
+                    else -> markPendingChangeConflict(change, remoteRow)
+                }
+            }
+            PendingSheetOperation.DELETE -> {
+                when {
+                    remoteRow == null -> markPendingDeletionSynced(change)
+                    baseRow != null && remoteRow.hasSameSheetContentAs(baseRow) -> {
+                        googleSheetsClient.softDeleteRow(
+                            spreadsheetUrl = target.spreadsheetUrl,
+                            sheetTitle = target.sheetTitle,
+                            accessToken = accessToken,
+                            sheetRowId = remoteRow.sheetRowId,
+                            sourceIdentity = remoteRow.sourceIdentity
+                        )
+                        markPendingDeletionSynced(change)
+                    }
+                    else -> markPendingChangeConflict(change, remoteRow)
+                }
+            }
+        }
+    }
+
+    private suspend fun markPendingChangeSynced(change: PendingSheetChangeEntity, exportedSheetRowId: String) {
+        database.withTransaction {
+            reservationDao.getById(change.reservationId)?.let { reservation ->
+                reservationDao.update(
+                    reservation.copy(
+                        sheetRowId = exportedSheetRowId.ifBlank { reservation.sheetRowId },
+                        syncState = ReservationSyncState.SYNCED
+                    )
+                )
+            }
+            pendingSheetChangeDao.deleteByReservationId(change.reservationId)
+        }
+    }
+
+    private suspend fun markPendingDeletionSynced(change: PendingSheetChangeEntity) {
+        database.withTransaction {
+            pendingSheetChangeDao.deleteByReservationId(change.reservationId)
+            reservationDao.deleteById(change.reservationId)
+        }
+    }
+
+    private suspend fun markPendingChangeConflict(
+        change: PendingSheetChangeEntity,
+        remoteRow: ReservationSpreadsheetRow?
+    ) {
+        database.withTransaction {
+            remoteRow?.let { row ->
+                importSpreadsheetRows(
+                    rows = listOf(row),
+                    performanceId = change.performanceId
+                )
+            }
+            pendingSheetChangeDao.upsert(
+                change.copy(
+                    status = PendingSheetChangeStatus.CONFLICT,
+                    lastError = "Google Sheetsissä on uudempi muutos."
+                )
+            )
+            reservationDao.getById(change.reservationId)?.let { reservation ->
+                reservationDao.update(reservation.copy(syncState = ReservationSyncState.CONFLICT))
+            }
+        }
+    }
+
+    private suspend fun loadAndValidatePerformance(
+        target: CloudSheetTarget,
+        accessToken: String
+    ) = googleSheetsClient.loadImportDataForTab(
+        spreadsheetUrl = target.spreadsheetUrl,
+        accessToken = accessToken,
+        sheetTitle = target.sheetTitle
+    ).also { importData ->
+        val performance = requireNotNull(performanceDao.getById(target.performanceId))
+        if (importData.candidate.performanceName != performance.actName || importData.candidate.date != performance.date) {
+            throw GoogleSheetSourceChangedException()
         }
     }
 
@@ -425,18 +647,23 @@ class RoomReservationRepository(
             reservationDao.deleteById(reservationId)
             return
         }
-        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
-        googleSheetsClient.withPerformanceLock(target.spreadsheetUrl, target.sheetTitle, token) {
-            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
-            val reservation = reservationDao.getById(reservationId) ?: return@withPerformanceLock
-            googleSheetsClient.softDeleteRow(
-                spreadsheetUrl = target.spreadsheetUrl,
-                sheetTitle = target.sheetTitle,
-                accessToken = token,
-                sheetRowId = reservation.sheetRowId,
-                sourceIdentity = reservation.sourceIdentity
-            )
-            reservationDao.deleteById(reservationId)
+        val baseRows = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
+            .associate { reservation ->
+                reservation.reservation.id to ReservationSpreadsheetRow.fromReservations(
+                    listOf(reservation.toReservation())
+                ).single()
+            }
+        database.withTransaction {
+            reservationDao.getById(reservationId)?.let { reservation ->
+                reservationDao.update(reservation.copy(syncState = ReservationSyncState.PENDING_DELETION))
+                stagePendingChanges(target.performanceId, listOf(reservationId), baseRows)
+            }
+        }
+        try {
+            flushPendingChanges(target, accessToken)
+        } catch (exception: Exception) {
+            if (exception is CancellationException) throw exception
+            throw GoogleSheetChangePendingException()
         }
     }
 
@@ -446,31 +673,33 @@ class RoomReservationRepository(
             performanceDao.getActive()?.let { reservationDao.deleteAllByPerformance(it.id) }
             return
         }
-        val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
-        googleSheetsClient.withPerformanceLock(target.spreadsheetUrl, target.sheetTitle, token) {
-            syncGoogleSheetPerformance(target.performanceId, target.spreadsheetUrl, token)
-            reservationDao.getByPerformanceWithTicketSales(target.performanceId).forEach { reservation ->
-                googleSheetsClient.softDeleteRow(
-                    spreadsheetUrl = target.spreadsheetUrl,
-                    sheetTitle = target.sheetTitle,
-                    accessToken = token,
-                    sheetRowId = reservation.reservation.sheetRowId,
-                    sourceIdentity = reservation.reservation.sourceIdentity
+        val reservations = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
+        val baseRows = reservations.associate { reservation ->
+            reservation.reservation.id to ReservationSpreadsheetRow.fromReservations(
+                listOf(reservation.toReservation())
+            ).single()
+        }
+        val reservationIds = reservations.map { it.reservation.id }
+        database.withTransaction {
+            reservations.forEach { reservation ->
+                reservationDao.update(
+                    reservation.reservation.copy(syncState = ReservationSyncState.PENDING_DELETION)
                 )
             }
-            reservationDao.deleteAllByPerformance(target.performanceId)
+            stagePendingChanges(target.performanceId, reservationIds, baseRows)
+        }
+        try {
+            flushPendingChanges(target, accessToken)
+        } catch (exception: Exception) {
+            if (exception is CancellationException) throw exception
+            throw GoogleSheetChangePendingException()
         }
     }
 
-    private suspend fun exportSpreadsheetRows(performanceId: Long): List<ReservationSpreadsheetRow> =
-        ReservationSpreadsheetRow.fromReservations(
-            reservationDao.getByPerformanceWithTicketSales(performanceId)
-                .map { reservation -> reservation.toReservation() }
-        )
-
     private suspend fun importSpreadsheetRows(
         rows: List<ReservationSpreadsheetRow>,
-        performanceId: Long
+        performanceId: Long,
+        preserveReservationIds: Set<Long> = emptySet()
     ) {
         rows.forEach { row ->
             val existingReservation = if (row.sheetRowId.isNotBlank()) {
@@ -482,6 +711,7 @@ class RoomReservationRepository(
             } else {
                 null
             }
+            if (existingReservation?.id in preserveReservationIds) return@forEach
             val reservationId = existingReservation?.id ?: reservationDao.insert(
                 ReservationEntity(
                     performanceId = performanceId,
@@ -492,6 +722,7 @@ class RoomReservationRepository(
                     notes = row.notes,
                     sourceIdentity = row.sourceIdentity,
                     sheetRowId = row.sheetRowId,
+                    syncState = ReservationSyncState.SYNCED,
                     admissionType = AdmissionType.RESERVATION,
                     arrivalCount = row.arrivalCount,
                     isPresent = row.arrivalCount > 0
@@ -505,9 +736,11 @@ class RoomReservationRepository(
                         contact = row.contact.trim(),
                         seatCount = row.reservedSeatCount,
                         notes = row.notes,
+                        sourceIdentity = row.sourceIdentity.ifBlank { existingReservation.sourceIdentity },
                         sheetRowId = row.sheetRowId.ifBlank { existingReservation.sheetRowId },
-                        arrivalCount = maxOf(existingReservation.arrivalCount, row.arrivalCount),
-                        isPresent = existingReservation.arrivalCount > 0 || row.arrivalCount > 0
+                        syncState = ReservationSyncState.SYNCED,
+                        arrivalCount = row.arrivalCount,
+                        isPresent = row.arrivalCount > 0
                     )
                 )
             }
@@ -517,7 +750,7 @@ class RoomReservationRepository(
                     ReservedTicketAllocation(ticketType, quantity)
                 }
             )
-            reservationDao.deleteImportedTicketSalesForReservation(reservationId)
+            reservationDao.deleteAllTicketSalesForReservation(reservationId)
             row.paymentTicketCounts.forEach { (paymentMethod, quantity) ->
                 if (quantity > 0) {
                     val ticketSaleId = reservationDao.insertTicketSale(
@@ -542,6 +775,26 @@ class RoomReservationRepository(
                 }
             }
         }
+    }
+
+    private suspend fun removeMissingSheetReservations(
+        performanceId: Long,
+        rows: List<ReservationSpreadsheetRow>,
+        preserveReservationIds: Set<Long>
+    ) {
+        val remoteIdentities = rows.flatMap { row -> listOf(row.sheetRowId, row.sourceIdentity) }
+            .filter(String::isNotBlank)
+            .toSet()
+        reservationDao.getByPerformanceWithTicketSales(performanceId)
+            .map(ReservationWithTicketSales::reservation)
+            .filter { reservation ->
+                reservation.id !in preserveReservationIds &&
+                    (reservation.sheetRowId.isNotBlank() || reservation.sourceIdentity.isNotBlank())
+            }
+            .filter { reservation ->
+                reservation.sheetRowId !in remoteIdentities && reservation.sourceIdentity !in remoteIdentities
+            }
+            .forEach { reservationDao.deleteById(it.id) }
     }
 
     override suspend fun importGoogleSheet(
@@ -584,37 +837,28 @@ class RoomReservationRepository(
             "Performance does not exist."
         }
         val sourceSheetTitle = performance.sourceSheetTitle ?: throw GoogleSheetSourceChangedException()
-        val importData = try {
-            googleSheetsClient.loadImportDataForTab(
-                spreadsheetUrl = spreadsheetUrl,
-                accessToken = accessToken,
-                sheetTitle = sourceSheetTitle
-            )
+        val target = CloudSheetTarget(performanceId, spreadsheetUrl, sourceSheetTitle)
+        return try {
+            flushPendingChanges(target, accessToken)
         } catch (_: IllegalArgumentException) {
             throw GoogleSheetSourceChangedException()
         }
-        if (
-            importData.candidate.performanceName != performance.actName ||
-            importData.candidate.date != performance.date
-        ) {
-            throw GoogleSheetSourceChangedException()
-        }
-        database.withTransaction {
-            importSpreadsheetRows(importData.rows, performanceId)
-        }
-        return importData.rows.size
     }
 
     override suspend fun exportGoogleSheet(spreadsheetUrl: String, sheetTitle: String, accessToken: String) {
         val activePerformance = requireNotNull(performanceDao.getActive()) {
             "Select a performance before exporting."
         }
-        googleSheetsClient.exportRows(
-            spreadsheetUrl = spreadsheetUrl,
-            sheetTitle = sheetTitle,
-            accessToken = accessToken,
-            rows = exportSpreadsheetRows(activePerformance.id)
-        )
+        val target = activeCloudTarget()
+        require(
+            target != null &&
+                target.performanceId == activePerformance.id &&
+                target.spreadsheetUrl == spreadsheetUrl &&
+                target.sheetTitle == sheetTitle
+        ) {
+            "Esitykselle ei ole tallennettu vastaavaa Google Sheets -välilehteä. Tuo taulukko ensin."
+        }
+        flushPendingChanges(target, accessToken)
     }
 
     override suspend fun upsertGoogleSheetSource(source: GoogleSheetSource) {
@@ -674,4 +918,26 @@ class RoomReservationRepository(
             "Each reserved ticket type may only appear once."
         }
     }
+}
+
+private fun ReservationSpreadsheetRow.matches(reservation: Reservation?): Boolean {
+    reservation ?: return false
+    return (sheetRowId.isNotBlank() && sheetRowId == reservation.sheetRowId) ||
+        (sourceIdentity.isNotBlank() && sourceIdentity == reservation.sourceIdentity) ||
+        (
+            sheetRowId.isBlank() && reservation.sheetRowId.isBlank() &&
+                lastName.equals(reservation.lastName, ignoreCase = true) &&
+                firstName.equals(reservation.firstName, ignoreCase = true)
+            )
+}
+
+private fun ReservationSpreadsheetRow.matches(other: ReservationSpreadsheetRow?): Boolean {
+    other ?: return false
+    return (sheetRowId.isNotBlank() && sheetRowId == other.sheetRowId) ||
+        (sourceIdentity.isNotBlank() && sourceIdentity == other.sourceIdentity) ||
+        (
+            sheetRowId.isBlank() && other.sheetRowId.isBlank() &&
+                lastName.equals(other.lastName, ignoreCase = true) &&
+                firstName.equals(other.firstName, ignoreCase = true)
+            )
 }

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.GoogleSheetSourceChangedException
+import fi.tukkateatteri.data.GoogleSheetChangePendingException
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetLockedException
 import fi.tukkateatteri.data.NoGoogleSheetImportCandidatesException
 import fi.tukkateatteri.data.PendingPaymentAllocation
@@ -80,6 +81,8 @@ class ReservationViewModel(
             _isTransferInProgress.value = true
             try {
                 action()
+            } catch (_: GoogleSheetChangePendingException) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_change_pending)
             } catch (_: GoogleSheetLockedException) {
                 _transferMessage.value = UiMessage(R.string.google_sheets_performance_locked)
             } catch (exception: Exception) {
@@ -223,6 +226,8 @@ class ReservationViewModel(
                 )
             } catch (_: GoogleSheetSourceChangedException) {
                 _transferMessage.value = UiMessage(R.string.google_sheets_sync_source_changed)
+            } catch (_: GoogleSheetLockedException) {
+                _transferMessage.value = UiMessage(R.string.google_sheets_performance_locked)
             } catch (exception: Exception) {
                 Log.e(TAG, "Google Sheets performance sync failed", exception)
                 _transferMessage.value = UiMessage(R.string.google_sheets_sync_failed)

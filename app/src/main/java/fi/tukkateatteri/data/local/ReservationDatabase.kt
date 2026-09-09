@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PaymentAllocationEntity::class,
         ReservedTicketAllocationEntity::class,
         GoogleSheetSourceEntity::class,
-        PerformanceEntity::class
+        PerformanceEntity::class,
+        PendingSheetChangeEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(ReservationTypeConverters::class)
@@ -25,6 +26,7 @@ abstract class ReservationDatabase : RoomDatabase() {
     abstract fun reservationDao(): ReservationDao
     abstract fun performanceDao(): PerformanceDao
     abstract fun googleSheetSourceDao(): GoogleSheetSourceDao
+    abstract fun pendingSheetChangeDao(): PendingSheetChangeDao
 
     companion object {
         fun create(context: Context): ReservationDatabase {
@@ -46,7 +48,8 @@ abstract class ReservationDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
-                    MIGRATION_10_11
+                    MIGRATION_10_11,
+                    MIGRATION_11_12
                 )
                 .withBuildSpecificDatabaseConfiguration { database }
                 .build()
@@ -307,6 +310,39 @@ abstract class ReservationDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_reservations_sheet_row_id " +
                         "ON reservations (sheet_row_id)"
+                )
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE reservations ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'SYNCED'"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pending_sheet_changes` (
+                        `id` TEXT NOT NULL,
+                        `reservation_id` INTEGER NOT NULL,
+                        `performance_id` INTEGER NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `base_row_json` TEXT,
+                        `desired_row_json` TEXT,
+                        `status` TEXT NOT NULL,
+                        `last_error` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pending_sheet_changes_performance_id` " +
+                        "ON `pending_sheet_changes` (`performance_id`)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_pending_sheet_changes_reservation_id` " +
+                        "ON `pending_sheet_changes` (`reservation_id`)"
                 )
             }
         }

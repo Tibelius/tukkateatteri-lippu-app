@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
         )
     }
     private var pendingGoogleAuthorization: ((String) -> Unit)? = null
+    private var pendingGoogleAuthorizationFallback: (() -> Unit)? = null
     private val googleAuthorizationLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -86,10 +87,12 @@ class MainActivity : ComponentActivity() {
             val authorizationResult = Identity.getAuthorizationClient(this)
                 .getAuthorizationResultFromIntent(result.data)
             authorizationResult.accessToken?.let { pendingGoogleAuthorization?.invoke(it) }
+                ?: pendingGoogleAuthorizationFallback?.invoke()
         } catch (_: ApiException) {
-            // The user canceled Google authorization.
+            pendingGoogleAuthorizationFallback?.invoke()
         } finally {
             pendingGoogleAuthorization = null
+            pendingGoogleAuthorizationFallback = null
         }
     }
 
@@ -102,7 +105,7 @@ class MainActivity : ComponentActivity() {
                 ReservationApp(
                     viewModel = reservationViewModel,
                     onGoogleSheetsTransfer = { action, spreadsheetUrl, sheetTitle ->
-                        authorizeGoogleSheets { accessToken ->
+                        authorizeGoogleSheets(onAuthorized = { accessToken ->
                             when (action) {
                                 SpreadsheetAction.IMPORT -> {
                                     reservationViewModel.prepareGoogleSheetImport(
@@ -118,26 +121,35 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
-                        }
+                        })
                     },
                     onGoogleSheetsSync = { performance, spreadsheetUrl ->
-                        authorizeGoogleSheets { accessToken ->
+                        authorizeGoogleSheets(onAuthorized = { accessToken ->
                             reservationViewModel.syncGoogleSheetPerformance(
                                 performance.id,
                                 spreadsheetUrl,
                                 accessToken
                             )
-                        }
+                        })
                     },
-                    onGoogleSheetsMutation = ::authorizeGoogleSheets,
+                    onGoogleSheetsMutation = { mutation ->
+                        authorizeGoogleSheets(
+                            onAuthorized = mutation,
+                            onUnavailable = { mutation(null) }
+                        )
+                    },
                     onChangeGoogleAccount = ::revokeGoogleSheetsAccess
                 )
             }
         }
     }
 
-    private fun authorizeGoogleSheets(onAuthorized: (String) -> Unit) {
+    private fun authorizeGoogleSheets(
+        onAuthorized: (String) -> Unit,
+        onUnavailable: (() -> Unit)? = null
+    ) {
         pendingGoogleAuthorization = onAuthorized
+        pendingGoogleAuthorizationFallback = onUnavailable
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(SHEETS_SCOPE)))
             .build()
@@ -149,14 +161,21 @@ class MainActivity : ComponentActivity() {
                             IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                         )
                     } ?: run {
+                        pendingGoogleAuthorizationFallback?.invoke()
                         pendingGoogleAuthorization = null
+                        pendingGoogleAuthorizationFallback = null
                     }
                 } else {
                     result.accessToken?.let { pendingGoogleAuthorization?.invoke(it) }
                     pendingGoogleAuthorization = null
+                    pendingGoogleAuthorizationFallback = null
                 }
             }
-            .addOnFailureListener { pendingGoogleAuthorization = null }
+            .addOnFailureListener {
+                pendingGoogleAuthorizationFallback?.invoke()
+                pendingGoogleAuthorization = null
+                pendingGoogleAuthorizationFallback = null
+            }
     }
 
     private fun revokeGoogleSheetsAccess() {
@@ -184,7 +203,7 @@ private fun ReservationApp(
     viewModel: ReservationViewModel,
     onGoogleSheetsTransfer: (SpreadsheetAction, String, String) -> Unit,
     onGoogleSheetsSync: (Performance, String) -> Unit,
-    onGoogleSheetsMutation: ((String) -> Unit) -> Unit,
+    onGoogleSheetsMutation: ((String?) -> Unit) -> Unit,
     onChangeGoogleAccount: () -> Unit
 ) {
     val reservations by viewModel.reservations.collectAsStateWithLifecycle()
@@ -242,6 +261,13 @@ private fun ReservationApp(
             onExportClick = { spreadsheetAction = SpreadsheetAction.EXPORT },
             onManageGoogleSheetSourcesClick = { showGoogleSheetSourceManager = true },
             onChangeGoogleAccountClick = onChangeGoogleAccount,
+            onSyncPendingClick = {
+                activePerformance?.let { performance ->
+                    googleSheetSources
+                        .firstOrNull { source -> source.actName == performance.actName }
+                        ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl) }
+                }
+            },
             onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
         )
     }
@@ -249,6 +275,15 @@ private fun ReservationApp(
     LaunchedEffect(viewModel) {
         viewModel.addedReservationIds.collect { reservationId ->
             selectedReservationId = reservationId
+        }
+    }
+
+    LaunchedEffect(activePerformance?.id, googleSheetSources) {
+        activePerformance?.let { performance ->
+            googleSheetSources
+                .firstOrNull { source -> source.actName == performance.actName }
+                ?.takeIf { performance.canSyncFromGoogleSheets }
+                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl) }
         }
     }
 

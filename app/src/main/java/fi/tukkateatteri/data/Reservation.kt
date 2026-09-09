@@ -13,6 +13,7 @@ data class Reservation(
     val notes: String = "",
     val sourceIdentity: String = "",
     val sheetRowId: String = "",
+    val syncState: ReservationSyncState = ReservationSyncState.SYNCED,
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
     val arrivalCount: Int = 0,
     val reservedTicketAllocations: List<ReservedTicketAllocation> = emptyList(),
@@ -68,6 +69,14 @@ data class Reservation(
 
     val isCompleted: Boolean
         get() = isFullyRedeemed && arrivalCount >= seatCount
+}
+
+/** Describes whether this device has safely applied its latest local change to Google Sheets. */
+enum class ReservationSyncState {
+    SYNCED,
+    PENDING,
+    CONFLICT,
+    PENDING_DELETION
 }
 
 enum class AdmissionType(@param:StringRes val labelResId: Int) {

@@ -39,7 +39,9 @@ data class ExportedSpreadsheetRow(
     val sheetRowId: String
 )
 
-class GoogleSheetsClient {
+class GoogleSheetsClient(
+    private val deviceId: String = "Android"
+) {
     suspend fun loadTabs(spreadsheetUrl: String, accessToken: String): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val metadata = getJson(
@@ -64,12 +66,15 @@ class GoogleSheetsClient {
     ): T = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val performanceKey = "$spreadsheetId|$sheetTitle"
-        val lockId = UUID.randomUUID().toString()
+        var lockId = UUID.randomUUID().toString()
         val lockRows = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
         val lockTable = lockRows.toLockTable()
         val now = Instant.now()
         val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
-        if (existingLock?.expiresAt?.isAfter(now) == true) throw GoogleSheetLockedException()
+        if (existingLock?.expiresAt?.isAfter(now) == true) {
+            if (existingLock.deviceId != deviceId) throw GoogleSheetLockedException()
+            lockId = existingLock.lockId.ifBlank { lockId }
+        }
 
         val lockRowNumber = existingLock?.rowNumber ?: lockTable.firstAvailableRowNumber
         val expiresAt = now.plusSeconds(LOCK_DURATION_SECONDS)
@@ -81,7 +86,8 @@ class GoogleSheetsClient {
                 performanceKey = performanceKey,
                 lockId = lockId,
                 lockedAt = now.toString(),
-                expiresAt = expiresAt.toString()
+                expiresAt = expiresAt.toString(),
+                deviceId = deviceId
             )
         )
         val confirmedLock = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
@@ -184,6 +190,45 @@ class GoogleSheetsClient {
             deletedRowCellValues(sheetTitle, rowNumber, headers, mutationId)
         )
         strikeThroughRow(spreadsheetId, sheetTitle, rowNumber, headers.values.maxOrNull() ?: 0, accessToken)
+    }
+
+    /** Removes app-only markers after a direct Sheet edit; reservation values remain untouched. */
+    suspend fun clearApplicationMetadata(
+        spreadsheetUrl: String,
+        sheetTitle: String,
+        accessToken: String,
+        sheetRowId: String,
+        sourceIdentity: String
+    ) = withContext(Dispatchers.IO) {
+        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
+        val rows = loadValues(spreadsheetId, sheetTitle, accessToken)
+        val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
+        require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
+        val headers = ensureApplicationHeaders(spreadsheetId, sheetTitle, rows, headerRowIndex, accessToken)
+        val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
+            val matchesId = sheetRowId.isNotBlank() && row.valueAt(headers[HEADER_SHEET_ROW_ID]) == sheetRowId
+            val matchesSourceIdentity = sourceIdentity.toNameKeyOrNull() == (
+                row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
+                    row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
+                )
+            (matchesId || matchesSourceIdentity).takeIf { it }?.let { headerRowIndex + index + 2 }
+        }.firstOrNull() ?: return@withContext
+        updateCells(
+            spreadsheetId,
+            accessToken,
+            listOf(
+                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_OPERATION).toColumnName()}$rowNumber", ""),
+                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_MODIFIED_AT).toColumnName()}$rowNumber", ""),
+                SheetCellValue("$sheetTitle!${headers.getValue(HEADER_APP_MUTATION_ID).toColumnName()}$rowNumber", "")
+            )
+        )
+        clearStrikeThroughRow(
+            spreadsheetId,
+            sheetTitle,
+            rowNumber,
+            headers.values.maxOrNull() ?: 0,
+            accessToken
+        )
     }
 
     suspend fun loadImportData(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportData> =
@@ -475,6 +520,50 @@ class GoogleSheetsClient {
         sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
     }
 
+    private fun clearStrikeThroughRow(
+        spreadsheetId: String,
+        sheetTitle: String,
+        rowNumber: Int,
+        lastColumnIndex: Int,
+        accessToken: String
+    ) {
+        val sheetId = getJson("$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false", accessToken)
+            .getJSONArray("sheets")
+            .let { sheets ->
+                (0 until sheets.length())
+                    .map { sheets.getJSONObject(it).getJSONObject("properties") }
+                    .first { properties -> properties.getString("title") == sheetTitle }
+                    .getInt("sheetId")
+            }
+        val request = JSONObject().put(
+            "requests",
+            JSONArray().put(
+                JSONObject().put(
+                    "repeatCell",
+                    JSONObject()
+                        .put(
+                            "range",
+                            JSONObject()
+                                .put("sheetId", sheetId)
+                                .put("startRowIndex", rowNumber - 1)
+                                .put("endRowIndex", rowNumber)
+                                .put("startColumnIndex", 0)
+                                .put("endColumnIndex", lastColumnIndex + 1)
+                        )
+                        .put(
+                            "cell",
+                            JSONObject().put(
+                                "userEnteredFormat",
+                                JSONObject().put("textFormat", JSONObject().put("strikethrough", false))
+                            )
+                        )
+                        .put("fields", "userEnteredFormat.textFormat.strikethrough")
+                )
+            )
+        )
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", "POST", request, accessToken)
+    }
+
     private fun sendJson(url: String, method: String, request: JSONObject, accessToken: String) {
         val requestBody = request.toString().toByteArray()
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
@@ -493,7 +582,7 @@ class GoogleSheetsClient {
     companion object {
         private const val API_BASE = "https://sheets.googleapis.com/v4"
         private const val LOCK_SHEET_TITLE = "Sovelluslukot"
-        private const val LOCK_DURATION_SECONDS = 60L
+        private const val LOCK_DURATION_SECONDS = 10L
         private const val HARD_DELETE_FROM_SHEET = false
     }
 }
@@ -607,7 +696,8 @@ private data class SheetCellValue(val range: String, val value: String)
 private data class LockRow(
     val rowNumber: Int,
     val lockId: String,
-    val expiresAt: Instant?
+    val expiresAt: Instant?,
+    val deviceId: String
 )
 
 private data class LockTable(
@@ -620,7 +710,8 @@ private data class LockTable(
         performanceKey: String,
         lockId: String,
         lockedAt: String,
-        expiresAt: String
+        expiresAt: String,
+        deviceId: String = ""
     ): List<SheetCellValue> = buildList {
         fun set(header: String, value: String) {
             headers[header]?.let { columnIndex ->
@@ -631,7 +722,7 @@ private data class LockTable(
         set(LOCK_HEADER_UUID, lockId)
         set(LOCK_HEADER_LOCKED_AT, lockedAt)
         set(LOCK_HEADER_EXPIRES_AT, expiresAt)
-        set(LOCK_HEADER_DEVICE_LABEL, "Android")
+        set(LOCK_HEADER_DEVICE_LABEL, deviceId)
     }
 }
 
@@ -653,7 +744,8 @@ private fun List<List<String>>.toLockTable(): LockTable {
             it to LockRow(
                 rowNumber = headerRowIndex + index + 2,
                 lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trim(),
-                expiresAt = runCatching { Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trim()) }.getOrNull()
+                expiresAt = runCatching { Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trim()) }.getOrNull(),
+                deviceId = row.valueAt(headers[LOCK_HEADER_DEVICE_LABEL]).trim()
             )
         }
     }.toMap()

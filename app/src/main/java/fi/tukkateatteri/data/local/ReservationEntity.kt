@@ -7,6 +7,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PaymentMethod
+import fi.tukkateatteri.data.ReservationSyncState
 
 @Entity(
     tableName = "reservations",
@@ -37,6 +38,8 @@ data class ReservationEntity(
     val sourceIdentity: String = "",
     @ColumnInfo(name = "sheet_row_id")
     val sheetRowId: String = "",
+    @ColumnInfo(name = "sync_state")
+    val syncState: ReservationSyncState = ReservationSyncState.SYNCED,
     @ColumnInfo(name = "admission_type")
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
     @ColumnInfo(name = "arrival_count")

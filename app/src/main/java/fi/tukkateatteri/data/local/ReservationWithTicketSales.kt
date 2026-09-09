@@ -41,6 +41,7 @@ fun ReservationWithTicketSales.toReservation() = Reservation(
     notes = reservation.notes,
     sourceIdentity = reservation.sourceIdentity,
     sheetRowId = reservation.sheetRowId,
+    syncState = reservation.syncState,
     admissionType = reservation.admissionType,
     arrivalCount = reservation.arrivalCount,
     reservedTicketAllocations = reservedTicketAllocations.map { allocation ->

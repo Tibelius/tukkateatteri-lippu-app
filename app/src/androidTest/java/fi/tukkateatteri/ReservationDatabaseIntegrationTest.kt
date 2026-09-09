@@ -8,6 +8,9 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketSaleOrigin
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.local.PaymentAllocationEntity
+import fi.tukkateatteri.data.local.PendingSheetChangeEntity
+import fi.tukkateatteri.data.local.PendingSheetChangeStatus
+import fi.tukkateatteri.data.local.PendingSheetOperation
 import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
@@ -186,5 +189,39 @@ class ReservationDatabaseIntegrationTest {
 
         assertEquals(null, database.performanceDao().getById(performanceId))
         assertFalse(database.reservationDao().getByPerformanceWithTicketSales(performanceId).isNotEmpty())
+    }
+
+    @Test
+    fun pendingSheetChangeIsStoredLocallyAndDeletedWithItsReservation() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Yön Vuodenaika", date = "24.10.2026")
+        )
+        val reservationId = database.reservationDao().insert(
+            ReservationEntity(
+                performanceId = performanceId,
+                lastName = "Kippari",
+                firstName = "Kalle",
+                contact = "",
+                seatCount = 1
+            )
+        )
+        database.pendingSheetChangeDao().upsert(
+            PendingSheetChangeEntity(
+                id = "pending-change",
+                reservationId = reservationId,
+                performanceId = performanceId,
+                operation = PendingSheetOperation.UPSERT,
+                baseRowJson = null,
+                desiredRowJson = "local-only-payload",
+                status = PendingSheetChangeStatus.PENDING,
+                createdAt = 1L
+            )
+        )
+
+        assertEquals(1, database.pendingSheetChangeDao().getByPerformanceId(performanceId).size)
+
+        database.reservationDao().deleteById(reservationId)
+
+        assertTrue(database.pendingSheetChangeDao().getAllByPerformanceId(performanceId).isEmpty())
     }
 }

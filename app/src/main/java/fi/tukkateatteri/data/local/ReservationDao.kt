@@ -75,6 +75,9 @@ interface ReservationDao {
     @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId AND origin = 'IMPORTED'")
     suspend fun deleteImportedTicketSalesForReservation(reservationId: Long)
 
+    @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId")
+    suspend fun deleteAllTicketSalesForReservation(reservationId: Long)
+
     @Query("DELETE FROM reserved_ticket_allocations WHERE reservation_id = :reservationId")
     suspend fun deleteReservedTicketAllocationsForReservation(reservationId: Long)
 
