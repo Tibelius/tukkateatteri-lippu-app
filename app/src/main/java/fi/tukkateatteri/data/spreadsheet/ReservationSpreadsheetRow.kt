@@ -88,9 +88,10 @@ data class ReservationSpreadsheetRow(
             )
         }
 
-        private const val DOOR_SALE_SHEET_LABEL = "Ovelta"
     }
 }
+
+internal const val DOOR_SALE_SHEET_LABEL = "Ovimyynti"
 
 private fun List<TicketSale>.toSplitPaymentNotes(): String = filter(TicketSale::isSplitPayment)
     .joinToString(separator = "; ") { ticketSale ->

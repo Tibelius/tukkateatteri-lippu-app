@@ -90,7 +90,7 @@ class ReservationSpreadsheetRowTest {
     }
 
     @Test
-    fun doorSales_areExportedAsSeparateOveltaRows() {
+    fun doorSales_areExportedAsSeparateOvimyyntiRows() {
         val rows = ReservationSpreadsheetRow.fromReservations(
             listOf(
                 reservation(
@@ -113,7 +113,7 @@ class ReservationSpreadsheetRowTest {
         )
 
         assertEquals(2, rows.size)
-        assertTrue(rows.all { row -> row.lastName == "Ovelta" && row.reservedSeatCount == 1 })
+        assertTrue(rows.all { row -> row.lastName == "Ovimyynti" && row.reservedSeatCount == 1 })
         assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
         assertEquals(1, rows[0].paymentTicketCounts[PaymentMethod.CASH])
         assertEquals(1, rows[1].reservedTicketCounts[TicketType.DISCOUNT])

@@ -275,7 +275,17 @@ private fun ReservationApp(
                         ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
                 }
             },
-            onDeleteAllClick = { showDeleteAllReservationsConfirmation = true }
+            onDeleteAllClick = { showDeleteAllReservationsConfirmation = true },
+            isRefreshing = isTransferInProgress,
+            onRefresh = activePerformance
+                ?.takeIf(Performance::canSyncFromGoogleSheets)
+                ?.let { performance ->
+                    googleSheetSources
+                        .firstOrNull { source -> source.actName == performance.actName }
+                        ?.let { source ->
+                            { onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
+                        }
+                }
         )
     }
 

@@ -614,7 +614,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(candidate: GoogleSheetImportCand
         val sheetRowId = row.valueAt(headerIndexes[HEADER_SHEET_ROW_ID]).trim()
         val sourceIdentity = if (sheetRowId.isNotBlank()) {
             "sheet:$sheetRowId"
-        } else if (lastName.normalizedIdentity() == DOOR_SALE_SHEET_LABEL.normalizedIdentity()) {
+        } else if (lastName.isDoorSaleSheetLabel()) {
             "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
         } else {
             "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}"
@@ -644,6 +644,11 @@ private fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.firs
         ?.let { index -> row.getOrNull(index + 1)?.trim() }
         ?.takeIf(String::isNotBlank)
 }
+
+private fun String.isDoorSaleSheetLabel(): Boolean = normalizedIdentity() in setOf(
+    DOOR_SALE_SHEET_LABEL.normalizedIdentity(),
+    LEGACY_DOOR_SALE_SHEET_LABEL.normalizedIdentity()
+)
 
 private fun ReservationSpreadsheetRow.toSheetCellValues(
     sheetTitle: String,
@@ -815,7 +820,7 @@ private const val HEADER_DATE = "pvm:"
 private const val HEADER_RESERVATION_TOTAL = "varaukset yhteensä"
 private const val APP_OPERATION_ADD = "Lisäys"
 private const val APP_OPERATION_DELETE = "Poisto"
-private const val DOOR_SALE_SHEET_LABEL = "Ovelta"
+private const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
 private const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
 private const val LOCK_HEADER_UUID = "lock_uuid"
 private const val LOCK_HEADER_LOCKED_AT = "locked_at"

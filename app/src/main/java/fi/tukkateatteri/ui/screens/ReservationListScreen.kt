@@ -1,5 +1,6 @@
 package fi.tukkateatteri.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -55,6 +61,9 @@ import java.text.Collator
 import java.util.Locale
 
 private val FLOATING_ACTION_BUTTON_CLEARANCE = 88.dp
+private val SYNC_UNDERCARD_HORIZONTAL_OFFSET = 40.dp
+private val SYNC_UNDERCARD_VERTICAL_OFFSET = 8.dp
+private val SYNC_CARD_BORDER_WIDTH = 1.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +77,9 @@ fun ReservationListScreen(
     onManageGoogleSheetSourcesClick: () -> Unit,
     onChangeGoogleAccountClick: () -> Unit,
     onSyncPendingClick: () -> Unit,
-    onDeleteAllClick: () -> Unit
+    onDeleteAllClick: () -> Unit,
+    isRefreshing: Boolean,
+    onRefresh: (() -> Unit)?
 ) {
     val redeemedCount = reservations.count(Reservation::isFullyRedeemed)
     val totalSeatCount = reservations.sumOf(Reservation::seatCount)
@@ -77,6 +88,7 @@ fun ReservationListScreen(
             reservation.syncState == ReservationSyncState.PENDING_DELETION
     }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
+    val pullToRefreshState = rememberPullToRefreshState()
     val sortedReservations = remember(reservations) {
         val collator = Collator.getInstance(FINNISH_LOCALE)
         reservations.sortedWith { first, second ->
@@ -219,33 +231,74 @@ fun ReservationListScreen(
             }
         }
     ) { contentPadding ->
-        if (sortedReservations.isEmpty()) {
-            EmptyReservationList(
+        val contentModifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+        if (onRefresh == null) {
+            ReservationListContent(
+                reservations = sortedReservations,
                 hasActivePerformance = activePerformance != null,
-                modifier = Modifier.padding(contentPadding)
+                onReservationClick = onReservationClick,
+                modifier = contentModifier
             )
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    top = 8.dp,
-                    end = 16.dp,
-                    bottom = FLOATING_ACTION_BUTTON_CLEARANCE
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(
-                    items = sortedReservations,
-                    key = Reservation::id
-                ) { reservation ->
-                    ReservationRow(
-                        reservation = reservation,
-                        onClick = { onReservationClick(reservation) }
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = onRefresh,
+                state = pullToRefreshState,
+                modifier = contentModifier,
+                indicator = {
+                    PullToRefreshDefaults.Indicator(
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        isRefreshing = isRefreshing,
+                        state = pullToRefreshState,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
+            ) {
+                ReservationListContent(
+                    reservations = sortedReservations,
+                    hasActivePerformance = activePerformance != null,
+                    onReservationClick = onReservationClick,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReservationListContent(
+    reservations: List<Reservation>,
+    hasActivePerformance: Boolean,
+    onReservationClick: (Reservation) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (reservations.isEmpty()) {
+        EmptyReservationList(
+            hasActivePerformance = hasActivePerformance,
+            modifier = modifier
+        )
+    } else {
+        LazyColumn(
+            modifier = modifier,
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = FLOATING_ACTION_BUTTON_CLEARANCE
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = reservations,
+                key = Reservation::id
+            ) { reservation ->
+                ReservationRow(
+                    reservation = reservation,
+                    onClick = { onReservationClick(reservation) }
+                )
             }
         }
     }
@@ -315,14 +368,67 @@ private fun ReservationRow(
         reservation.seatCount
     )
 
+    val syncUndercard = reservation.syncState.toSyncUndercard()
+    if (syncUndercard == null) {
+        ReservationForegroundCard(
+            reservation = reservation,
+            displayName = displayName,
+            statusText = statusText,
+            backgroundColor = backgroundColor,
+            contentColor = contentColor,
+            onClick = onClick
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            SyncStatusUndercard(
+                undercard = syncUndercard,
+                modifier = Modifier.matchParentSize(),
+                onClick = onClick
+            )
+            ReservationForegroundCard(
+                reservation = reservation,
+                displayName = displayName,
+                statusText = statusText,
+                backgroundColor = backgroundColor,
+                contentColor = contentColor,
+                onClick = onClick,
+                drawSyncBorder = true,
+                modifier = Modifier.padding(
+                    start = SYNC_UNDERCARD_HORIZONTAL_OFFSET,
+                    top = SYNC_UNDERCARD_VERTICAL_OFFSET
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReservationForegroundCard(
+    reservation: Reservation,
+    displayName: String,
+    statusText: String,
+    backgroundColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+    drawSyncBorder: Boolean = false,
+    modifier: Modifier = Modifier
+) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(role = Role.Button, onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = backgroundColor,
             contentColor = contentColor
-        )
+        ),
+        border = if (drawSyncBorder) {
+            BorderStroke(
+                width = SYNC_CARD_BORDER_WIDTH,
+                color = contentColor.copy(alpha = FOREGROUND_CARD_BORDER_ALPHA)
+            )
+        } else {
+            null
+        }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -364,7 +470,6 @@ private fun ReservationRow(
                     contentColor = MaterialTheme.colorScheme.error
                 )
             }
-            ReservationSyncStateIndicator(reservation.syncState)
             if (reservation.arrivalCount > 0) {
                 ReservationStatusRow(
                     icon = Icons.Filled.Person,
@@ -381,6 +486,36 @@ private fun ReservationRow(
     }
 }
 
+@Composable
+private fun SyncStatusUndercard(
+    undercard: SyncUndercard,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.clickable(role = Role.Button, onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = undercard.containerColor,
+            contentColor = undercard.contentColor
+        ),
+        border = BorderStroke(
+            width = SYNC_CARD_BORDER_WIDTH,
+            color = undercard.contentColor.copy(alpha = UNDERCARD_BORDER_ALPHA)
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = undercard.icon,
+                contentDescription = undercard.contentDescription,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 8.dp),
+                tint = undercard.contentColor
+            )
+        }
+    }
+}
+
 private val ReservationSyncState.sortOrder: Int
     get() = when (this) {
         ReservationSyncState.CONFLICT -> 0
@@ -390,33 +525,37 @@ private val ReservationSyncState.sortOrder: Int
     }
 
 @Composable
-private fun ReservationSyncStateIndicator(syncState: ReservationSyncState) {
-    val (icon, text, tint) = when (syncState) {
-        ReservationSyncState.SYNCED -> return
-        ReservationSyncState.PENDING -> Triple(
-            Icons.Filled.CloudUpload,
-            stringResource(R.string.sheet_change_pending),
-            MaterialTheme.colorScheme.primary
-        )
-        ReservationSyncState.CONFLICT -> Triple(
-            Icons.Filled.WarningAmber,
-            stringResource(R.string.sheet_change_conflict),
-            MaterialTheme.colorScheme.error
-        )
-        ReservationSyncState.PENDING_DELETION -> Triple(
-            Icons.Filled.DeleteOutline,
-            stringResource(R.string.sheet_deletion_pending),
-            MaterialTheme.colorScheme.error
-        )
-    }
-    ReservationStatusRow(
-        icon = icon,
-        text = text,
-        modifier = Modifier.padding(top = 6.dp),
-        style = MaterialTheme.typography.bodySmall,
-        contentColor = tint
+private fun ReservationSyncState.toSyncUndercard(): SyncUndercard? = when (this) {
+    ReservationSyncState.SYNCED -> null
+    ReservationSyncState.PENDING -> SyncUndercard(
+        icon = Icons.Filled.CloudUpload,
+        contentDescription = stringResource(R.string.sheet_change_pending),
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    )
+    ReservationSyncState.CONFLICT -> SyncUndercard(
+        icon = Icons.Filled.WarningAmber,
+        contentDescription = stringResource(R.string.sheet_change_conflict),
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer
+    )
+    ReservationSyncState.PENDING_DELETION -> SyncUndercard(
+        icon = Icons.Filled.DeleteOutline,
+        contentDescription = stringResource(R.string.sheet_deletion_pending),
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer
     )
 }
+
+private data class SyncUndercard(
+    val icon: ImageVector,
+    val contentDescription: String,
+    val containerColor: Color,
+    val contentColor: Color
+)
+
+private const val FOREGROUND_CARD_BORDER_ALPHA = 0.22f
+private const val UNDERCARD_BORDER_ALPHA = 0.34f
 
 @Composable
 private fun ReservationStatusRow(
