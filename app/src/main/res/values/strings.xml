@@ -73,6 +73,7 @@
         <item quantity="other">%1$d muutosta odottaa synkronointia</item>
     </plurals>
     <string name="sheet_change_pending">Odottaa Google Sheets -synkronointia</string>
+    <string name="sheet_change_uploading">Muutosta lähetetään</string>
     <string name="sheet_change_conflict">Google Sheetsissä on uudempi muutos</string>
     <string name="sheet_deletion_pending">Poisto odottaa Google Sheets -synkronointia</string>
 

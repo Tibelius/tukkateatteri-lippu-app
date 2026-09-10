@@ -51,6 +51,7 @@ internal fun ReservationApp(
     val availableTicketTypes by viewModel.availableTicketTypes.collectAsStateWithLifecycle()
     val availablePaymentMethods by viewModel.availablePaymentMethods.collectAsStateWithLifecycle()
     val sheetMappingRequest by viewModel.sheetMappingRequest.collectAsStateWithLifecycle()
+    val syncingPerformanceIds by viewModel.syncingPerformanceIds.collectAsStateWithLifecycle()
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
     var reservationDialogHasChanges by rememberSaveable { mutableStateOf(false) }
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -138,6 +139,7 @@ internal fun ReservationApp(
                     }
                 },
                 onDeleteAllClick = { showDeleteAllReservationsConfirmation = true },
+                isBackgroundSyncInProgress = activePerformance?.id in syncingPerformanceIds,
                 isRefreshing = isTransferInProgress,
                 onRefresh = pullToRefreshAction
             )

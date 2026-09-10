@@ -58,6 +58,7 @@ fun ReservationListScreen(
     onChangeGoogleAccountClick: () -> Unit,
     onSyncPendingClick: () -> Unit,
     onDeleteAllClick: () -> Unit,
+    isBackgroundSyncInProgress: Boolean,
     isRefreshing: Boolean,
     onRefresh: (() -> Unit)?
 ) {
@@ -72,10 +73,10 @@ fun ReservationListScreen(
     val collator = remember { Collator.getInstance(FINNISH_LOCALE) }
     val sortedReservations = remember(reservations, collator) {
         reservations.sortedWith { first, second ->
-            val syncStateComparison = first.syncState.sortPriority
-                .compareTo(second.syncState.sortPriority)
-            if (syncStateComparison != 0) {
-                syncStateComparison
+            val conflictComparison = first.syncState.conflictSortPriority
+                .compareTo(second.syncState.conflictSortPriority)
+            if (conflictComparison != 0) {
+                conflictComparison
             } else {
                 val lastNameComparison = collator.compare(first.lastName, second.lastName)
                 if (lastNameComparison != 0) {
@@ -223,6 +224,7 @@ fun ReservationListScreen(
             ReservationListContent(
                 reservations = sortedReservations,
                 hasActivePerformance = activePerformance != null,
+                isBackgroundSyncInProgress = isBackgroundSyncInProgress,
                 onReservationClick = onReservationClick,
                 modifier = contentModifier
             )
@@ -247,6 +249,7 @@ fun ReservationListScreen(
                 ReservationListContent(
                     reservations = sortedReservations,
                     hasActivePerformance = activePerformance != null,
+                    isBackgroundSyncInProgress = isBackgroundSyncInProgress,
                     onReservationClick = onReservationClick,
                     modifier = Modifier.fillMaxSize()
                 )

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -45,6 +46,7 @@ import fi.tukkateatteri.data.ReservationSyncState
 internal fun ReservationListContent(
     reservations: List<Reservation>,
     hasActivePerformance: Boolean,
+    isBackgroundSyncInProgress: Boolean,
     onReservationClick: (Reservation) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -70,6 +72,8 @@ internal fun ReservationListContent(
             ) { reservation ->
                 ReservationRow(
                     reservation = reservation,
+                    isUploading = isBackgroundSyncInProgress &&
+                        reservation.syncState == ReservationSyncState.PENDING,
                     onClick = { onReservationClick(reservation) }
                 )
             }
@@ -116,6 +120,7 @@ private fun EmptyReservationList(
 @Composable
 private fun ReservationRow(
     reservation: Reservation,
+    isUploading: Boolean,
     onClick: () -> Unit
 ) {
     val displayName = reservation.displayName.ifBlank {
@@ -139,7 +144,7 @@ private fun ReservationRow(
         reservation.seatCount
     )
 
-    val syncUndercard = reservation.syncState.toSyncUndercard()
+    val syncUndercard = reservation.syncState.toSyncUndercard(isUploading)
     if (syncUndercard == null) {
         ReservationForegroundCard(
             reservation = reservation,
@@ -147,7 +152,8 @@ private fun ReservationRow(
             statusText = statusText,
             backgroundColor = backgroundColor,
             contentColor = contentColor,
-            onClick = onClick
+            onClick = onClick,
+            interactionEnabled = true
         )
     } else {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -163,6 +169,7 @@ private fun ReservationRow(
                 backgroundColor = backgroundColor,
                 contentColor = contentColor,
                 onClick = onClick,
+                interactionEnabled = !syncUndercard.blocksInteraction,
                 drawSyncBorder = true,
                 modifier = Modifier.padding(start = SYNC_UNDERCARD_HORIZONTAL_OFFSET)
             )
@@ -179,12 +186,17 @@ private fun ReservationForegroundCard(
     backgroundColor: Color,
     contentColor: Color,
     onClick: () -> Unit,
+    interactionEnabled: Boolean,
     drawSyncBorder: Boolean = false
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(
+                enabled = interactionEnabled,
+                role = Role.Button,
+                onClick = onClick
+            ),
         colors = CardDefaults.cardColors(
             containerColor = backgroundColor,
             contentColor = contentColor
@@ -261,7 +273,11 @@ private fun SyncStatusUndercard(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = modifier.clickable(role = Role.Button, onClick = onClick),
+        modifier = modifier.clickable(
+            enabled = !undercard.blocksInteraction,
+            role = Role.Button,
+            onClick = onClick
+        ),
         colors = CardDefaults.cardColors(
             containerColor = undercard.containerColor,
             contentColor = undercard.contentColor
@@ -284,40 +300,44 @@ private fun SyncStatusUndercard(
     }
 }
 
-internal val ReservationSyncState.sortPriority: SyncSortPriority
-    get() = when (this) {
-        ReservationSyncState.CONFLICT -> SyncSortPriority.CONFLICT
-        ReservationSyncState.PENDING,
-        ReservationSyncState.PENDING_DELETION -> SyncSortPriority.PENDING
-        ReservationSyncState.SYNCED -> SyncSortPriority.SYNCED
-    }
+internal val ReservationSyncState.conflictSortPriority: Int
+    get() = if (this == ReservationSyncState.CONFLICT) 0 else 1
 
-internal enum class SyncSortPriority {
-    CONFLICT,
-    PENDING,
-    SYNCED
+@Composable
+private fun ReservationSyncState.toSyncUndercard(isUploading: Boolean): SyncUndercard? = when {
+    this == ReservationSyncState.PENDING && isUploading -> SyncUndercard(
+        icon = Icons.Filled.Sync,
+        contentDescription = stringResource(R.string.sheet_change_uploading),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        blocksInteraction = true
+    )
+    else -> toIdleSyncUndercard()
 }
 
 @Composable
-private fun ReservationSyncState.toSyncUndercard(): SyncUndercard? = when (this) {
+private fun ReservationSyncState.toIdleSyncUndercard(): SyncUndercard? = when (this) {
     ReservationSyncState.SYNCED -> null
     ReservationSyncState.PENDING -> SyncUndercard(
         icon = Icons.Filled.CloudUpload,
         contentDescription = stringResource(R.string.sheet_change_pending),
         containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        blocksInteraction = false
     )
     ReservationSyncState.CONFLICT -> SyncUndercard(
         icon = Icons.Filled.WarningAmber,
         contentDescription = stringResource(R.string.sheet_change_conflict),
         containerColor = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        blocksInteraction = false
     )
     ReservationSyncState.PENDING_DELETION -> SyncUndercard(
         icon = Icons.Filled.DeleteOutline,
         contentDescription = stringResource(R.string.sheet_deletion_pending),
         containerColor = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        blocksInteraction = false
     )
 }
 
@@ -325,7 +345,8 @@ private data class SyncUndercard(
     val icon: ImageVector,
     val contentDescription: String,
     val containerColor: Color,
-    val contentColor: Color
+    val contentColor: Color,
+    val blocksInteraction: Boolean
 )
 
 private const val FOREGROUND_CARD_BORDER_ALPHA = 0.22f

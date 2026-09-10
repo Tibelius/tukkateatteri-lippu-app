@@ -62,6 +62,7 @@ class ReservationViewModel(
     private val _transferMessage = MutableStateFlow<UiMessage?>(null)
     private val _isTransferInProgress = MutableStateFlow(false)
     private val _sheetMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
+    private val _syncingPerformanceIds = MutableStateFlow<Set<Long>>(emptySet())
     private var pendingMappingOperation: PendingMappingOperation? = null
     private val reservationMutationMutex = Mutex()
     private val backgroundSyncRequests = mutableMapOf<Long, BackgroundSyncRequest>()
@@ -111,6 +112,7 @@ class ReservationViewModel(
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
     val sheetMappingRequest: StateFlow<SheetMappingRequest?> = _sheetMappingRequest
+    val syncingPerformanceIds: StateFlow<Set<Long>> = _syncingPerformanceIds
 
     private fun launchTrackedOperation(operation: String, action: suspend () -> Unit) {
         viewModelScope.launch {
@@ -170,6 +172,7 @@ class ReservationViewModel(
         if (backgroundSyncJobs[performanceId]?.isActive == true) return
 
         backgroundSyncJobs[performanceId] = viewModelScope.launch {
+            _syncingPerformanceIds.value += performanceId
             try {
                 while (true) {
                     delay(BACKGROUND_SYNC_DEBOUNCE_MILLIS)
@@ -210,6 +213,7 @@ class ReservationViewModel(
                 }
             } finally {
                 backgroundSyncJobs.remove(performanceId)
+                _syncingPerformanceIds.value -= performanceId
             }
         }
     }
