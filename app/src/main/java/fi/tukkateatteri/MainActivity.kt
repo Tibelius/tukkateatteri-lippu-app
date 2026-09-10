@@ -14,6 +14,7 @@ import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import fi.tukkateatteri.ui.theme.TukkateatteriTheme
+import fi.tukkateatteri.logging.AppLog
 
 class MainActivity : ComponentActivity() {
     private val reservationViewModel: ReservationViewModel by viewModels {
@@ -26,12 +27,20 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         try {
+            AppLog.debug(LOG_COMPONENT) { "Received Google authorization activity result" }
             val authorizationResult = Identity.getAuthorizationClient(this)
                 .getAuthorizationResultFromIntent(result.data)
             authorizationResult.accessToken?.let { accessToken ->
+                AppLog.info(LOG_COMPONENT) { "Google authorization completed successfully" }
                 pendingGoogleAuthorization?.onAuthorized?.invoke(accessToken)
-            } ?: pendingGoogleAuthorization?.onUnavailable?.invoke()
-        } catch (_: ApiException) {
+            } ?: run {
+                AppLog.warning(LOG_COMPONENT) { "Google authorization returned without an access token" }
+                pendingGoogleAuthorization?.onUnavailable?.invoke()
+            }
+        } catch (exception: ApiException) {
+            AppLog.warning(LOG_COMPONENT, exception) {
+                "Google authorization result could not be read; statusCode=${exception.statusCode}"
+            }
             pendingGoogleAuthorization?.onUnavailable?.invoke()
         } finally {
             clearPendingAuthorization()
@@ -40,6 +49,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLog.info(LOG_COMPONENT) { "Application activity created; restoringState=${savedInstanceState != null}" }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
@@ -89,6 +99,10 @@ class MainActivity : ComponentActivity() {
         onUnavailable: (() -> Unit)? = null,
         onAuthorized: (String) -> Unit
     ) {
+        if (pendingGoogleAuthorization != null) {
+            AppLog.warning(LOG_COMPONENT) { "Replacing an unfinished Google authorization request" }
+        }
+        AppLog.debug(LOG_COMPONENT) { "Starting Google Sheets authorization" }
         pendingGoogleAuthorization = PendingGoogleAuthorization(onAuthorized, onUnavailable)
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(GOOGLE_SHEETS_SCOPE)))
@@ -96,6 +110,7 @@ class MainActivity : ComponentActivity() {
         Identity.getAuthorizationClient(this).authorize(request)
             .addOnSuccessListener { result ->
                 if (result.hasResolution()) {
+                    AppLog.debug(LOG_COMPONENT) { "Google authorization requires user interaction" }
                     val pendingIntent = result.pendingIntent
                     if (pendingIntent == null) {
                         invokeAuthorizationFallback()
@@ -106,15 +121,23 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     result.accessToken?.let { accessToken ->
+                        AppLog.info(LOG_COMPONENT) { "Google authorization reused an existing grant" }
                         pendingGoogleAuthorization?.onAuthorized?.invoke(accessToken)
-                    } ?: pendingGoogleAuthorization?.onUnavailable?.invoke()
+                    } ?: run {
+                        AppLog.warning(LOG_COMPONENT) { "Google authorization grant had no access token" }
+                        pendingGoogleAuthorization?.onUnavailable?.invoke()
+                    }
                     clearPendingAuthorization()
                 }
             }
-            .addOnFailureListener { invokeAuthorizationFallback() }
+            .addOnFailureListener { exception ->
+                AppLog.warning(LOG_COMPONENT, exception) { "Google authorization request failed" }
+                invokeAuthorizationFallback()
+            }
     }
 
     private fun invokeAuthorizationFallback() {
+        AppLog.debug(LOG_COMPONENT) { "Continuing without Google authorization" }
         pendingGoogleAuthorization?.onUnavailable?.invoke()
         clearPendingAuthorization()
     }
@@ -124,12 +147,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun revokeGoogleSheetsAccess() {
+        AppLog.info(LOG_COMPONENT) { "Disconnecting the current Google account" }
         clearPendingAuthorization()
         val request = RevokeAccessRequest.builder()
             .setScopes(listOf(Scope(GOOGLE_SHEETS_SCOPE)))
             .build()
         Identity.getAuthorizationClient(this).revokeAccess(request)
-            .addOnCompleteListener {
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    AppLog.info(LOG_COMPONENT) { "Google account access disconnected" }
+                } else {
+                    AppLog.warning(LOG_COMPONENT, task.exception) { "Google account disconnection failed" }
+                }
                 Toast.makeText(
                     this,
                     R.string.google_account_disconnected,
@@ -139,6 +168,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val LOG_COMPONENT = "Auth"
         const val GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
     }
 }

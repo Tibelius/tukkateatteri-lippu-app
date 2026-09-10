@@ -1,6 +1,5 @@
 package fi.tukkateatteri
 
-import android.util.Log
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -21,6 +20,9 @@ import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetLockedException
+import fi.tukkateatteri.logging.AppLog
+import fi.tukkateatteri.logging.toLogSummary
+import fi.tukkateatteri.logging.toPaymentLogSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -87,51 +89,66 @@ class ReservationViewModel(
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
 
-    private fun launchTrackedOperation(action: suspend () -> Unit) {
+    private fun launchTrackedOperation(operation: String, action: suspend () -> Unit) {
         viewModelScope.launch {
+            val startedAt = System.nanoTime()
+            AppLog.debug(LOG_COMPONENT) { "Starting $operation" }
             activeTransferCount += 1
             _isTransferInProgress.value = true
             try {
                 action()
+                AppLog.debug(LOG_COMPONENT) {
+                    "Completed $operation in ${AppLog.elapsedMillis(startedAt)} ms"
+                }
+            } catch (exception: CancellationException) {
+                AppLog.debug(LOG_COMPONENT) { "Cancelled $operation after ${AppLog.elapsedMillis(startedAt)} ms" }
+                throw exception
             } finally {
                 activeTransferCount -= 1
                 _isTransferInProgress.value = activeTransferCount > 0
+                AppLog.verbose(LOG_COMPONENT) { "Active operations=$activeTransferCount" }
             }
         }
     }
 
-    private fun launchReservationMutation(action: suspend () -> Unit) {
-        launchTrackedOperation {
+    private fun launchReservationMutation(operation: String, action: suspend () -> Unit) {
+        launchTrackedOperation(operation) {
             try {
                 action()
-            } catch (_: GoogleSheetChangePendingException) {
+            } catch (exception: GoogleSheetChangePendingException) {
+                AppLog.warning(LOG_COMPONENT, exception) {
+                    "$operation was saved locally but could not be synchronized"
+                }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_pending)
             } catch (exception: GoogleSheetLockedException) {
-                Log.w(TAG, "Reservation change could not acquire the Google Sheets lock", exception)
+                AppLog.warning(LOG_COMPONENT, exception) { "$operation could not acquire the performance lock" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                Log.e(TAG, "Reservation change failed", exception)
+                AppLog.error(LOG_COMPONENT, exception) { "$operation failed" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_failed)
             }
         }
     }
 
     fun createPerformance(actName: String, date: String) {
-        launchReservationMutation {
-            reservationRepository.createPerformance(actName, date)
+        launchReservationMutation("create performance") {
+            val performanceId = reservationRepository.createPerformance(actName, date)
+            AppLog.info(LOG_COMPONENT) { "Created or selected performanceId=$performanceId, date=${date.trim()}" }
         }
     }
 
     fun selectPerformance(performanceId: Long) {
-        launchReservationMutation {
+        launchReservationMutation("select performance") {
             reservationRepository.selectPerformance(performanceId)
+            AppLog.info(LOG_COMPONENT) { "Selected performanceId=$performanceId" }
         }
     }
 
     fun deletePerformance(performanceId: Long) {
-        launchReservationMutation {
+        launchReservationMutation("delete performance") {
             reservationRepository.deletePerformance(performanceId)
+            AppLog.info(LOG_COMPONENT) { "Deleted performanceId=$performanceId" }
         }
     }
 
@@ -144,7 +161,10 @@ class ReservationViewModel(
         reservedTicketAllocations: List<ReservedTicketAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation {
+        launchReservationMutation("add admission") {
+            AppLog.debug(LOG_COMPONENT) {
+                "Adding admission type=$admissionType, seats=$seatCount, reservedTypes=${reservedTicketAllocations.size}"
+            }
             val reservationId = reservationRepository.addAdmission(
                 lastName = lastName,
                 firstName = firstName,
@@ -154,19 +174,23 @@ class ReservationViewModel(
                 reservedTicketAllocations = reservedTicketAllocations,
                 accessToken = accessToken
             )
+            AppLog.info(LOG_COMPONENT) { "Created reservationId=$reservationId, admission=$admissionType, seats=$seatCount" }
             addedReservationIdsChannel.send(reservationId)
         }
     }
 
     fun updateReservation(reservation: Reservation, accessToken: String? = null) {
-        launchReservationMutation {
+        launchReservationMutation("update reservation") {
+            AppLog.debug(LOG_COMPONENT) { "Updating ${reservation.toLogSummary()}" }
             reservationRepository.updateReservation(reservation, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Updated reservationId=${reservation.id}" }
         }
     }
 
     fun updateArrivalCount(reservationId: Long, arrivalCount: Int, accessToken: String? = null) {
-        launchReservationMutation {
+        launchReservationMutation("update arrival count") {
             reservationRepository.updateArrivalCount(reservationId, arrivalCount, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Updated arrival count; reservationId=$reservationId, arrived=$arrivalCount" }
         }
     }
 
@@ -177,8 +201,13 @@ class ReservationViewModel(
         payments: List<PendingPaymentAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation {
+        launchReservationMutation("add ticket sale") {
+            AppLog.debug(LOG_COMPONENT) {
+                "Adding ticket sale; reservationId=$reservationId, type=$ticketType, quantity=$quantity, " +
+                    "payments=${payments.toPaymentLogSummary()}"
+            }
             reservationRepository.addTicketSale(reservationId, ticketType, quantity, payments, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Added ticket sale; reservationId=$reservationId, type=$ticketType, quantity=$quantity" }
         }
     }
 
@@ -189,46 +218,60 @@ class ReservationViewModel(
         payments: List<PendingPaymentAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation {
+        launchReservationMutation("update ticket sale") {
+            AppLog.debug(LOG_COMPONENT) {
+                "Updating ticketSaleId=$ticketSaleId, type=$ticketType, quantity=$quantity, " +
+                    "payments=${payments.toPaymentLogSummary()}"
+            }
             reservationRepository.updateTicketSale(ticketSaleId, ticketType, quantity, payments, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Updated ticketSaleId=$ticketSaleId" }
         }
     }
 
     fun deleteTicketSale(ticketSaleId: Long, accessToken: String? = null) {
-        launchReservationMutation {
+        launchReservationMutation("delete ticket sale") {
             reservationRepository.deleteTicketSale(ticketSaleId, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Deleted ticketSaleId=$ticketSaleId" }
         }
     }
 
     fun deleteReservation(reservationId: Long, accessToken: String? = null) {
-        launchReservationMutation {
+        launchReservationMutation("delete reservation") {
             reservationRepository.deleteReservation(reservationId, accessToken)
+            AppLog.info(LOG_COMPONENT) { "Deleted reservationId=$reservationId" }
         }
     }
 
     fun deleteAllReservations(accessToken: String? = null) {
-        launchReservationMutation {
+        launchReservationMutation("delete all reservations") {
             reservationRepository.deleteAllReservations(accessToken)
+            AppLog.info(LOG_COMPONENT) { "Deleted all reservations from the active performance" }
         }
     }
 
     fun prepareGoogleSheetImport(spreadsheetUrl: String, accessToken: String) {
-        launchTrackedOperation {
+        launchTrackedOperation("import spreadsheet") {
             try {
+                AppLog.info(LOG_COMPONENT) { "Starting spreadsheet import" }
                 val importResult = reservationRepository.importGoogleSheet(
                     spreadsheetUrl,
                     accessToken
                 )
+                AppLog.info(LOG_COMPONENT) {
+                    "Spreadsheet import completed; performances=${importResult.performanceCount}, " +
+                        "reservations=${importResult.reservationCount}"
+                }
                 _transferMessage.value = UiMessage.Plural(
                     messageResId = R.plurals.google_sheets_import_succeeded,
                     quantity = importResult.performanceCount,
                     formatArgs = listOf(importResult.performanceCount, importResult.reservationCount)
                 )
-            } catch (_: NoGoogleSheetImportCandidatesException) {
+            } catch (exception: NoGoogleSheetImportCandidatesException) {
+                AppLog.warning(LOG_COMPONENT, exception) { "Spreadsheet contained no importable performances" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_no_import_candidates)
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                Log.e(TAG, "Google Sheets import failed", exception)
+                AppLog.error(LOG_COMPONENT, exception) { "Spreadsheet import failed" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_import_failed)
             }
         }
@@ -240,25 +283,36 @@ class ReservationViewModel(
         accessToken: String,
         showError: Boolean = true
     ) {
-        launchTrackedOperation {
+        launchTrackedOperation("synchronize performance") {
             try {
-                reservationRepository.syncGoogleSheetPerformance(
+                AppLog.info(LOG_COMPONENT) { "Starting synchronization for performanceId=$performanceId" }
+                val rowCount = reservationRepository.syncGoogleSheetPerformance(
                     performanceId,
                     spreadsheetUrl,
                     accessToken
                 )
-            } catch (_: GoogleSheetSourceChangedException) {
+                AppLog.info(LOG_COMPONENT) {
+                    "Synchronized performanceId=$performanceId; receivedRows=$rowCount"
+                }
+            } catch (exception: GoogleSheetSourceChangedException) {
+                AppLog.warning(LOG_COMPONENT, exception) {
+                    "Performance source metadata no longer matches; performanceId=$performanceId"
+                }
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_source_changed)
                 }
             } catch (exception: GoogleSheetLockedException) {
-                Log.w(TAG, "Google Sheets performance lock unavailable", exception)
+                AppLog.warning(LOG_COMPONENT, exception) {
+                    "Performance synchronization could not acquire lock; performanceId=$performanceId"
+                }
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
                 }
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                Log.e(TAG, "Google Sheets performance sync failed", exception)
+                AppLog.error(LOG_COMPONENT, exception) {
+                    "Performance synchronization failed; performanceId=$performanceId"
+                }
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_failed)
                 }
@@ -271,7 +325,8 @@ class ReservationViewModel(
         spreadsheetUrl: String,
         accessToken: String
     ) {
-        launchTrackedOperation {
+        launchTrackedOperation("synchronize performances") {
+            AppLog.info(LOG_COMPONENT) { "Starting synchronization for ${performances.size} performances" }
             val failedPerformances = buildList {
                 performances.forEach { performance ->
                     try {
@@ -282,20 +337,26 @@ class ReservationViewModel(
                         )
                     } catch (exception: Exception) {
                         exception.rethrowIfCancellation()
-                        Log.e(
-                            TAG,
-                            "Google Sheets sync failed for ${performance.displayName}",
-                            exception
-                        )
+                        AppLog.error(LOG_COMPONENT, exception) {
+                            "Performance synchronization failed; performanceId=${performance.id}, " +
+                                "date=${performance.date}"
+                        }
                         add(performance.displayName)
                     }
                 }
             }
             if (failedPerformances.isNotEmpty()) {
+                AppLog.warning(LOG_COMPONENT) {
+                    "Performance batch synchronization completed with ${failedPerformances.size} failures"
+                }
                 _transferMessage.value = UiMessage.Text(
                     messageResId = R.string.google_sheets_sync_dates_failed,
                     formatArgs = listOf(failedPerformances.joinToString())
                 )
+            } else {
+                AppLog.info(LOG_COMPONENT) {
+                    "Performance batch synchronization completed; performances=${performances.size}"
+                }
             }
         }
     }
@@ -303,12 +364,14 @@ class ReservationViewModel(
     fun saveGoogleSheetSource(actName: String, spreadsheetUrl: String) {
         viewModelScope.launch {
             try {
+                AppLog.debug(LOG_COMPONENT) { "Saving spreadsheet source; actConfigured=${actName.isNotBlank()}" }
                 reservationRepository.upsertGoogleSheetSource(
                     GoogleSheetSource(actName, spreadsheetUrl)
                 )
+                AppLog.info(LOG_COMPONENT) { "Saved spreadsheet source" }
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                Log.e(TAG, "Saving Google Sheets source failed", exception)
+                AppLog.error(LOG_COMPONENT, exception) { "Saving spreadsheet source failed" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_source_save_failed)
             }
         }
@@ -316,7 +379,14 @@ class ReservationViewModel(
 
     fun deleteGoogleSheetSource(actName: String) {
         viewModelScope.launch {
-            reservationRepository.deleteGoogleSheetSource(actName)
+            try {
+                reservationRepository.deleteGoogleSheetSource(actName)
+                AppLog.info(LOG_COMPONENT) { "Deleted spreadsheet source" }
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
+                AppLog.error(LOG_COMPONENT, exception) { "Deleting spreadsheet source failed" }
+                _transferMessage.value = UiMessage.Text(R.string.google_sheets_source_save_failed)
+            }
         }
     }
 
@@ -325,7 +395,7 @@ class ReservationViewModel(
     }
 
     companion object {
-        private const val TAG = "ReservationViewModel"
+        private const val LOG_COMPONENT = "ViewModel"
         fun factory(repository: ReservationRepository): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ReservationViewModel(repository)

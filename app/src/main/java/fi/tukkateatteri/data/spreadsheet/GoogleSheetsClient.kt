@@ -4,7 +4,11 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toPerformanceDateOrNull
+import fi.tukkateatteri.logging.AppLog
+import fi.tukkateatteri.logging.toAbbreviatedId
+import fi.tukkateatteri.logging.toLogSummary
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +20,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
+import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -57,6 +62,22 @@ class GoogleSheetLockedException(
     }
 )
 
+class GoogleSheetsRequestException(
+    method: String,
+    operation: String,
+    statusCode: Int? = null,
+    cause: Throwable? = null
+) : IOException(
+    buildString {
+        append("Google Sheets ")
+        append(operation)
+        append(" request failed")
+        statusCode?.let { append(" with HTTP status $it") }
+        append(" ($method).")
+    },
+    cause
+)
+
 data class ExportedSpreadsheetRow(
     val sourceIdentity: String,
     val sheetRowId: String
@@ -71,6 +92,8 @@ class GoogleSheetsClient(
         spreadsheetUrl: String,
         accessToken: String
     ): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
+        val startedAt = System.nanoTime()
+        AppLog.debug(LOG_COMPONENT) { "Starting spreadsheet tab discovery" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val metadata = getJson(
             url = "$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false",
@@ -84,6 +107,14 @@ class GoogleSheetsClient(
         }
         val rowsByTitle = loadValuesForTabs(spreadsheetId, titles, accessToken)
         return@withContext titles.map { title -> GoogleSheetTab(title, rowsByTitle.getValue(title)) }
+            .also { tabs ->
+                AppLog.info(LOG_COMPONENT) {
+                    "Loaded ${tabs.size} spreadsheet tabs in ${AppLog.elapsedMillis(startedAt)} ms"
+                }
+                AppLog.debug(LOG_COMPONENT) {
+                    "Received tab values: ${tabs.joinToString { tab -> "${tab.title}=${tab.rows.size} rows" }}"
+                }
+            }
     }
 
     suspend fun <T> withPerformanceLock(
@@ -94,7 +125,9 @@ class GoogleSheetsClient(
     ): T = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val performanceKey = performanceLockKey(spreadsheetId, sheetTitle)
+        AppLog.debug(LOG_COMPONENT) { "Waiting for local performance lock; tab=$sheetTitle" }
         localPerformanceLocks.withLock(performanceKey) {
+            AppLog.debug(LOG_COMPONENT) { "Entered local performance lock; tab=$sheetTitle" }
             withRemotePerformanceLock(
                 spreadsheetId = spreadsheetId,
                 performanceKey = performanceKey,
@@ -114,13 +147,18 @@ class GoogleSheetsClient(
     ): T {
         var lockId = UUID.randomUUID().toString()
         val now = Instant.now()
+        AppLog.info(LOG_COMPONENT) { "Acquiring remote performance lock; tab=$sheetTitle" }
         var lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
         if (removeExpiredLocks(spreadsheetId, lockTable, now, accessToken)) {
+            AppLog.debug(LOG_COMPONENT) { "Removed expired lock rows before acquisition; tab=$sheetTitle" }
             lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
         }
         val existingLock = lockTable.activeLockFor(performanceKey, now)
         if (existingLock != null) {
             if (existingLock.deviceId != deviceId) {
+                AppLog.warning(LOG_COMPONENT) {
+                    "Remote lock is held by another device; tab=$sheetTitle, holder=${existingLock.deviceId}"
+                }
                 throw GoogleSheetLockedException(
                     failure = GoogleSheetLockFailure.HELD_BY_ANOTHER_DEVICE,
                     sheetTitle = sheetTitle,
@@ -128,10 +166,16 @@ class GoogleSheetsClient(
                 )
             }
             lockId = existingLock.lockId.ifBlank { lockId }
+            AppLog.debug(LOG_COMPONENT) {
+                "Reusing this device's remote lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+            }
         }
 
         val expiresAt = now.plusSeconds(LOCK_DURATION_SECONDS)
         if (existingLock == null) {
+            AppLog.debug(LOG_COMPONENT) {
+                "Appending remote lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+            }
             appendPerformanceLock(
                 spreadsheetId = spreadsheetId,
                 accessToken = accessToken,
@@ -144,6 +188,9 @@ class GoogleSheetsClient(
                 )
             )
         } else {
+            AppLog.debug(LOG_COMPONENT) {
+                "Refreshing existing remote lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+            }
             updateCells(
                 spreadsheetId = spreadsheetId,
                 accessToken = accessToken,
@@ -161,11 +208,18 @@ class GoogleSheetsClient(
             .toLockTable()
             .rowsByPerformanceKey[performanceKey]
         if (confirmedLock?.lockId != lockId || confirmedLock.deviceId != deviceId) {
+            AppLog.warning(LOG_COMPONENT) {
+                "Remote lock acquisition could not be confirmed; tab=$sheetTitle, " +
+                    "expected=${lockId.toAbbreviatedId()}, actual=${confirmedLock?.lockId?.toAbbreviatedId() ?: "none"}"
+            }
             throw GoogleSheetLockedException(
                 failure = GoogleSheetLockFailure.ACQUISITION_LOST,
                 sheetTitle = sheetTitle,
                 holderDeviceId = confirmedLock?.deviceId
             )
+        }
+        AppLog.info(LOG_COMPONENT) {
+            "Acquired remote performance lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
         }
 
         try {
@@ -189,7 +243,18 @@ class GoogleSheetsClient(
                 }
             }
         } finally {
-            releasePerformanceLock(spreadsheetId, performanceKey, lockId, accessToken)
+            try {
+                releasePerformanceLock(spreadsheetId, performanceKey, lockId, accessToken)
+                AppLog.debug(LOG_COMPONENT) {
+                    "Released remote performance lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+                }
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                AppLog.warning(LOG_COMPONENT, exception) {
+                    "Remote lock release failed and will be left to expire; tab=$sheetTitle, " +
+                        "lockId=${lockId.toAbbreviatedId()}"
+                }
+            }
         }
     }
 
@@ -199,6 +264,8 @@ class GoogleSheetsClient(
         accessToken: String,
         rows: List<ReservationSpreadsheetRow>
     ): List<ExportedSpreadsheetRow> = withContext(Dispatchers.IO) {
+        val startedAt = System.nanoTime()
+        AppLog.info(LOG_COMPONENT) { "Starting row export; tab=$sheetTitle, rows=${rows.size}" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val existingRows = loadValues(spreadsheetId, sheetTitle, accessToken)
         val headerRowIndex = existingRows.indexOfFirst { row -> row.any { cell -> cell.normalizedHeader() == HEADER_LAST_NAME } }
@@ -229,6 +296,7 @@ class GoogleSheetsClient(
                     } == true
                 )
             if (shouldInsertRow) {
+                AppLog.debug(LOG_COMPONENT) { "Inserting reservation row before summary; tab=$sheetTitle, row=$rowNumber" }
                 insertReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
             }
             updateCells(
@@ -242,9 +310,17 @@ class GoogleSheetsClient(
                     operation = if (isAddition) APP_OPERATION_ADD else null
                 )
             )
+            AppLog.debug(LOG_COMPONENT) {
+                "Exported ${row.toLogSummary()}, targetRow=$rowNumber, addition=$isAddition, " +
+                    "sheetRowId=${sheetRowId.toAbbreviatedId()}"
+            }
             exportedRows += ExportedSpreadsheetRow(row.sourceIdentity, sheetRowId)
         }
-        exportedRows
+        exportedRows.also {
+            AppLog.info(LOG_COMPONENT) {
+                "Completed row export; tab=$sheetTitle, rows=${it.size}, durationMs=${AppLog.elapsedMillis(startedAt)}"
+            }
+        }
     }
 
     suspend fun softDeleteRow(
@@ -254,6 +330,9 @@ class GoogleSheetsClient(
         sheetRowId: String,
         sourceIdentity: String
     ) = withContext(Dispatchers.IO) {
+        AppLog.info(LOG_COMPONENT) {
+            "Starting soft deletion; tab=$sheetTitle, sheetRowId=${sheetRowId.toAbbreviatedId()}"
+        }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val rows = loadValues(spreadsheetId, sheetTitle, accessToken)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
@@ -284,6 +363,7 @@ class GoogleSheetsClient(
             deletedRowCellValues(sheetTitle, rowNumber, headers, mutationId)
         )
         strikeThroughRow(spreadsheetId, sheetTitle, rowNumber, headers.values.maxOrNull() ?: 0, accessToken)
+        AppLog.info(LOG_COMPONENT) { "Soft-deleted spreadsheet row; tab=$sheetTitle, row=$rowNumber" }
     }
 
     /** Removes app-only markers after a direct Sheet edit; reservation values remain untouched. */
@@ -294,6 +374,9 @@ class GoogleSheetsClient(
         sheetRowId: String,
         sourceIdentity: String
     ) = withContext(Dispatchers.IO) {
+        AppLog.debug(LOG_COMPONENT) {
+            "Clearing app mutation metadata; tab=$sheetTitle, sheetRowId=${sheetRowId.toAbbreviatedId()}"
+        }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val rows = loadValues(spreadsheetId, sheetTitle, accessToken)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
@@ -325,6 +408,7 @@ class GoogleSheetsClient(
             headers.values.maxOrNull() ?: 0,
             accessToken
         )
+        AppLog.debug(LOG_COMPONENT) { "Cleared app metadata and strikethrough; tab=$sheetTitle, row=$rowNumber" }
     }
 
     suspend fun clearManualRowStrikethrough(
@@ -334,6 +418,9 @@ class GoogleSheetsClient(
         rowNumbers: Collection<Int>
     ) = withContext(Dispatchers.IO) {
         if (rowNumbers.isEmpty()) return@withContext
+        AppLog.debug(LOG_COMPONENT) {
+            "Clearing strikethrough from ${rowNumbers.size} manually managed rows; tab=$sheetTitle"
+        }
         setRowsStrikethrough(
             spreadsheetId = spreadsheetUrl.toSpreadsheetId(),
             sheetTitle = sheetTitle,
@@ -348,22 +435,26 @@ class GoogleSheetsClient(
         loadTabs(spreadsheetUrl, accessToken)
             .mapNotNull { tab ->
                 tab.toImportCandidateOrNull()?.let { candidate ->
-                    GoogleSheetImportData(
-                        candidate = candidate,
-                        rows = tab.toReservationSpreadsheetRows(candidate)
-                    )
+                    parseImportData(tab, candidate)
                 }
             }
             .sortedWith(
                 compareBy<GoogleSheetImportData> { it.candidate.sortDate ?: LocalDate.MAX }
                     .thenBy { it.candidate.date }
             )
+            .also { imported ->
+                AppLog.info(LOG_COMPONENT) {
+                    "Parsed importable spreadsheet data; performances=${imported.size}, rows=${imported.sumOf { it.rows.size }}"
+                }
+            }
 
     suspend fun loadImportDataForTab(
         spreadsheetUrl: String,
         accessToken: String,
         sheetTitle: String
     ): GoogleSheetImportData = withContext(Dispatchers.IO) {
+        val startedAt = System.nanoTime()
+        AppLog.debug(LOG_COMPONENT) { "Loading import data for tab=$sheetTitle" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val tab = GoogleSheetTab(
             title = sheetTitle,
@@ -372,7 +463,31 @@ class GoogleSheetsClient(
         val candidate = requireNotNull(tab.toImportCandidateOrNull()) {
             "Välilehdeltä puuttuu Esitys: tai Pvm: -tieto."
         }
-        GoogleSheetImportData(candidate, tab.toReservationSpreadsheetRows(candidate))
+        parseImportData(tab, candidate).also { data ->
+            AppLog.info(LOG_COMPONENT) {
+                "Loaded import data; tab=$sheetTitle, rows=${data.rows.size}, " +
+                    "durationMs=${AppLog.elapsedMillis(startedAt)}"
+            }
+        }
+    }
+
+    private fun parseImportData(
+        tab: GoogleSheetTab,
+        candidate: GoogleSheetImportCandidate
+    ): GoogleSheetImportData {
+        val rows = tab.toReservationSpreadsheetRows(candidate)
+        val invalidMetadataCount = rows.count {
+            it.applicationMutationMetadataState == ApplicationMutationMetadataState.INVALID
+        }
+        AppLog.debug(LOG_COMPONENT) {
+            "Parsed performance tab=${tab.title}; rows=${rows.size}, invalidMetadata=$invalidMetadataCount"
+        }
+        if (invalidMetadataCount > 0) {
+            AppLog.warning(LOG_COMPONENT) {
+                "Found $invalidMetadataCount rows with incomplete or invalid app metadata; tab=${tab.title}"
+            }
+        }
+        return GoogleSheetImportData(candidate, rows)
     }
 
     private fun loadValues(spreadsheetId: String, title: String, accessToken: String): List<List<String>> {
@@ -413,6 +528,9 @@ class GoogleSheetsClient(
         "${sheetTitle.toQuotedSheetName()}!$SHEET_VALUE_COLUMNS"
 
     private fun getJson(url: String, accessToken: String): JSONObject {
+        val operation = url.toApiOperation()
+        val startedAt = System.nanoTime()
+        AppLog.verbose(LOG_COMPONENT) { "Sending Google Sheets GET request; operation=$operation" }
         val connection = openConnection(url, accessToken)
         connection.requestMethod = HTTP_GET
         connection.setRequestProperty("Authorization", "Bearer $accessToken")
@@ -421,9 +539,21 @@ class GoogleSheetsClient(
             val responseCode = connection.responseCode
             val response = connection.responseText(responseCode)
             if (responseCode !in HTTP_SUCCESS_CODES) {
-                throw IllegalStateException("Google Sheets -pyyntö epäonnistui ($responseCode): $response")
+                throw GoogleSheetsRequestException(HTTP_GET, operation, responseCode)
             }
-            return JSONObject(response)
+            return JSONObject(response).also {
+                AppLog.verbose(LOG_COMPONENT) {
+                    "Google Sheets GET request succeeded; operation=$operation, status=$responseCode, " +
+                        "durationMs=${AppLog.elapsedMillis(startedAt)}"
+                }
+            }
+        } catch (exception: GoogleSheetsRequestException) {
+            AppLog.error(LOG_COMPONENT, exception) { "Google Sheets GET request failed; operation=$operation" }
+            throw exception
+        } catch (exception: IOException) {
+            val wrapped = GoogleSheetsRequestException(HTTP_GET, operation, cause = exception)
+            AppLog.error(LOG_COMPONENT, wrapped) { "Google Sheets GET request failed; operation=$operation" }
+            throw wrapped
         } finally {
             connection.disconnect()
         }
@@ -439,6 +569,9 @@ class GoogleSheetsClient(
         val headers = rows[headerRowIndex].mapIndexed { index, header -> header.normalizedHeader() to index }.toMap().toMutableMap()
         if (HEADER_SHEET_ROW_ID !in headers) {
             val columnIndex = (headers.values.maxOrNull() ?: -1) + 1
+            AppLog.info(LOG_COMPONENT) {
+                "Adding missing Sovellus-ID header; tab=$sheetTitle, column=${columnIndex + 1}"
+            }
             updateCells(
                 spreadsheetId,
                 accessToken,
@@ -461,6 +594,9 @@ class GoogleSheetsClient(
             HEADER_APP_MODIFIED_AT,
             HEADER_APP_MUTATION_ID
         ).filterNot(headers::containsKey)
+        if (missingHeaders.isNotEmpty()) {
+            AppLog.warning(LOG_COMPONENT) { "Required app columns are missing: ${missingHeaders.joinToString()}" }
+        }
         require(missingHeaders.isEmpty()) {
             "Välilehdeltä puuttuvat sovellussarakkeet: ${missingHeaders.joinToString()}."
         }
@@ -474,7 +610,11 @@ class GoogleSheetsClient(
         val blankRowIndex = (firstDataRowIndex until summaryRowIndex).firstOrNull { rowIndex ->
             rows[rowIndex].valueAt(0).isBlank() && rows[rowIndex].valueAt(1).isBlank()
         }
-        return (blankRowIndex ?: summaryRowIndex) + 1
+        return (blankRowIndex ?: summaryRowIndex).plus(1).also { rowNumber ->
+            AppLog.verbose(LOG_COMPONENT) {
+                "Resolved first available reservation row=$rowNumber, summaryRow=${summaryRowIndex + 1}"
+            }
+        }
     }
 
     private fun insertReservationRow(
@@ -483,6 +623,7 @@ class GoogleSheetsClient(
         rowNumber: Int,
         accessToken: String
     ) {
+        AppLog.debug(LOG_COMPONENT) { "Inserting spreadsheet row; tab=$sheetTitle, row=$rowNumber" }
         val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
@@ -509,6 +650,7 @@ class GoogleSheetsClient(
         rowNumber: Int,
         accessToken: String
     ) {
+        AppLog.warning(LOG_COMPONENT) { "Hard-deleting spreadsheet row; tab=$sheetTitle, row=$rowNumber" }
         val sheetId = loadSheetId(spreadsheetId, sheetTitle, accessToken)
         val request = JSONObject().put(
             "requests",
@@ -535,6 +677,7 @@ class GoogleSheetsClient(
         values: List<SheetCellValue>
     ) {
         if (values.isEmpty()) return
+        AppLog.verbose(LOG_COMPONENT) { "Updating ${values.size} spreadsheet cells" }
         val request = JSONObject()
             .put("valueInputOption", "RAW")
             .put(
@@ -557,6 +700,7 @@ class GoogleSheetsClient(
         accessToken: String,
         rowValues: List<String>
     ) {
+        AppLog.verbose(LOG_COMPONENT) { "Appending performance lock row" }
         val range = URLEncoder.encode(valuesRange(LOCK_SHEET_TITLE), Charsets.UTF_8.name())
         val request = JSONObject()
             .put("majorDimension", SHEET_DIMENSION_ROWS)
@@ -580,6 +724,7 @@ class GoogleSheetsClient(
             lock.lockId.isBlank() || lock.expiresAt?.let { !it.isAfter(now) } == true
         }
         if (expiredLocks.isEmpty()) return false
+        AppLog.info(LOG_COMPONENT) { "Removing ${expiredLocks.size} expired or invalid remote locks" }
         updateCells(
             spreadsheetId = spreadsheetId,
             accessToken = accessToken,
@@ -596,7 +741,13 @@ class GoogleSheetsClient(
     ) {
         val lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
         val existingLock = lockTable.rowsByPerformanceKey[performanceKey] ?: return
-        if (existingLock.lockId != lockId) return
+        if (existingLock.lockId != lockId) {
+            AppLog.warning(LOG_COMPONENT) {
+                "Skipped remote lock release because ownership changed; expected=${lockId.toAbbreviatedId()}, " +
+                    "actual=${existingLock.lockId.toAbbreviatedId()}"
+            }
+            return
+        }
         updateCells(
             spreadsheetId,
             accessToken,
@@ -614,6 +765,9 @@ class GoogleSheetsClient(
         val lockTable = loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
         val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
         if (existingLock?.lockId != lockId || existingLock.deviceId != deviceId) {
+            AppLog.warning(LOG_COMPONENT) {
+                "Remote lock renewal lost ownership; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+            }
             throw GoogleSheetLockedException(
                 failure = GoogleSheetLockFailure.RENEWAL_LOST,
                 sheetTitle = sheetTitle,
@@ -633,6 +787,9 @@ class GoogleSheetsClient(
                 deviceId = deviceId
             )
         )
+        AppLog.verbose(LOG_COMPONENT) {
+            "Renewed remote performance lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+        }
     }
 
     private fun strikeThroughRow(
@@ -705,6 +862,9 @@ class GoogleSheetsClient(
             )
         }
         if (requests.length() == 0) return
+        AppLog.debug(LOG_COMPONENT) {
+            "Updating row strikethrough; tab=$sheetTitle, rows=${rowNumbers.distinct().size}, enabled=$enabled"
+        }
         val request = JSONObject().put(
             "requests",
             requests
@@ -724,12 +884,18 @@ class GoogleSheetsClient(
         return (0 until sheets.length())
             .asSequence()
             .map { index -> sheets.getJSONObject(index).getJSONObject("properties") }
-            .first { properties -> properties.getString("title") == sheetTitle }
-            .getInt("sheetId")
+            .firstOrNull { properties -> properties.getString("title") == sheetTitle }
+            ?.getInt("sheetId")
+            ?: throw IllegalArgumentException("Spreadsheet tab '$sheetTitle' no longer exists.")
     }
 
     private fun sendJson(url: String, method: String, request: JSONObject, accessToken: String) {
+        val operation = url.toApiOperation()
+        val startedAt = System.nanoTime()
         val requestBody = request.toString().toByteArray()
+        AppLog.verbose(LOG_COMPONENT) {
+            "Sending Google Sheets $method request; operation=$operation, payloadBytes=${requestBody.size}"
+        }
         val connection = openConnection(url, accessToken)
         try {
             connection.requestMethod = method
@@ -738,11 +904,20 @@ class GoogleSheetsClient(
             connection.outputStream.use { it.write(requestBody) }
             val responseCode = connection.responseCode
             if (responseCode !in HTTP_SUCCESS_CODES) {
-                throw IllegalStateException(
-                    "Google Sheets -pyyntö epäonnistui ($responseCode): " +
-                        connection.responseText(responseCode)
-                )
+                connection.responseText(responseCode)
+                throw GoogleSheetsRequestException(method, operation, responseCode)
             }
+            AppLog.verbose(LOG_COMPONENT) {
+                "Google Sheets $method request succeeded; operation=$operation, status=$responseCode, " +
+                    "durationMs=${AppLog.elapsedMillis(startedAt)}"
+            }
+        } catch (exception: GoogleSheetsRequestException) {
+            AppLog.error(LOG_COMPONENT, exception) { "Google Sheets $method request failed; operation=$operation" }
+            throw exception
+        } catch (exception: IOException) {
+            val wrapped = GoogleSheetsRequestException(method, operation, cause = exception)
+            AppLog.error(LOG_COMPONENT, wrapped) { "Google Sheets $method request failed; operation=$operation" }
+            throw wrapped
         } finally {
             connection.disconnect()
         }
@@ -761,6 +936,7 @@ class GoogleSheetsClient(
     }
 
     companion object {
+        private const val LOG_COMPONENT = "Sheets"
         private const val API_BASE = "https://sheets.googleapis.com/v4"
         private const val LOCK_DURATION_SECONDS = 30L
         private const val LOCK_RENEWAL_INTERVAL_MILLIS = 10_000L
@@ -774,6 +950,15 @@ class GoogleSheetsClient(
         private const val SHEET_VALUE_LAST_COLUMN_INDEX = 25
         private val HTTP_SUCCESS_CODES = 200..299
     }
+}
+
+private fun String.toApiOperation(): String = when {
+    contains(":batchUpdate") -> "spreadsheet batch update"
+    contains(":append") -> "row append"
+    contains("values:batchGet") -> "value batch read"
+    contains("values:batchUpdate") -> "value batch update"
+    contains("/values/") -> "value read"
+    else -> "spreadsheet metadata read"
 }
 
 fun GoogleSheetTab.toImportCandidateOrNull(): GoogleSheetImportCandidate? {

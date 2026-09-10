@@ -56,9 +56,10 @@ data class GoogleSheetImportResult(
     val reservationCount: Int
 )
 
-class GoogleSheetSourceChangedException : IllegalStateException()
+class GoogleSheetSourceChangedException : IllegalStateException("Stored Sheet source metadata has changed.")
 
-class NoGoogleSheetImportCandidatesException : IllegalStateException()
+class NoGoogleSheetImportCandidatesException : IllegalStateException("Spreadsheet contains no importable performances.")
 
 /** The change was saved on this device and will be retried after a Sheet sync. */
-class GoogleSheetChangePendingException : IllegalStateException()
+class GoogleSheetChangePendingException(cause: Throwable) :
+    IllegalStateException("Change was saved locally but cloud synchronization failed.", cause)

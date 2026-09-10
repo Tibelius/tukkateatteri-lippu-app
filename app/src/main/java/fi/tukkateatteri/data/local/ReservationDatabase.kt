@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import fi.tukkateatteri.logging.AppLog
 
 @Database(
     entities = [
@@ -30,6 +31,7 @@ abstract class ReservationDatabase : RoomDatabase() {
 
     companion object {
         fun create(context: Context): ReservationDatabase {
+            AppLog.debug(LOG_COMPONENT) { "Opening Room database '$DATABASE_NAME' at schema version 12" }
             return Room
                 .databaseBuilder(
                     context.applicationContext,
@@ -53,6 +55,7 @@ abstract class ReservationDatabase : RoomDatabase() {
         }
 
         private const val DATABASE_NAME = "tukkateatteri.db"
+        private const val LOG_COMPONENT = "Room"
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
