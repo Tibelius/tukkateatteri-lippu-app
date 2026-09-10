@@ -17,6 +17,16 @@ interface ReservationDao {
         performanceId: Long
     ): Flow<List<ReservationWithTicketSales>>
 
+    @Transaction
+    @Query(
+        "SELECT reservations.* FROM reservations " +
+            "INNER JOIN performances ON performances.id = reservations.performance_id " +
+            "WHERE performances.act_name = :actName " +
+            "ORDER BY performances.performance_date, reservations.last_name COLLATE NOCASE, " +
+            "reservations.first_name COLLATE NOCASE"
+    )
+    fun observeByActWithTicketSales(actName: String): Flow<List<ReservationWithTicketSales>>
+
     @Query("SELECT * FROM reservations WHERE id = :reservationId")
     suspend fun getById(reservationId: Long): ReservationEntity?
 

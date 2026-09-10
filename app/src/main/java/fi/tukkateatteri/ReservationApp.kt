@@ -30,6 +30,7 @@ import fi.tukkateatteri.ui.dialogs.GoogleSheetSourceManagerDialog
 import fi.tukkateatteri.ui.dialogs.ReservationDialog
 import fi.tukkateatteri.ui.dialogs.SheetFieldMappingDialog
 import fi.tukkateatteri.ui.screens.ReservationListScreen
+import fi.tukkateatteri.ui.screens.StatisticsScreen
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
@@ -52,6 +53,7 @@ internal fun ReservationApp(
     val availablePaymentMethods by viewModel.availablePaymentMethods.collectAsStateWithLifecycle()
     val sheetMappingRequest by viewModel.sheetMappingRequest.collectAsStateWithLifecycle()
     val syncingPerformanceIds by viewModel.syncingPerformanceIds.collectAsStateWithLifecycle()
+    val statisticsReport by viewModel.statisticsReport.collectAsStateWithLifecycle()
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
     var reservationDialogHasChanges by rememberSaveable { mutableStateOf(false) }
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -78,6 +80,14 @@ internal fun ReservationApp(
                 }
         }
 
+    statisticsReport?.let { report ->
+        StatisticsScreen(
+            report = report,
+            onBack = viewModel::closeStatistics
+        )
+        return
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -101,6 +111,10 @@ internal fun ReservationApp(
                     spreadsheetUrlToImport = source.spreadsheetUrl
                     coroutineScope.launch { drawerState.close() }
                 },
+                onOpenActStatistics = { actName ->
+                    viewModel.openActStatistics(actName)
+                    coroutineScope.launch { drawerState.close() }
+                },
                 onDeletePerformance = { performance ->
                     performanceToDeleteId = performance.id
                     coroutineScope.launch { drawerState.close() }
@@ -121,6 +135,9 @@ internal fun ReservationApp(
                 activePerformance = activePerformance,
                 reservations = reservations,
                 onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
+                onOpenStatistics = {
+                    activePerformance?.let { viewModel.openPerformanceStatistics(it.id) }
+                },
                 onReservationClick = { reservation ->
                     reservationDialogHasChanges = false
                     selectedReservationId = reservation.id

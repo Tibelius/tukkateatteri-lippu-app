@@ -1,6 +1,5 @@
 package fi.tukkateatteri
 
-import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -42,19 +41,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-sealed interface UiMessage {
-    data class Text(
-        @param:StringRes val messageResId: Int,
-        val formatArgs: List<Any> = emptyList()
-    ) : UiMessage
-
-    data class Plural(
-        @param:PluralsRes val messageResId: Int,
-        val quantity: Int,
-        val formatArgs: List<Any> = emptyList()
-    ) : UiMessage
-}
-
 class ReservationViewModel(
     private val reservationRepository: ReservationRepository
 ) : ViewModel() {
@@ -63,6 +49,7 @@ class ReservationViewModel(
     private val _isTransferInProgress = MutableStateFlow(false)
     private val _sheetMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
     private val _syncingPerformanceIds = MutableStateFlow<Set<Long>>(emptySet())
+    private val statisticsState = StatisticsState(reservationRepository, viewModelScope)
     private var pendingMappingOperation: PendingMappingOperation? = null
     private val reservationMutationMutex = Mutex()
     private val backgroundSyncRequests = mutableMapOf<Long, BackgroundSyncRequest>()
@@ -113,6 +100,19 @@ class ReservationViewModel(
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
     val sheetMappingRequest: StateFlow<SheetMappingRequest?> = _sheetMappingRequest
     val syncingPerformanceIds: StateFlow<Set<Long>> = _syncingPerformanceIds
+    val statisticsReport = statisticsState.report
+
+    fun openPerformanceStatistics(performanceId: Long) {
+        statisticsState.openPerformance(performanceId)
+    }
+
+    fun openActStatistics(actName: String) {
+        statisticsState.openAct(actName)
+    }
+
+    fun closeStatistics() {
+        statisticsState.close()
+    }
 
     private fun launchTrackedOperation(operation: String, action: suspend () -> Unit) {
         viewModelScope.launch {
@@ -589,19 +589,4 @@ class ReservationViewModel(
         private const val STOP_TIMEOUT_MILLIS = 5_000L
         private const val BACKGROUND_SYNC_DEBOUNCE_MILLIS = 200L
     }
-}
-
-data class SheetMappingRequest(val headers: List<String>)
-
-private data class PendingMappingOperation(
-    val spreadsheetUrl: String,
-    val accessToken: String,
-    @StringRes val failureMessageResId: Int,
-    val retry: suspend () -> Unit
-)
-
-private data class BackgroundSyncRequest(val spreadsheetUrl: String, val accessToken: String)
-
-private fun Exception.rethrowIfCancellation() {
-    if (this is CancellationException) throw this
 }

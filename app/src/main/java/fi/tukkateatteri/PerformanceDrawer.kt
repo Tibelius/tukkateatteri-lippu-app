@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Sync
@@ -45,6 +46,7 @@ internal fun PerformanceDrawerContent(
     onAddPerformance: () -> Unit,
     onSyncPerformance: (Performance, GoogleSheetSource) -> Unit,
     onSyncAct: (List<Performance>, GoogleSheetSource) -> Unit,
+    onOpenActStatistics: (String) -> Unit,
     onDeletePerformance: (Performance) -> Unit,
     onDeleteAct: (String) -> Unit,
     onClearAll: () -> Unit
@@ -78,6 +80,9 @@ internal fun PerformanceDrawerContent(
                 }
                 ListItem(
                     headlineContent = { Text(actName) },
+                    leadingContent = {
+                        Icon(Icons.Filled.Assessment, contentDescription = null)
+                    },
                     supportingContent = {
                         Text(
                             pluralStringResource(
@@ -88,8 +93,7 @@ internal fun PerformanceDrawerContent(
                         )
                     },
                     modifier = Modifier.fillMaxWidth().clickable {
-                        hasExplicitExpansionSelection = true
-                        expandedActName = if (isExpanded) null else actName
+                        onOpenActStatistics(actName)
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -111,10 +115,21 @@ internal fun PerformanceDrawerContent(
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
-                            Icon(
-                                imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                contentDescription = null
-                            )
+                            IconButton(
+                                onClick = {
+                                    hasExplicitExpansionSelection = true
+                                    expandedActName = if (isExpanded) null else actName
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (isExpanded) {
+                                        Icons.Filled.ExpandLess
+                                    } else {
+                                        Icons.Filled.ExpandMore
+                                    },
+                                    contentDescription = stringResource(R.string.toggle_performance_dates)
+                                )
+                            }
                         }
                     }
                 )

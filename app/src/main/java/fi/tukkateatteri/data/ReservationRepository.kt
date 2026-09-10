@@ -11,6 +11,7 @@ interface ReservationRepository {
     val availablePaymentMethods: Flow<List<PaymentMethod>>
 
     fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>>
+    fun reservationsForAct(actName: String): Flow<List<Reservation>>
     suspend fun createPerformance(actName: String, date: String): Long
     suspend fun selectPerformance(performanceId: Long)
     suspend fun deletePerformance(performanceId: Long)

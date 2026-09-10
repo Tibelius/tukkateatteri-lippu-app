@@ -79,6 +79,10 @@ internal class RoomReservationRepository(
         reservationDao.observeByPerformanceWithTicketSales(performanceId)
             .map { reservations -> reservations.map { reservation -> reservation.toReservation() } }
 
+    override fun reservationsForAct(actName: String): Flow<List<Reservation>> =
+        reservationDao.observeByActWithTicketSales(actName)
+            .map { reservations -> reservations.map { reservation -> reservation.toReservation() } }
+
     override suspend fun createPerformance(actName: String, date: String): Long = database.withTransaction {
         AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Creating or selecting local performance; date=${date.trim()}" }
         val normalizedActName = actName.trim()

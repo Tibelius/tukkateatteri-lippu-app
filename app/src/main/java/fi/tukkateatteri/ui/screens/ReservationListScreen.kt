@@ -2,10 +2,13 @@ package fi.tukkateatteri.ui.screens
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -51,6 +54,7 @@ fun ReservationListScreen(
     activePerformance: Performance?,
     reservations: List<Reservation>,
     onOpenPerformanceMenu: () -> Unit,
+    onOpenStatistics: () -> Unit,
     onReservationClick: (Reservation) -> Unit,
     onAddClick: () -> Unit,
     onImportClick: () -> Unit,
@@ -101,37 +105,52 @@ fun ReservationListScreen(
                     }
                 },
                 title = {
-                    Column {
-                        Text(
-                            text = activePerformance?.displayName
-                                ?: stringResource(R.string.select_performance)
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.reservation_overview,
-                                pluralStringResource(
-                                    R.plurals.reservation_progress,
-                                    reservations.size,
-                                    redeemedCount,
-                                    reservations.size
-                                ),
-                                pluralStringResource(
-                                    R.plurals.total_seat_count,
-                                    totalSeatCount,
-                                    totalSeatCount
-                                )
-                            ),
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        if (pendingChangeCount > 0) {
+                    Row(
+                        modifier = Modifier.clickable(
+                            enabled = activePerformance != null,
+                            onClick = onOpenStatistics
+                        ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
-                                text = pluralStringResource(
-                                    R.plurals.pending_sheet_changes,
-                                    pendingChangeCount,
-                                    pendingChangeCount
+                                text = activePerformance?.displayName
+                                    ?: stringResource(R.string.select_performance)
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.reservation_overview,
+                                    pluralStringResource(
+                                        R.plurals.reservation_progress,
+                                        reservations.size,
+                                        redeemedCount,
+                                        reservations.size
+                                    ),
+                                    pluralStringResource(
+                                        R.plurals.total_seat_count,
+                                        totalSeatCount,
+                                        totalSeatCount
+                                    )
                                 ),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            if (pendingChangeCount > 0) {
+                                Text(
+                                    text = pluralStringResource(
+                                        R.plurals.pending_sheet_changes,
+                                        pendingChangeCount,
+                                        pendingChangeCount
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        if (activePerformance != null) {
+                            Icon(
+                                imageVector = Icons.Filled.Assessment,
+                                contentDescription = stringResource(R.string.open_statistics),
+                                modifier = Modifier.padding(start = 8.dp)
                             )
                         }
                     }
