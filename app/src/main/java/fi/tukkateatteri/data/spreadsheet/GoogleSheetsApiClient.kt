@@ -9,37 +9,47 @@ import java.net.URI
 import java.net.URLEncoder
 
 internal class GoogleSheetsApiClient {
+    private val initializedSpreadsheets = mutableSetOf<String>()
+
     fun loadSpreadsheetMetadata(spreadsheetId: String, accessToken: String): JSONObject =
         getJson(
             url = "$API_BASE/spreadsheets/$spreadsheetId?includeGridData=false",
             accessToken = accessToken
         )
 
+    @Synchronized
     fun ensureApplicationSheet(spreadsheetId: String, accessToken: String) {
-        val metadata = loadSpreadsheetMetadata(spreadsheetId, accessToken)
-        val sheets = metadata.getJSONArray("sheets")
-        val exists = (0 until sheets.length()).any { index ->
-            sheets.getJSONObject(index).getJSONObject("properties").getString("title") == APPLICATION_SHEET_TITLE
-        }
-        if (!exists) {
-            AppLog.info(LOG_COMPONENT) { "Creating app-managed spreadsheet tab '$APPLICATION_SHEET_TITLE'" }
-            val request = JSONObject().put(
-                "requests",
-                JSONArray().put(
-                    JSONObject().put(
-                        "addSheet",
-                        JSONObject().put("properties", JSONObject().put("title", APPLICATION_SHEET_TITLE))
+        if (spreadsheetId in initializedSpreadsheets) return
+        try {
+            val metadata = loadSpreadsheetMetadata(spreadsheetId, accessToken)
+            val sheets = metadata.getJSONArray("sheets")
+            val exists = (0 until sheets.length()).any { index ->
+                sheets.getJSONObject(index).getJSONObject("properties").getString("title") == APPLICATION_SHEET_TITLE
+            }
+            if (!exists) {
+                AppLog.info(LOG_COMPONENT) { "Creating app-managed spreadsheet tab '$APPLICATION_SHEET_TITLE'" }
+                val request = JSONObject().put(
+                    "requests",
+                    JSONArray().put(
+                        JSONObject().put(
+                            "addSheet",
+                            JSONObject().put("properties", JSONObject().put("title", APPLICATION_SHEET_TITLE))
+                        )
                     )
                 )
-            )
-            sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
+                sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
+            }
+            val headers = REQUIRED_ALIAS_HEADERS.mapIndexed { index, header ->
+                SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, index, 1), header)
+            } + REQUIRED_LOCK_HEADERS.mapIndexed { index, header ->
+                SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, LOCK_TABLE_START_COLUMN + index, 1), header)
+            }
+            updateCells(spreadsheetId, accessToken, headers)
+            initializedSpreadsheets += spreadsheetId
+        } catch (exception: Exception) {
+            initializedSpreadsheets -= spreadsheetId
+            throw exception
         }
-        val headers = REQUIRED_ALIAS_HEADERS.mapIndexed { index, header ->
-            SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, index, 1), header)
-        } + REQUIRED_LOCK_HEADERS.mapIndexed { index, header ->
-            SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, LOCK_TABLE_START_COLUMN + index, 1), header)
-        }
-        updateCells(spreadsheetId, accessToken, headers)
     }
 
     fun loadValues(spreadsheetId: String, title: String, accessToken: String): List<List<String>> {

@@ -228,12 +228,16 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
         }
 
         database.withTransaction {
+            val currentPendingReservationIds = pendingSheetChangeDao
+                .getAllByPerformanceId(target.performanceId)
+                .map(PendingSheetChangeEntity::reservationId)
+                .toSet()
             importSpreadsheetRows(
                 rows = importData.rows,
                 performanceId = target.performanceId,
-                preserveReservationIds = pendingReservationIds
+                preserveReservationIds = currentPendingReservationIds
             )
-            removeMissingSheetReservations(target.performanceId, importData.rows, pendingReservationIds)
+            removeMissingSheetReservations(target.performanceId, importData.rows, currentPendingReservationIds)
         }
 
         pendingChanges.forEach { change ->

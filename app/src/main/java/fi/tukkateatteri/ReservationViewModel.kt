@@ -28,7 +28,9 @@ import fi.tukkateatteri.logging.toLogSummary
 import fi.tukkateatteri.logging.toPaymentLogSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +64,8 @@ class ReservationViewModel(
     private val _sheetMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
     private var pendingMappingOperation: PendingMappingOperation? = null
     private val reservationMutationMutex = Mutex()
+    private val backgroundSyncRequests = mutableMapOf<Long, BackgroundSyncRequest>()
+    private val backgroundSyncJobs = mutableMapOf<Long, Job>()
     private var activeTransferCount = 0
 
     val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
@@ -130,8 +134,12 @@ class ReservationViewModel(
         }
     }
 
-    private fun launchReservationMutation(operation: String, action: suspend () -> Unit) {
-        launchTrackedOperation(operation) {
+    private fun launchReservationMutation(
+        operation: String,
+        showProgress: Boolean = true,
+        action: suspend () -> Unit
+    ) {
+        val guardedAction: suspend () -> Unit = {
             reservationMutationMutex.withLock {
                 try {
                     action()
@@ -149,12 +157,59 @@ class ReservationViewModel(
                 }
             }
         }
+        if (showProgress) {
+            launchTrackedOperation(operation, guardedAction)
+        } else {
+            viewModelScope.launch { guardedAction() }
+        }
     }
 
     fun finishReservationEditing(performanceId: Long, spreadsheetUrl: String, accessToken: String?) {
-        launchReservationMutation("flush reservation dialog changes") {
-            if (accessToken != null) {
-                reservationRepository.syncGoogleSheetPerformance(performanceId, spreadsheetUrl, accessToken)
+        if (accessToken == null) return
+        backgroundSyncRequests[performanceId] = BackgroundSyncRequest(spreadsheetUrl, accessToken)
+        if (backgroundSyncJobs[performanceId]?.isActive == true) return
+
+        backgroundSyncJobs[performanceId] = viewModelScope.launch {
+            try {
+                while (true) {
+                    delay(BACKGROUND_SYNC_DEBOUNCE_MILLIS)
+                    val request = backgroundSyncRequests.remove(performanceId) ?: break
+                    reservationMutationMutex.withLock { /* Wait for already queued local writes. */ }
+                    try {
+                        AppLog.info(LOG_COMPONENT) { "Starting background Sheet flush; performanceId=$performanceId" }
+                        reservationRepository.syncGoogleSheetPerformance(
+                            performanceId,
+                            request.spreadsheetUrl,
+                            request.accessToken
+                        )
+                        AppLog.info(LOG_COMPONENT) { "Completed background Sheet flush; performanceId=$performanceId" }
+                    } catch (exception: UnmappedSheetColumnsException) {
+                        AppLog.info(LOG_COMPONENT) {
+                            "Background Sheet flush needs ${exception.headers.size} column classifications; " +
+                                "performanceId=$performanceId"
+                        }
+                        requestSheetFieldMappings(
+                            exception = exception,
+                            spreadsheetUrl = request.spreadsheetUrl,
+                            accessToken = request.accessToken,
+                            failureMessageResId = R.string.google_sheets_sync_failed
+                        ) {
+                            reservationRepository.syncGoogleSheetPerformance(
+                                performanceId,
+                                request.spreadsheetUrl,
+                                request.accessToken
+                            )
+                        }
+                    } catch (exception: Exception) {
+                        exception.rethrowIfCancellation()
+                        AppLog.warning(LOG_COMPONENT, exception) {
+                            "Background Sheet flush failed; changes remain pending for performanceId=$performanceId"
+                        }
+                    }
+                    if (performanceId !in backgroundSyncRequests) break
+                }
+            } finally {
+                backgroundSyncJobs.remove(performanceId)
             }
         }
     }
@@ -201,7 +256,7 @@ class ReservationViewModel(
         reservedTicketAllocations: List<ReservedTicketAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation("add admission") {
+        launchReservationMutation("add admission", showProgress = accessToken != null) {
             AppLog.debug(LOG_COMPONENT) {
                 "Adding admission type=$admissionType, seats=$seatCount, reservedTypes=${reservedTicketAllocations.size}"
             }
@@ -220,7 +275,7 @@ class ReservationViewModel(
     }
 
     fun updateReservation(reservation: Reservation, accessToken: String? = null) {
-        launchReservationMutation("update reservation") {
+        launchReservationMutation("update reservation", showProgress = accessToken != null) {
             AppLog.debug(LOG_COMPONENT) { "Updating ${reservation.toLogSummary()}" }
             reservationRepository.updateReservation(reservation, accessToken)
             AppLog.info(LOG_COMPONENT) { "Updated reservationId=${reservation.id}" }
@@ -228,7 +283,7 @@ class ReservationViewModel(
     }
 
     fun updateArrivalCount(reservationId: Long, arrivalCount: Int, accessToken: String? = null) {
-        launchReservationMutation("update arrival count") {
+        launchReservationMutation("update arrival count", showProgress = accessToken != null) {
             reservationRepository.updateArrivalCount(reservationId, arrivalCount, accessToken)
             AppLog.info(LOG_COMPONENT) { "Updated arrival count; reservationId=$reservationId, arrived=$arrivalCount" }
         }
@@ -241,7 +296,7 @@ class ReservationViewModel(
         payments: List<PendingPaymentAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation("add ticket sale") {
+        launchReservationMutation("add ticket sale", showProgress = accessToken != null) {
             AppLog.debug(LOG_COMPONENT) {
                 "Adding ticket sale; reservationId=$reservationId, type=$ticketType, quantity=$quantity, " +
                     "payments=${payments.toPaymentLogSummary()}"
@@ -258,7 +313,7 @@ class ReservationViewModel(
         payments: List<PendingPaymentAllocation>,
         accessToken: String? = null
     ) {
-        launchReservationMutation("update ticket sale") {
+        launchReservationMutation("update ticket sale", showProgress = accessToken != null) {
             AppLog.debug(LOG_COMPONENT) {
                 "Updating ticketSaleId=$ticketSaleId, type=$ticketType, quantity=$quantity, " +
                     "payments=${payments.toPaymentLogSummary()}"
@@ -269,7 +324,7 @@ class ReservationViewModel(
     }
 
     fun deleteTicketSale(ticketSaleId: Long, accessToken: String? = null) {
-        launchReservationMutation("delete ticket sale") {
+        launchReservationMutation("delete ticket sale", showProgress = accessToken != null) {
             reservationRepository.deleteTicketSale(ticketSaleId, accessToken)
             AppLog.info(LOG_COMPONENT) { "Deleted ticketSaleId=$ticketSaleId" }
         }
@@ -528,6 +583,7 @@ class ReservationViewModel(
         }
 
         private const val STOP_TIMEOUT_MILLIS = 5_000L
+        private const val BACKGROUND_SYNC_DEBOUNCE_MILLIS = 200L
     }
 }
 
@@ -539,6 +595,8 @@ private data class PendingMappingOperation(
     @StringRes val failureMessageResId: Int,
     val retry: suspend () -> Unit
 )
+
+private data class BackgroundSyncRequest(val spreadsheetUrl: String, val accessToken: String)
 
 private fun Exception.rethrowIfCancellation() {
     if (this is CancellationException) throw this

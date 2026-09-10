@@ -51,30 +51,43 @@ private suspend fun GoogleSheetsClient.saveAliasRows(
     aliases: List<AliasRow>
 ) {
     val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-    api.ensureApplicationSheet(spreadsheetId, accessToken)
-    val existingRows = api.loadValues(spreadsheetId, APPLICATION_SHEET_TITLE, accessToken)
-    val knownAliases = existingRows.drop(1)
-        .mapNotNull { row -> row.getOrNull(ALIAS_NORMALIZED_COLUMN)?.normalizedHeader()?.takeIf(String::isNotBlank) }
-        .toMutableSet()
-    val newAliases = aliases.distinctBy(AliasRow::normalizedAlias)
-        .filter { knownAliases.add(it.normalizedAlias) }
-    if (newAliases.isEmpty()) return
-
-    val availableRows = buildList {
-        var rowNumber = FIRST_DATA_ROW
-        while (size < newAliases.size) {
-            if (existingRows.getOrNull(rowNumber - 1)?.getOrNull(ALIAS_NORMALIZED_COLUMN).isNullOrBlank()) {
-                add(rowNumber)
-            }
-            rowNumber += 1
+    aliasRegistryLocks.withLock(spreadsheetId) {
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val candidateAliases = aliases.distinctBy(AliasRow::normalizedAlias)
+        val cachedAliases = cachedRemoteAliases[spreadsheetId]
+        if (cachedAliases != null && candidateAliases.all { it.normalizedAlias in cachedAliases }) {
+            return@withLock
         }
+        val existingRows = api.loadValues(spreadsheetId, APPLICATION_SHEET_TITLE, accessToken)
+        val knownAliases = cachedAliases ?: run {
+            existingRows.drop(1)
+                .mapNotNull { row ->
+                    row.getOrNull(ALIAS_NORMALIZED_COLUMN)?.normalizedHeader()?.takeIf(String::isNotBlank)
+                }
+                .toMutableSet()
+        }
+        cachedRemoteAliases[spreadsheetId] = knownAliases
+        val newAliases = candidateAliases
+            .filterNot { it.normalizedAlias in knownAliases }
+        if (newAliases.isEmpty()) return@withLock
+
+        val availableRows = buildList {
+            var rowNumber = FIRST_DATA_ROW
+            while (size < newAliases.size) {
+                if (existingRows.getOrNull(rowNumber - 1)?.getOrNull(ALIAS_NORMALIZED_COLUMN).isNullOrBlank()) {
+                    add(rowNumber)
+                }
+                rowNumber += 1
+            }
+        }
+        api.updateCells(
+            spreadsheetId = spreadsheetId,
+            accessToken = accessToken,
+            values = newAliases.flatMapIndexed { index, alias -> alias.toCellValues(availableRows[index]) }
+        )
+        knownAliases += newAliases.map(AliasRow::normalizedAlias)
+        AppLog.info(LOG_COMPONENT) { "Stored ${newAliases.size} new Sheet field aliases" }
     }
-    api.updateCells(
-        spreadsheetId = spreadsheetId,
-        accessToken = accessToken,
-        values = newAliases.flatMapIndexed { index, alias -> alias.toCellValues(availableRows[index]) }
-    )
-    AppLog.info(LOG_COMPONENT) { "Stored ${newAliases.size} new Sheet field aliases" }
 }
 
 private data class AliasRow(

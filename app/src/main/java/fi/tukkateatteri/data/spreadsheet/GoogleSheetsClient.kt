@@ -15,6 +15,7 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 data class GoogleSheetTab(
     val title: String,
@@ -79,6 +80,8 @@ internal class GoogleSheetsClient(
     private val deviceId: String = "Android"
 ) {
     private val localPerformanceLocks = KeyedMutex()
+    internal val aliasRegistryLocks = KeyedMutex()
+    internal val cachedRemoteAliases = ConcurrentHashMap<String, MutableSet<String>>()
     internal val api = GoogleSheetsApiClient()
 
     private suspend fun loadTabs(
