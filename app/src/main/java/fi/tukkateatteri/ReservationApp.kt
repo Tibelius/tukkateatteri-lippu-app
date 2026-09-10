@@ -52,6 +52,7 @@ internal fun ReservationApp(
     val availablePaymentMethods by viewModel.availablePaymentMethods.collectAsStateWithLifecycle()
     val sheetMappingRequest by viewModel.sheetMappingRequest.collectAsStateWithLifecycle()
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var reservationDialogHasChanges by rememberSaveable { mutableStateOf(false) }
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAdmissionTypeDialog by rememberSaveable { mutableStateOf(false) }
     var selectedAdmissionTypeName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -119,7 +120,10 @@ internal fun ReservationApp(
                 activePerformance = activePerformance,
                 reservations = reservations,
                 onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
-                onReservationClick = { reservation -> selectedReservationId = reservation.id },
+                onReservationClick = { reservation ->
+                    reservationDialogHasChanges = false
+                    selectedReservationId = reservation.id
+                },
                 onAddClick = {
                     if (activePerformance == null) showPerformanceEditor = true else showAdmissionTypeDialog = true
                 },
@@ -145,6 +149,7 @@ internal fun ReservationApp(
 
     LaunchedEffect(viewModel) {
         viewModel.addedReservationIds.collect { reservationId ->
+            reservationDialogHasChanges = true
             selectedReservationId = reservationId
         }
     }
@@ -235,55 +240,67 @@ internal fun ReservationApp(
             availableTicketTypes = availableTicketTypes,
             onDismiss = { selectedAdmissionTypeName = null },
             onSave = { lastName, firstName, contact, seatCount, reservedTicketAllocations ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.addAdmission(
-                        lastName = lastName,
-                        firstName = firstName,
-                        contact = contact,
-                        seatCount = seatCount,
-                        admissionType = admissionType,
-                        reservedTicketAllocations = reservedTicketAllocations,
-                        accessToken = accessToken
-                    )
-                }
+                viewModel.addAdmission(
+                    lastName = lastName,
+                    firstName = firstName,
+                    contact = contact,
+                    seatCount = seatCount,
+                    admissionType = admissionType,
+                    reservedTicketAllocations = reservedTicketAllocations
+                )
                 selectedAdmissionTypeName = null
             }
         )
     }
 
     reservations.find { it.id == selectedReservationId }?.let { reservation ->
+        val finishEditing = {
+            val shouldFlush = reservationDialogHasChanges
+            reservationDialogHasChanges = false
+            selectedReservationId = null
+            if (shouldFlush) {
+                activePerformance?.let { performance ->
+                    googleSheetSources
+                        .firstOrNull { source -> source.actName == performance.actName }
+                        ?.let { source ->
+                            onGoogleSheetsMutation { accessToken ->
+                                viewModel.finishReservationEditing(
+                                    performance.id,
+                                    source.spreadsheetUrl,
+                                    accessToken
+                                )
+                            }
+                        }
+                }
+            }
+        }
         ReservationDialog(
             reservation = reservation,
             availableTicketTypes = availableTicketTypes,
             availablePaymentMethods = availablePaymentMethods,
-            onDismiss = { selectedReservationId = null },
+            onDismiss = finishEditing,
             onSave = { updatedReservation ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.updateReservation(updatedReservation, accessToken)
-                }
-                selectedReservationId = null
+                reservationDialogHasChanges = true
+                viewModel.updateReservation(updatedReservation)
             },
             onUpdateArrivalCount = { reservationId, arrivalCount ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.updateArrivalCount(reservationId, arrivalCount, accessToken)
-                }
+                reservationDialogHasChanges = true
+                viewModel.updateArrivalCount(reservationId, arrivalCount)
             },
             onAddTicketSale = { ticketType, quantity, payments ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.addTicketSale(reservation.id, ticketType, quantity, payments, accessToken)
-                }
+                reservationDialogHasChanges = true
+                viewModel.addTicketSale(reservation.id, ticketType, quantity, payments)
             },
             onUpdateTicketSale = { ticketSaleId, ticketType, quantity, payments ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.updateTicketSale(ticketSaleId, ticketType, quantity, payments, accessToken)
-                }
+                reservationDialogHasChanges = true
+                viewModel.updateTicketSale(ticketSaleId, ticketType, quantity, payments)
             },
             onDeleteTicketSale = { ticketSaleId ->
-                onGoogleSheetsMutation { accessToken ->
-                    viewModel.deleteTicketSale(ticketSaleId, accessToken)
-                }
+                reservationDialogHasChanges = true
+                viewModel.deleteTicketSale(ticketSaleId)
             },
             onDelete = {
+                reservationDialogHasChanges = false
                 selectedReservationId = null
                 reservationToDeleteId = reservation.id
             }

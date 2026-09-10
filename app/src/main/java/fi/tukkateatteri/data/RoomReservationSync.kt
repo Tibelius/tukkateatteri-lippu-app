@@ -41,7 +41,13 @@ internal suspend fun <T> RoomReservationRepository.runCloudMutation(
             ensureSheetRowIds(affectedIds)
             stagePendingChanges(target.performanceId, affectedIds, baseRows)
         }
-        flushPendingChangesOrThrow(target, accessToken)
+        if (accessToken != null) {
+            flushPendingChangesOrThrow(target, accessToken)
+        } else {
+            AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+                "Deferred $operation Sheet flush; changes remain in the local outbox"
+            }
+        }
     }
     AppLog.debug(REPOSITORY_LOG_COMPONENT) {
         "Completed $operation in ${AppLog.elapsedMillis(startedAt)} ms"

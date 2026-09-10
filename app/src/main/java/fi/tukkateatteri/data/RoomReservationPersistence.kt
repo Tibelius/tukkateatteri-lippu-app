@@ -6,6 +6,7 @@ import fi.tukkateatteri.data.local.ReservationEntity
 import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.ReservedTicketAllocationEntity
 import fi.tukkateatteri.data.local.TicketSaleEntity
+import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
@@ -39,6 +40,14 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
             }
             return@forEach
         }
+        val preserveDetailedSales = existingReservation
+            ?.let { reservationDao.getWithTicketSalesById(it.id) }
+            ?.toReservation()
+            ?.takeIf { localReservation ->
+                localReservation.ticketSales.any { sale -> sale.ticketType != TicketType.UNSPECIFIED } &&
+                    ReservationSpreadsheetRow.fromReservation(localReservation).paymentTicketCounts ==
+                    row.paymentTicketCounts
+            } != null
         val reservationId = existingReservation?.id ?: reservationDao.insert(
             ReservationEntity(
                 performanceId = performanceId,
@@ -84,28 +93,30 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                 ReservedTicketAllocation(ticketType, quantity)
             }
         )
-        reservationDao.deleteAllTicketSalesForReservation(reservationId)
-        row.paymentTicketCounts.forEach { (paymentMethod, quantity) ->
-            if (quantity > 0) {
-                val ticketSaleId = reservationDao.insertTicketSale(
-                    TicketSaleEntity(
-                        reservationId = reservationId,
-                        ticketType = TicketType.UNSPECIFIED,
-                        quantity = quantity,
-                        unitPriceCents = 0,
-                        origin = TicketSaleOrigin.IMPORTED,
-                        countsAsArrival = false
-                    )
-                )
-                reservationDao.insertPaymentAllocations(
-                    listOf(
-                        PaymentAllocationEntity(
-                            ticketSaleId = ticketSaleId,
-                            paymentMethod = paymentMethod,
-                            amountCents = 0
+        if (!preserveDetailedSales) {
+            reservationDao.deleteAllTicketSalesForReservation(reservationId)
+            row.paymentTicketCounts.forEach { (paymentMethod, quantity) ->
+                if (quantity > 0) {
+                    val ticketSaleId = reservationDao.insertTicketSale(
+                        TicketSaleEntity(
+                            reservationId = reservationId,
+                            ticketType = TicketType.UNSPECIFIED,
+                            quantity = quantity,
+                            unitPriceCents = 0,
+                            origin = TicketSaleOrigin.IMPORTED,
+                            countsAsArrival = false
                         )
                     )
-                )
+                    reservationDao.insertPaymentAllocations(
+                        listOf(
+                            PaymentAllocationEntity(
+                                ticketSaleId = ticketSaleId,
+                                paymentMethod = paymentMethod,
+                                amountCents = 0
+                            )
+                        )
+                    )
+                }
             }
         }
     }

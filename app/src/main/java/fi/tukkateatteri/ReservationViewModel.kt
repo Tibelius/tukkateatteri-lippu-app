@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 sealed interface UiMessage {
     data class Text(
@@ -59,6 +61,7 @@ class ReservationViewModel(
     private val _isTransferInProgress = MutableStateFlow(false)
     private val _sheetMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
     private var pendingMappingOperation: PendingMappingOperation? = null
+    private val reservationMutationMutex = Mutex()
     private var activeTransferCount = 0
 
     val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
@@ -129,19 +132,29 @@ class ReservationViewModel(
 
     private fun launchReservationMutation(operation: String, action: suspend () -> Unit) {
         launchTrackedOperation(operation) {
-            try {
-                action()
-            } catch (exception: GoogleSheetChangePendingException) {
-                AppLog.warning(LOG_COMPONENT, exception) {
-                    "$operation was saved locally but could not be synchronized"
+            reservationMutationMutex.withLock {
+                try {
+                    action()
+                } catch (exception: GoogleSheetChangePendingException) {
+                    AppLog.warning(LOG_COMPONENT, exception) {
+                        "$operation was saved locally but could not be synchronized"
+                    }
+                } catch (exception: GoogleSheetLockedException) {
+                    AppLog.warning(LOG_COMPONENT, exception) { "$operation could not acquire the performance lock" }
+                    _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
+                } catch (exception: Exception) {
+                    exception.rethrowIfCancellation()
+                    AppLog.error(LOG_COMPONENT, exception) { "$operation failed" }
+                    _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_failed)
                 }
-            } catch (exception: GoogleSheetLockedException) {
-                AppLog.warning(LOG_COMPONENT, exception) { "$operation could not acquire the performance lock" }
-                _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
-            } catch (exception: Exception) {
-                exception.rethrowIfCancellation()
-                AppLog.error(LOG_COMPONENT, exception) { "$operation failed" }
-                _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_failed)
+            }
+        }
+    }
+
+    fun finishReservationEditing(performanceId: Long, spreadsheetUrl: String, accessToken: String?) {
+        launchReservationMutation("flush reservation dialog changes") {
+            if (accessToken != null) {
+                reservationRepository.syncGoogleSheetPerformance(performanceId, spreadsheetUrl, accessToken)
             }
         }
     }
