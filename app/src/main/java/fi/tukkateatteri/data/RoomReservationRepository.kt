@@ -111,6 +111,30 @@ internal class RoomReservationRepository(
         }
     }
 
+    override suspend fun deleteAct(actName: String) {
+        AppLog.info(REPOSITORY_LOG_COMPONENT) { "Deleting local act data; act=$actName" }
+        database.withTransaction {
+            performanceDao.getByActName(actName).forEach { performance ->
+                reservationDao.deleteAllByPerformance(performance.id)
+            }
+            performanceDao.deleteByActName(actName)
+            googleSheetSourceDao.deleteByActName(actName)
+        }
+    }
+
+    override suspend fun clearLocalData() {
+        AppLog.info(REPOSITORY_LOG_COMPONENT) { "Deleting all locally stored app data" }
+        database.withTransaction {
+            performanceDao.getAll().forEach { performance ->
+                reservationDao.deleteAllByPerformance(performance.id)
+            }
+            performanceDao.deleteAll()
+            googleSheetSourceDao.deleteAll()
+            sheetFieldDefinitionDao.deleteAll()
+            sheetFieldAliasDao.deleteAll()
+        }
+    }
+
     override suspend fun addAdmission(
         lastName: String,
         firstName: String,
@@ -127,8 +151,10 @@ internal class RoomReservationRepository(
                 val activePerformance = requireNotNull(performanceDao.getActive()) {
                     "Select a performance before adding reservations."
                 }
-                validateReservedTicketAllocations(reservedTicketAllocations, seatCount)
                 val isDoorSale = admissionType == AdmissionType.DOOR_SALE
+                if (!isDoorSale) {
+                    validateReservedTicketAllocations(reservedTicketAllocations, seatCount)
+                }
                 val reservationId = reservationDao.insert(
                     ReservationEntity(
                         performanceId = activePerformance.id,
@@ -171,11 +197,13 @@ internal class RoomReservationRepository(
                     ) {
                         "Seat count must not be lower than arrived or redeemed tickets."
                     }
-                    validateReservedTicketAllocations(
-                        reservation.reservedTicketAllocations,
-                        reservation.seatCount
-                    )
                     val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
+                    if (!isDoorSale) {
+                        validateReservedTicketAllocations(
+                            reservation.reservedTicketAllocations,
+                            reservation.seatCount
+                        )
+                    }
                     reservationDao.update(
                         ReservationEntity(
                             id = reservation.id,
@@ -517,8 +545,8 @@ internal class RoomReservationRepository(
         mappings: List<SheetFieldMapping>
     ) {
         AppLog.info(REPOSITORY_LOG_COMPONENT) { "Saving ${mappings.size} user-confirmed Sheet field mappings" }
-        googleSheetsClient.saveFieldMappings(spreadsheetUrl, accessToken, mappings)
         sheetFieldAliasDao.insertAll(mappings.map { it.toAliasEntity() })
+        googleSheetsClient.saveFieldMappings(spreadsheetUrl, accessToken, mappings)
     }
 
     internal suspend fun storedSheetAliases() = sheetFieldAliasDao.getAll()

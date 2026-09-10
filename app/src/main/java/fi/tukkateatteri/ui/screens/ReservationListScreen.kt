@@ -233,13 +233,15 @@ fun ReservationListScreen(
                 state = pullToRefreshState,
                 modifier = contentModifier,
                 indicator = {
-                    PullToRefreshDefaults.Indicator(
-                        modifier = Modifier.align(Alignment.TopCenter),
-                        isRefreshing = isRefreshing,
-                        state = pullToRefreshState,
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    if (!isRefreshing) {
+                        PullToRefreshDefaults.Indicator(
+                            modifier = Modifier.align(Alignment.TopCenter),
+                            isRefreshing = false,
+                            state = pullToRefreshState,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
             ) {
                 ReservationListContent(

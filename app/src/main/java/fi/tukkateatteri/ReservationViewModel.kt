@@ -135,7 +135,6 @@ class ReservationViewModel(
                 AppLog.warning(LOG_COMPONENT, exception) {
                     "$operation was saved locally but could not be synchronized"
                 }
-                _transferMessage.value = UiMessage.Text(R.string.google_sheets_change_pending)
             } catch (exception: GoogleSheetLockedException) {
                 AppLog.warning(LOG_COMPONENT, exception) { "$operation could not acquire the performance lock" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
@@ -165,6 +164,18 @@ class ReservationViewModel(
         launchReservationMutation("delete performance") {
             reservationRepository.deletePerformance(performanceId)
             AppLog.info(LOG_COMPONENT) { "Deleted performanceId=$performanceId" }
+        }
+    }
+
+    fun deleteAct(actName: String) {
+        launchTrackedOperation("delete local act data") {
+            reservationRepository.deleteAct(actName)
+        }
+    }
+
+    fun clearLocalData() {
+        launchTrackedOperation("clear local app data") {
+            reservationRepository.clearLocalData()
         }
     }
 

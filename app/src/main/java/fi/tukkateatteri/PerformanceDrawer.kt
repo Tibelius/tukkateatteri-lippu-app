@@ -45,7 +45,9 @@ internal fun PerformanceDrawerContent(
     onAddPerformance: () -> Unit,
     onSyncPerformance: (Performance, GoogleSheetSource) -> Unit,
     onSyncAct: (List<Performance>, GoogleSheetSource) -> Unit,
-    onDeletePerformance: (Performance) -> Unit
+    onDeletePerformance: (Performance) -> Unit,
+    onDeleteAct: (String) -> Unit,
+    onClearAll: () -> Unit
 ) {
     var expandedActName by rememberSaveable { mutableStateOf<String?>(null) }
     var hasExplicitExpansionSelection by rememberSaveable { mutableStateOf(false) }
@@ -102,6 +104,13 @@ internal fun PerformanceDrawerContent(
                                     }
                                 }
                             }
+                            IconButton(onClick = { onDeleteAct(actName) }) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    stringResource(R.string.delete_act_action),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                             Icon(
                                 imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                                 contentDescription = null
@@ -125,6 +134,14 @@ internal fun PerformanceDrawerContent(
                             )
                         }
                 }
+            }
+            HorizontalDivider()
+            OutlinedButton(
+                onClick = onClearAll,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null)
+                Text(stringResource(R.string.clear_all_local_data))
             }
         }
     }

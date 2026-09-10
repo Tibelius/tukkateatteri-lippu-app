@@ -41,6 +41,18 @@ interface PerformanceDao {
     @Query("DELETE FROM performances WHERE id = :performanceId")
     suspend fun deleteById(performanceId: Long)
 
+    @Query("SELECT * FROM performances WHERE act_name = :actName")
+    suspend fun getByActName(actName: String): List<PerformanceEntity>
+
+    @Query("SELECT * FROM performances")
+    suspend fun getAll(): List<PerformanceEntity>
+
+    @Query("DELETE FROM performances WHERE act_name = :actName")
+    suspend fun deleteByActName(actName: String)
+
+    @Query("DELETE FROM performances")
+    suspend fun deleteAll()
+
     @Query("UPDATE performances SET is_active = 0")
     suspend fun clearActivePerformance()
 

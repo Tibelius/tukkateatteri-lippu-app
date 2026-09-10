@@ -19,4 +19,7 @@ interface GoogleSheetSourceDao {
 
     @Query("DELETE FROM google_sheet_sources WHERE actName = :actName")
     suspend fun deleteByActName(actName: String)
+
+    @Query("DELETE FROM google_sheet_sources")
+    suspend fun deleteAll()
 }

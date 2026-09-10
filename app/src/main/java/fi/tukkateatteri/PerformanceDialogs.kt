@@ -35,6 +35,26 @@ internal fun DeletePerformanceDialog(performance: Performance, onDismiss: () -> 
 }
 
 @Composable
+internal fun DeleteLocalDataDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
+    )
+}
+
+@Composable
 internal fun ConfirmActImportDialog(
     performances: List<Performance>,
     onDismiss: () -> Unit,

@@ -59,6 +59,8 @@ internal fun ReservationApp(
     var showGoogleSheetSourceManager by rememberSaveable { mutableStateOf(false) }
     var showPerformanceEditor by rememberSaveable { mutableStateOf(false) }
     var performanceToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var actToDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    var showClearAllLocalData by rememberSaveable { mutableStateOf(false) }
     var performancesToImport by remember { mutableStateOf<List<Performance>?>(null) }
     var spreadsheetUrlToImport by remember { mutableStateOf<String?>(null) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
@@ -100,6 +102,14 @@ internal fun ReservationApp(
                 onDeletePerformance = { performance ->
                     performanceToDeleteId = performance.id
                     coroutineScope.launch { drawerState.close() }
+                },
+                onDeleteAct = { actName ->
+                    actToDelete = actName
+                    coroutineScope.launch { drawerState.close() }
+                },
+                onClearAll = {
+                    showClearAllLocalData = true
+                    coroutineScope.launch { drawerState.close() }
                 }
             )
         }
@@ -128,7 +138,7 @@ internal fun ReservationApp(
                 onRefresh = pullToRefreshAction
             )
             if (isTransferInProgress) {
-                TransferProgressOverlay(showSpinner = pullToRefreshAction == null)
+                TransferProgressOverlay()
             }
         }
     }
@@ -190,6 +200,30 @@ internal fun ReservationApp(
             onConfirm = {
                 viewModel.deletePerformance(performance.id)
                 performanceToDeleteId = null
+            }
+        )
+    }
+
+    actToDelete?.let { actName ->
+        DeleteLocalDataDialog(
+            title = stringResource(R.string.delete_act_title),
+            message = stringResource(R.string.delete_act_message, actName),
+            onDismiss = { actToDelete = null },
+            onConfirm = {
+                viewModel.deleteAct(actName)
+                actToDelete = null
+            }
+        )
+    }
+
+    if (showClearAllLocalData) {
+        DeleteLocalDataDialog(
+            title = stringResource(R.string.clear_all_local_data_title),
+            message = stringResource(R.string.clear_all_local_data_message),
+            onDismiss = { showClearAllLocalData = false },
+            onConfirm = {
+                viewModel.clearLocalData()
+                showClearAllLocalData = false
             }
         )
     }

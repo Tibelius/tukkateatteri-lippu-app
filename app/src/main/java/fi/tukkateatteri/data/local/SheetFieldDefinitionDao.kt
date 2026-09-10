@@ -16,4 +16,7 @@ interface SheetFieldDefinitionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(definitions: List<SheetFieldDefinitionEntity>)
+
+    @Query("DELETE FROM sheet_field_definitions")
+    suspend fun deleteAll()
 }

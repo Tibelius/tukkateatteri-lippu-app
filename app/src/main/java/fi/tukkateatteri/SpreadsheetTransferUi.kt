@@ -99,7 +99,7 @@ internal fun SpreadsheetTransferDialog(
 }
 
 @Composable
-internal fun TransferProgressOverlay(showSpinner: Boolean) {
+internal fun TransferProgressOverlay() {
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
@@ -107,22 +107,27 @@ internal fun TransferProgressOverlay(showSpinner: Boolean) {
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = TRANSFER_SCRIM_ALPHA))
             .clickable(interactionSource = interactionSource, indication = null, onClick = {})
     ) {
-        if (showSpinner) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = TRANSFER_PROGRESS_TOP_OFFSET),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shadowElevation = 4.dp
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(12.dp).size(32.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
+        TransferProgressIndicator(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = TRANSFER_PROGRESS_TOP_OFFSET)
+        )
+    }
+}
+
+@Composable
+internal fun TransferProgressIndicator(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shadowElevation = 4.dp
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.padding(12.dp).size(32.dp),
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     }
 }
 

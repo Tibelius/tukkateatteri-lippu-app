@@ -12,4 +12,7 @@ interface SheetFieldAliasDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(aliases: List<SheetFieldAliasEntity>)
+
+    @Query("DELETE FROM sheet_field_aliases")
+    suspend fun deleteAll()
 }

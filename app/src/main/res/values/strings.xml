@@ -65,7 +65,6 @@
     <string name="google_sheets_sync_source_changed">Tallennettu välilehti tai sen esitys- tai päivämäärätiedot ovat muuttuneet. Tuo taulukko uudelleen.</string>
     <string name="google_sheets_sync_source_missing">Google Sheets -osoite puuttuu. Lisää se Google Sheets -osoitteista.</string>
     <string name="google_sheets_change_failed">Muutosta ei tallennettu. Tarkista yhteys ja Google-oikeudet.</string>
-    <string name="google_sheets_change_pending">Muutos tallennettiin laitteelle ja odottaa Google Sheets -synkronointia.</string>
     <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
     <string name="sync_pending_changes">Vie odottavat muutokset</string>
@@ -84,8 +83,14 @@
     <string name="delete_all_reservations_message">Kaikki varaukset poistetaan sovelluksesta. Google Sheetsissä ne merkitään poistetuiksi.</string>
     <string name="delete_all_reservations_action">Poista kaikki varaukset</string>
     <string name="delete_performance_title">Poistetaanko esitys?</string>
-    <string name="delete_performance_message">%1$s ja kaikki sen varaukset poistetaan pysyvästi.</string>
+    <string name="delete_performance_message">%1$s ja kaikki sen varaukset poistetaan vain tältä laitteelta. Google Sheetsin tietoja ei poisteta.</string>
     <string name="delete_performance_action">Poista esitys</string>
+    <string name="delete_act_action">Poista näytelmä laitteelta</string>
+    <string name="delete_act_title">Poistetaanko näytelmän paikalliset tiedot?</string>
+    <string name="delete_act_message">Näytelmä %1$s, sen esityspäivät ja varaukset poistetaan vain tältä laitteelta. Google Sheetsin tietoja ei poisteta.</string>
+    <string name="clear_all_local_data">Tyhjennä laitteen tiedot</string>
+    <string name="clear_all_local_data_title">Tyhjennetäänkö kaikki paikalliset tiedot?</string>
+    <string name="clear_all_local_data_message">Kaikki esitykset, varaukset, tallennetut Sheet-osoitteet ja paikalliset asetukset poistetaan tältä laitteelta. Google Sheetsin tietoja ei poisteta.</string>
     <plurals name="performance_date_count">
         <item quantity="one">%1$d esityspäivä</item>
         <item quantity="other">%1$d esityspäivää</item>

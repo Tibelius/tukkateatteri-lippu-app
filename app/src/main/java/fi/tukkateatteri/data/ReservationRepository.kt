@@ -14,6 +14,8 @@ interface ReservationRepository {
     suspend fun createPerformance(actName: String, date: String): Long
     suspend fun selectPerformance(performanceId: Long)
     suspend fun deletePerformance(performanceId: Long)
+    suspend fun deleteAct(actName: String)
+    suspend fun clearLocalData()
     suspend fun addAdmission(
         lastName: String,
         firstName: String,

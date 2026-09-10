@@ -26,9 +26,6 @@ data class Reservation(
         require(performanceId > 0) { "Performance ID must be positive." }
         require(seatCount >= MINIMUM_SEAT_COUNT) { "Seat count must be positive." }
         require(arrivalCount in 0..seatCount) { "Arrival count must be within the seat count." }
-        require(reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity) <= seatCount) {
-            "Reserved ticket quantities must not exceed the seat count."
-        }
         require(reservedTicketAllocations.map(ReservedTicketAllocation::ticketType).distinct().size == reservedTicketAllocations.size) {
             "Each reserved ticket type may only appear once."
         }
