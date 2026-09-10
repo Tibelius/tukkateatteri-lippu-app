@@ -80,6 +80,16 @@ internal fun ReservationApp(
                 }
         }
 
+    LaunchedEffect(activePerformance?.id, googleSheetSources) {
+        activePerformance?.let { performance ->
+            googleSheetSources
+                .firstOrNull { source -> source.actName == performance.actName }
+                ?.takeIf { performance.canSyncFromGoogleSheets }
+                ?.takeIf { viewModel.reserveAutomaticRefresh(performance.id) }
+                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, false) }
+        }
+    }
+
     statisticsReport?.let { report ->
         StatisticsScreen(
             report = report,
@@ -170,15 +180,6 @@ internal fun ReservationApp(
         viewModel.addedReservationIds.collect { reservationId ->
             reservationDialogHasChanges = true
             selectedReservationId = reservationId
-        }
-    }
-
-    LaunchedEffect(activePerformance?.id, googleSheetSources) {
-        activePerformance?.let { performance ->
-            googleSheetSources
-                .firstOrNull { source -> source.actName == performance.actName }
-                ?.takeIf { performance.canSyncFromGoogleSheets }
-                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, false) }
         }
     }
 

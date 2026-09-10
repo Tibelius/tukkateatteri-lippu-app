@@ -54,6 +54,7 @@ class ReservationViewModel(
     private val reservationMutationMutex = Mutex()
     private val backgroundSyncRequests = mutableMapOf<Long, BackgroundSyncRequest>()
     private val backgroundSyncJobs = mutableMapOf<Long, Job>()
+    private val automaticRefreshThrottle = RefreshThrottle<Long>(AUTOMATIC_REFRESH_INTERVAL_MILLIS)
     private var activeTransferCount = 0
 
     val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
@@ -114,6 +115,17 @@ class ReservationViewModel(
         statisticsState.close()
     }
 
+    fun reserveAutomaticRefresh(performanceId: Long): Boolean {
+        if (!automaticRefreshThrottle.tryAcquire(performanceId)) {
+            AppLog.debug(LOG_COMPONENT) {
+                "Skipping recent automatic refresh; performanceId=$performanceId"
+            }
+            return false
+        }
+        AppLog.debug(LOG_COMPONENT) { "Reserved automatic refresh; performanceId=$performanceId" }
+        return true
+    }
+
     private fun launchTrackedOperation(operation: String, action: suspend () -> Unit) {
         viewModelScope.launch {
             val startedAt = System.nanoTime()
@@ -168,6 +180,7 @@ class ReservationViewModel(
 
     fun finishReservationEditing(performanceId: Long, spreadsheetUrl: String, accessToken: String?) {
         if (accessToken == null) return
+        automaticRefreshThrottle.mark(performanceId)
         backgroundSyncRequests[performanceId] = BackgroundSyncRequest(spreadsheetUrl, accessToken)
         if (backgroundSyncJobs[performanceId]?.isActive == true) return
 
@@ -185,6 +198,7 @@ class ReservationViewModel(
                             request.spreadsheetUrl,
                             request.accessToken
                         )
+                        automaticRefreshThrottle.mark(performanceId)
                         AppLog.info(LOG_COMPONENT) { "Completed background Sheet flush; performanceId=$performanceId" }
                     } catch (exception: UnmappedSheetColumnsException) {
                         AppLog.info(LOG_COMPONENT) {
@@ -202,6 +216,7 @@ class ReservationViewModel(
                                 request.spreadsheetUrl,
                                 request.accessToken
                             )
+                            automaticRefreshThrottle.mark(performanceId)
                         }
                     } catch (exception: Exception) {
                         exception.rethrowIfCancellation()
@@ -431,9 +446,10 @@ class ReservationViewModel(
         performanceId: Long,
         spreadsheetUrl: String,
         accessToken: String,
-        showError: Boolean = true
+        showFeedback: Boolean = true
     ) {
-        launchTrackedOperation("synchronize performance") {
+        automaticRefreshThrottle.mark(performanceId)
+        val synchronize: suspend () -> Unit = {
             try {
                 AppLog.info(LOG_COMPONENT) { "Starting synchronization for performanceId=$performanceId" }
                 val rowCount = reservationRepository.syncGoogleSheetPerformance(
@@ -448,14 +464,14 @@ class ReservationViewModel(
                 AppLog.warning(LOG_COMPONENT, exception) {
                     "Performance source metadata no longer matches; performanceId=$performanceId"
                 }
-                if (showError) {
+                if (showFeedback) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_source_changed)
                 }
             } catch (exception: GoogleSheetLockedException) {
                 AppLog.warning(LOG_COMPONENT, exception) {
                     "Performance synchronization could not acquire lock; performanceId=$performanceId"
                 }
-                if (showError) {
+                if (showFeedback) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
                 }
             } catch (exception: UnmappedSheetColumnsException) {
@@ -483,10 +499,15 @@ class ReservationViewModel(
                 AppLog.error(LOG_COMPONENT, exception) {
                     "Performance synchronization failed; performanceId=$performanceId"
                 }
-                if (showError) {
+                if (showFeedback) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_sync_failed)
                 }
             }
+        }
+        if (showFeedback) {
+            launchTrackedOperation("synchronize performance", synchronize)
+        } else {
+            viewModelScope.launch { synchronize() }
         }
     }
 
@@ -505,6 +526,7 @@ class ReservationViewModel(
                             spreadsheetUrl = spreadsheetUrl,
                             accessToken = accessToken
                         )
+                        automaticRefreshThrottle.mark(performance.id)
                     } catch (exception: UnmappedSheetColumnsException) {
                         AppLog.info(LOG_COMPONENT) {
                             "Performance batch synchronization needs ${exception.headers.size} column classifications; " +
@@ -588,5 +610,6 @@ class ReservationViewModel(
 
         private const val STOP_TIMEOUT_MILLIS = 5_000L
         private const val BACKGROUND_SYNC_DEBOUNCE_MILLIS = 200L
+        private const val AUTOMATIC_REFRESH_INTERVAL_MILLIS = 2 * 60 * 1_000L
     }
 }

@@ -64,13 +64,13 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
-                    onGoogleSheetsSync = { performance, spreadsheetUrl, showError ->
+                    onGoogleSheetsSync = { performance, spreadsheetUrl, showFeedback ->
                         authorizeGoogleSheets { accessToken ->
                             reservationViewModel.syncGoogleSheetPerformance(
                                 performance.id,
                                 spreadsheetUrl,
                                 accessToken,
-                                showError
+                                showFeedback
                             )
                         }
                     },

@@ -34,3 +34,28 @@ internal data class BackgroundSyncRequest(
 internal fun Exception.rethrowIfCancellation() {
     if (this is CancellationException) throw this
 }
+
+internal fun monotonicTimeMillis(): Long = System.nanoTime() / 1_000_000L
+
+internal class RefreshThrottle<K>(
+    private val intervalMillis: Long,
+    private val nowMillis: () -> Long = ::monotonicTimeMillis
+) {
+    private val previousAttempts = mutableMapOf<K, Long>()
+
+    init {
+        require(intervalMillis >= 0) { "Refresh interval must not be negative." }
+    }
+
+    fun tryAcquire(key: K): Boolean {
+        val now = nowMillis()
+        val previousAttempt = previousAttempts[key]
+        if (previousAttempt != null && now - previousAttempt < intervalMillis) return false
+        previousAttempts[key] = now
+        return true
+    }
+
+    fun mark(key: K) {
+        previousAttempts[key] = nowMillis()
+    }
+}
