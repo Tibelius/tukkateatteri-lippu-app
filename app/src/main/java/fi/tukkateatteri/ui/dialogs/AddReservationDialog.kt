@@ -19,6 +19,7 @@ import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.ReservedTicketAllocation
+import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.CustomerDetailsFields
 import fi.tukkateatteri.ui.components.SeatCountSelector
@@ -27,6 +28,7 @@ import fi.tukkateatteri.ui.components.ScrollableAppDialog
 @Composable
 fun AddAdmissionDialog(
     admissionType: AdmissionType,
+    availableTicketTypes: List<TicketType>,
     onDismiss: () -> Unit,
     onSave: (
         lastName: String,
@@ -51,6 +53,7 @@ fun AddAdmissionDialog(
     if (showReservedTicketTypesDialog) {
         ReservedTicketTypesDialog(
             initialAllocations = reservedTicketAllocations,
+            availableTicketTypes = availableTicketTypes,
             maximumQuantity = seatCount,
             onDismiss = { showReservedTicketTypesDialog = false },
             onSave = { allocations ->

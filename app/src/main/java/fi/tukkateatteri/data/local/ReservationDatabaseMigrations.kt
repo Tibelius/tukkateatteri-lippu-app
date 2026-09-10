@@ -68,6 +68,17 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
                 WHERE reservations.is_present = 1 AND reservations.payment_method IS NOT NULL
                 """.trimIndent()
             )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `sheet_field_aliases` (
+                    `normalizedAlias` TEXT NOT NULL,
+                    `kind` TEXT NOT NULL,
+                    `label` TEXT NOT NULL,
+                    `allowsSplitPayment` INTEGER NOT NULL,
+                    PRIMARY KEY(`normalizedAlias`)
+                )
+                """.trimIndent()
+            )
         }
     }
 
@@ -292,6 +303,38 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         }
     }
 
+    private val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `sheet_field_definitions` (
+                    `spreadsheet_url` TEXT NOT NULL,
+                    `normalized_header` TEXT NOT NULL,
+                    `kind` TEXT NOT NULL,
+                    `identifier` TEXT NOT NULL,
+                    `label` TEXT NOT NULL,
+                    `price_cents` INTEGER,
+                    `allows_split_payment` INTEGER NOT NULL,
+                    `sort_order` INTEGER NOT NULL,
+                    `active` INTEGER NOT NULL,
+                    PRIMARY KEY(`spreadsheet_url`, `normalized_header`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `sheet_field_aliases` (
+                    `normalizedAlias` TEXT NOT NULL,
+                    `kind` TEXT NOT NULL,
+                    `label` TEXT NOT NULL,
+                    `allowsSplitPayment` INTEGER NOT NULL,
+                    PRIMARY KEY(`normalizedAlias`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -303,7 +346,7 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         MIGRATION_8_9,
         MIGRATION_9_10,
         MIGRATION_10_11,
-        MIGRATION_11_12
+        MIGRATION_11_12,
+        MIGRATION_12_13
     )
 }
-

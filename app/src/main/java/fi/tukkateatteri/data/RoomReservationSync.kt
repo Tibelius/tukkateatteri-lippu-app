@@ -11,6 +11,7 @@ import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.hasSameSheetContentAs
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRowSnapshot
 import fi.tukkateatteri.data.spreadsheet.toSnapshotJson
+import fi.tukkateatteri.data.spreadsheet.saveSheetSchemas
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toAbbreviatedId
 import fi.tukkateatteri.logging.toLogSummary
@@ -156,6 +157,10 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
         accessToken = token
     ) {
         val importData = loadAndValidatePerformance(target, token)
+        googleSheetsClient.saveSheetSchemas(target.spreadsheetUrl, token, listOf(importData.schema))
+        database.withTransaction {
+            storeSheetSchemas(target.spreadsheetUrl, listOf(importData.schema))
+        }
         AppLog.debug(REPOSITORY_LOG_COMPONENT) {
             "Received ${importData.rows.size} remote rows from tab=${target.sheetTitle}"
         }
@@ -377,7 +382,8 @@ internal suspend fun RoomReservationRepository.loadAndValidatePerformance(
 ) = googleSheetsClient.loadImportDataForTab(
     spreadsheetUrl = target.spreadsheetUrl,
     accessToken = accessToken,
-    sheetTitle = target.sheetTitle
+    sheetTitle = target.sheetTitle,
+    localAliases = storedSheetAliases()
 ).also { importData ->
     val performance = requireNotNull(performanceDao.getById(target.performanceId))
     if (importData.candidate.performanceName != performance.actName || importData.candidate.date != performance.date) {

@@ -15,9 +15,11 @@ import fi.tukkateatteri.logging.AppLog
         ReservedTicketAllocationEntity::class,
         GoogleSheetSourceEntity::class,
         PerformanceEntity::class,
-        PendingSheetChangeEntity::class
+        PendingSheetChangeEntity::class,
+        SheetFieldDefinitionEntity::class,
+        SheetFieldAliasEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(ReservationTypeConverters::class)
@@ -26,10 +28,12 @@ abstract class ReservationDatabase : RoomDatabase() {
     abstract fun performanceDao(): PerformanceDao
     abstract fun googleSheetSourceDao(): GoogleSheetSourceDao
     abstract fun pendingSheetChangeDao(): PendingSheetChangeDao
+    abstract fun sheetFieldDefinitionDao(): SheetFieldDefinitionDao
+    abstract fun sheetFieldAliasDao(): SheetFieldAliasDao
 
     companion object {
         fun create(context: Context): ReservationDatabase {
-            AppLog.debug(LOG_COMPONENT) { "Opening Room database '$DATABASE_NAME' at schema version 12" }
+            AppLog.debug(LOG_COMPONENT) { "Opening Room database '$DATABASE_NAME' at schema version 13" }
             return Room
                 .databaseBuilder(
                     context.applicationContext,

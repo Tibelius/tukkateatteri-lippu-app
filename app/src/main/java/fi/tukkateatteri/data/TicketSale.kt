@@ -1,8 +1,5 @@
 package fi.tukkateatteri.data
 
-import androidx.annotation.StringRes
-import fi.tukkateatteri.R
-
 data class TicketSale(
     val id: Long,
     val reservationId: Long,
@@ -69,17 +66,58 @@ data class PaymentAllocation(
     }
 }
 
-enum class TicketType(
-    @param:StringRes val labelResId: Int,
-    val defaultPriceCents: Int
+data class TicketType(
+    val name: String,
+    val label: String,
+    val defaultPriceCents: Int,
+    val sortOrder: Int = Int.MAX_VALUE
 ) {
-    BASIC(R.string.ticket_type_basic, 2_200),
-    DISCOUNT(R.string.ticket_type_discount, 1_300),
-    THEATRE_INDUSTRY(R.string.ticket_type_theatre_industry, 1_000),
-    MEMBER(R.string.ticket_type_member, 500),
-    GROUP_BASIC(R.string.ticket_type_group_basic, 2_000),
-    GROUP_DISCOUNT(R.string.ticket_type_group_discount, 1_200),
-    KAIKUKORTTI(R.string.ticket_type_kaikukortti, 0),
-    FREE_TICKET(R.string.ticket_type_free_ticket, 0),
-    UNSPECIFIED(R.string.ticket_type_unspecified, 0)
+    init {
+        require(name.isNotBlank()) { "Ticket type identifier must not be blank." }
+        require(label.isNotBlank()) { "Ticket type label must not be blank." }
+        require(defaultPriceCents >= 0) { "Ticket price must not be negative." }
+    }
+
+    val displayLabel: String
+        get() = if (defaultPriceCents == 0) {
+            label
+        } else {
+            "$label ${defaultPriceCents.toCompactEuroString()}"
+        }
+
+    override fun equals(other: Any?): Boolean = other is TicketType && name == other.name
+
+    override fun hashCode(): Int = name.hashCode()
+
+    override fun toString(): String = name
+
+    companion object {
+        val BASIC = TicketType("BASIC", "Perus", 2_200, 0)
+        val DISCOUNT = TicketType("DISCOUNT", "Alennus", 1_300, 1)
+        val THEATRE_INDUSTRY = TicketType("THEATRE_INDUSTRY", "Teatteriala", 1_000, 2)
+        val MEMBER = TicketType("MEMBER", "Jäsen", 500, 3)
+        val GROUP_BASIC = TicketType("GROUP_BASIC", "Ryhmä perus", 2_000, 4)
+        val GROUP_DISCOUNT = TicketType("GROUP_DISCOUNT", "Ryhmä alennus", 1_200, 5)
+        val KAIKUKORTTI = TicketType("KAIKUKORTTI", "Kaikukortti", 0, 6)
+        val FREE_TICKET = TicketType("FREE_TICKET", "Vapaalippu", 0, 7)
+        val UNSPECIFIED = TicketType("UNSPECIFIED", "Määrittelemätön", 0, Int.MAX_VALUE)
+
+        val entries = listOf(
+            BASIC,
+            DISCOUNT,
+            THEATRE_INDUSTRY,
+            MEMBER,
+            GROUP_BASIC,
+            GROUP_DISCOUNT,
+            KAIKUKORTTI,
+            FREE_TICKET,
+            UNSPECIFIED
+        )
+
+        fun valueOf(name: String): TicketType = entries.firstOrNull { it.name == name }
+            ?: throw IllegalArgumentException("Unknown ticket type: $name")
+    }
 }
+
+private fun Int.toCompactEuroString(): String =
+    if (this % 100 == 0) "${this / 100} €" else toEuroString()

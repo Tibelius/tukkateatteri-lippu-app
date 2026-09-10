@@ -28,6 +28,7 @@ import fi.tukkateatteri.ui.dialogs.DeleteAllReservationsDialog
 import fi.tukkateatteri.ui.dialogs.DeleteReservationDialog
 import fi.tukkateatteri.ui.dialogs.GoogleSheetSourceManagerDialog
 import fi.tukkateatteri.ui.dialogs.ReservationDialog
+import fi.tukkateatteri.ui.dialogs.SheetFieldMappingDialog
 import fi.tukkateatteri.ui.screens.ReservationListScreen
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -47,6 +48,9 @@ internal fun ReservationApp(
     val transferMessage by viewModel.transferMessage.collectAsStateWithLifecycle()
     val isTransferInProgress by viewModel.isTransferInProgress.collectAsStateWithLifecycle()
     val googleSheetSources by viewModel.googleSheetSources.collectAsStateWithLifecycle()
+    val availableTicketTypes by viewModel.availableTicketTypes.collectAsStateWithLifecycle()
+    val availablePaymentMethods by viewModel.availablePaymentMethods.collectAsStateWithLifecycle()
+    val sheetMappingRequest by viewModel.sheetMappingRequest.collectAsStateWithLifecycle()
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAdmissionTypeDialog by rememberSaveable { mutableStateOf(false) }
@@ -194,6 +198,7 @@ internal fun ReservationApp(
         val admissionType = AdmissionType.valueOf(typeName)
         AddAdmissionDialog(
             admissionType = admissionType,
+            availableTicketTypes = availableTicketTypes,
             onDismiss = { selectedAdmissionTypeName = null },
             onSave = { lastName, firstName, contact, seatCount, reservedTicketAllocations ->
                 onGoogleSheetsMutation { accessToken ->
@@ -215,6 +220,8 @@ internal fun ReservationApp(
     reservations.find { it.id == selectedReservationId }?.let { reservation ->
         ReservationDialog(
             reservation = reservation,
+            availableTicketTypes = availableTicketTypes,
+            availablePaymentMethods = availablePaymentMethods,
             onDismiss = { selectedReservationId = null },
             onSave = { updatedReservation ->
                 onGoogleSheetsMutation { accessToken ->
@@ -271,6 +278,14 @@ internal fun ReservationApp(
                 }
                 showDeleteAllReservationsConfirmation = false
             }
+        )
+    }
+
+    sheetMappingRequest?.let { request ->
+        SheetFieldMappingDialog(
+            headers = request.headers,
+            onDismiss = viewModel::dismissSheetMappingRequest,
+            onSave = viewModel::applySheetFieldMappings
         )
     }
 

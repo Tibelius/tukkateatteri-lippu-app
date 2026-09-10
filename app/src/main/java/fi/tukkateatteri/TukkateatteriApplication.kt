@@ -19,6 +19,8 @@ class TukkateatteriApplication : Application() {
                 performanceDao = database.performanceDao(),
                 googleSheetSourceDao = database.googleSheetSourceDao(),
                 pendingSheetChangeDao = database.pendingSheetChangeDao(),
+                sheetFieldDefinitionDao = database.sheetFieldDefinitionDao(),
+                sheetFieldAliasDao = database.sheetFieldAliasDao(),
                 googleSheetsClient = GoogleSheetsClient(
                     deviceId = "$DEVICE_LABEL_PREFIX${installationId().take(INSTALLATION_ID_LABEL_LENGTH)}"
                 )

@@ -8,6 +8,11 @@ import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDao
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
+import fi.tukkateatteri.data.local.SheetFieldDefinitionDao
+import fi.tukkateatteri.data.local.SheetFieldAliasDao
+import fi.tukkateatteri.data.local.toAliasEntities
+import fi.tukkateatteri.data.local.toAliasEntity
+import fi.tukkateatteri.data.local.toEntities
 import fi.tukkateatteri.data.local.TicketSaleEntity
 import fi.tukkateatteri.data.local.toEntity
 import fi.tukkateatteri.data.local.toGoogleSheetSource
@@ -15,10 +20,15 @@ import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import fi.tukkateatteri.data.spreadsheet.SheetFieldMapping
+import fi.tukkateatteri.data.spreadsheet.SheetColumnSchema
+import fi.tukkateatteri.data.spreadsheet.saveFieldMappings
+import fi.tukkateatteri.data.spreadsheet.saveSheetSchemas
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 
 internal data class CloudSheetTarget(
     val performanceId: Long,
@@ -32,6 +42,8 @@ internal class RoomReservationRepository(
     internal val performanceDao: PerformanceDao,
     internal val googleSheetSourceDao: GoogleSheetSourceDao,
     internal val pendingSheetChangeDao: PendingSheetChangeDao,
+    internal val sheetFieldDefinitionDao: SheetFieldDefinitionDao,
+    internal val sheetFieldAliasDao: SheetFieldAliasDao,
     internal val googleSheetsClient: GoogleSheetsClient = GoogleSheetsClient()
 ) : ReservationRepository {
     override val performances: Flow<List<Performance>> = performanceDao.observeAll()
@@ -40,6 +52,28 @@ internal class RoomReservationRepository(
         .map { performance -> performance?.toPerformance() }
     override val googleSheetSources: Flow<List<GoogleSheetSource>> = googleSheetSourceDao.observeAll()
         .map { sources -> sources.map { source -> source.toGoogleSheetSource() } }
+    override val availableTicketTypes: Flow<List<TicketType>> = activeDefinitions()
+        .map { definitions ->
+            definitions.mapNotNull { it.toTicketType() }.ifEmpty {
+                TicketType.entries.filterNot { it == TicketType.UNSPECIFIED }
+            }
+        }
+    override val availablePaymentMethods: Flow<List<PaymentMethod>> = activeDefinitions()
+        .map { definitions ->
+            definitions.mapNotNull { it.toPaymentMethod() }.ifEmpty { PaymentMethod.entries }
+        }
+
+    private fun activeDefinitions() = combine(
+        performanceDao.observeActive(),
+        googleSheetSourceDao.observeAll(),
+        sheetFieldDefinitionDao.observeAll()
+    ) { performance, sources, definitions ->
+        val sourceUrl = performance?.let { active ->
+            sources.firstOrNull { it.actName == active.actName }?.spreadsheetUrl
+        }
+        definitions.filter { it.active && it.spreadsheetUrl == sourceUrl }
+            .sortedBy { it.sortOrder }
+    }
 
     override fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>> =
         reservationDao.observeByPerformanceWithTicketSales(performanceId)
@@ -396,9 +430,15 @@ internal class RoomReservationRepository(
     ): GoogleSheetImportResult {
         val startedAt = System.nanoTime()
         AppLog.info(REPOSITORY_LOG_COMPONENT) { "Starting full spreadsheet import" }
-        val importedData = googleSheetsClient.loadImportData(spreadsheetUrl, accessToken)
+        val importedData = googleSheetsClient.loadImportData(
+            spreadsheetUrl,
+            accessToken,
+            storedSheetAliases()
+        )
         if (importedData.isEmpty()) throw NoGoogleSheetImportCandidatesException()
+        googleSheetsClient.saveSheetSchemas(spreadsheetUrl, accessToken, importedData.map { it.schema })
         val performanceIds = database.withTransaction {
+            storeSheetSchemas(spreadsheetUrl, importedData.map { it.schema })
             val importedPerformanceIds = importedData.map { data ->
                 val performanceId = findOrCreateImportedPerformance(
                     actName = data.candidate.performanceName,
@@ -425,6 +465,21 @@ internal class RoomReservationRepository(
                 "Completed full spreadsheet import; performances=${result.performanceCount}, " +
                     "reservations=${result.reservationCount}, durationMs=${AppLog.elapsedMillis(startedAt)}"
             }
+        }
+    }
+
+    internal suspend fun storeSheetSchemas(
+        spreadsheetUrl: String,
+        schemas: List<SheetColumnSchema>
+    ) {
+        val definitions = schemas.flatMap { it.toEntities(spreadsheetUrl) }
+            .distinctBy { it.normalizedHeader }
+        sheetFieldDefinitionDao.deactivateForSpreadsheet(spreadsheetUrl)
+        sheetFieldDefinitionDao.upsertAll(definitions)
+        sheetFieldAliasDao.insertAll(schemas.flatMap { it.toAliasEntities() })
+        AppLog.info(REPOSITORY_LOG_COMPONENT) {
+            "Stored Sheet-provided field definitions; tickets=${definitions.count { it.kind.name == "TICKET" }}, " +
+                "payments=${definitions.count { it.kind.name == "PAYMENT" }}"
         }
     }
 
@@ -455,5 +510,18 @@ internal class RoomReservationRepository(
         googleSheetSourceDao.deleteByActName(actName)
         AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Deleted spreadsheet source mapping" }
     }
+
+    override suspend fun saveSheetFieldMappings(
+        spreadsheetUrl: String,
+        accessToken: String,
+        mappings: List<SheetFieldMapping>
+    ) {
+        AppLog.info(REPOSITORY_LOG_COMPONENT) { "Saving ${mappings.size} user-confirmed Sheet field mappings" }
+        googleSheetsClient.saveFieldMappings(spreadsheetUrl, accessToken, mappings)
+        sheetFieldAliasDao.insertAll(mappings.map { it.toAliasEntity() })
+    }
+
+    internal suspend fun storedSheetAliases() = sheetFieldAliasDao.getAll()
+        .associate { it.normalizedAlias to it.toStoredAlias() }
 
 }

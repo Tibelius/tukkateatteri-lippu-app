@@ -64,7 +64,7 @@ internal fun reservedTicketTypesDetails(allocations: List<ReservedTicketAllocati
     val details = allocations.map { allocation ->
         stringResource(
             R.string.ticket_quantity,
-            stringResource(allocation.ticketType.labelResId),
+            allocation.ticketType.displayLabel,
             allocation.quantity
         )
     }

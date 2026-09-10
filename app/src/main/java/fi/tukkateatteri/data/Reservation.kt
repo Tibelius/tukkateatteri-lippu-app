@@ -88,9 +88,31 @@ enum class AdmissionType(@param:StringRes val labelResId: Int) {
     DOOR_SALE(R.string.admission_type_door_sale)
 }
 
-enum class PaymentMethod(@param:StringRes val labelResId: Int) {
-    CARD(R.string.payment_method_card),
-    CASH(R.string.payment_method_cash),
-    EPASSI(R.string.payment_method_epassi),
-    LIPPUAGENTTI(R.string.payment_method_lippuagentti)
+data class PaymentMethod(
+    val name: String,
+    val label: String,
+    val allowsSplitPayment: Boolean = true,
+    val sortOrder: Int = Int.MAX_VALUE
+) {
+    init {
+        require(name.isNotBlank()) { "Payment method identifier must not be blank." }
+        require(label.isNotBlank()) { "Payment method label must not be blank." }
+    }
+
+    override fun equals(other: Any?): Boolean = other is PaymentMethod && name == other.name
+
+    override fun hashCode(): Int = name.hashCode()
+
+    override fun toString(): String = name
+
+    companion object {
+        val CARD = PaymentMethod("CARD", "Kortti", sortOrder = 0)
+        val CASH = PaymentMethod("CASH", "Käteinen", sortOrder = 1)
+        val EPASSI = PaymentMethod("EPASSI", "ePassi", sortOrder = 2)
+        val LIPPUAGENTTI = PaymentMethod("LIPPUAGENTTI", "Lippuagentti", allowsSplitPayment = false, sortOrder = 3)
+        val entries = listOf(CARD, CASH, EPASSI, LIPPUAGENTTI)
+
+        fun valueOf(name: String): PaymentMethod = entries.firstOrNull { it.name == name }
+            ?: throw IllegalArgumentException("Unknown payment method: $name")
+    }
 }

@@ -1,11 +1,14 @@
 package fi.tukkateatteri.data
 
 import kotlinx.coroutines.flow.Flow
+import fi.tukkateatteri.data.spreadsheet.SheetFieldMapping
 
 interface ReservationRepository {
     val performances: Flow<List<Performance>>
     val activePerformance: Flow<Performance?>
     val googleSheetSources: Flow<List<GoogleSheetSource>>
+    val availableTicketTypes: Flow<List<TicketType>>
+    val availablePaymentMethods: Flow<List<PaymentMethod>>
 
     fun reservationsForPerformance(performanceId: Long): Flow<List<Reservation>>
     suspend fun createPerformance(actName: String, date: String): Long
@@ -47,6 +50,11 @@ interface ReservationRepository {
     ): Int
     suspend fun upsertGoogleSheetSource(source: GoogleSheetSource)
     suspend fun deleteGoogleSheetSource(actName: String)
+    suspend fun saveSheetFieldMappings(
+        spreadsheetUrl: String,
+        accessToken: String,
+        mappings: List<SheetFieldMapping>
+    )
 }
 
 data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: Int)

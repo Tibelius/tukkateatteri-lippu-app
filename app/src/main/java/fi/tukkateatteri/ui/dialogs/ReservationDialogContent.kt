@@ -90,6 +90,7 @@ internal fun ArrivalCountDialog(
 @Composable
 internal fun ReservationEditorDialog(
     reservation: Reservation,
+    availableTicketTypes: List<TicketType>,
     onDismiss: () -> Unit,
     onSave: (Reservation) -> Unit
 ) {
@@ -117,6 +118,7 @@ internal fun ReservationEditorDialog(
     if (showReservedTicketTypesDialog) {
         ReservedTicketTypesDialog(
             initialAllocations = reservedTicketAllocations,
+            availableTicketTypes = availableTicketTypes,
             maximumQuantity = seatCount,
             onDismiss = { showReservedTicketTypesDialog = false },
             onSave = { allocations ->
@@ -307,7 +309,7 @@ private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
 
 @Composable
 private fun ticketSaleTitle(ticketSale: TicketSale): String {
-    val ticketTypeLabel = stringResource(ticketSale.ticketType.labelResId)
+    val ticketTypeLabel = ticketSale.ticketType.displayLabel
     if (ticketSale.ticketType != TicketType.UNSPECIFIED) {
         return stringResource(R.string.ticket_quantity, ticketTypeLabel, ticketSale.quantity)
     }
@@ -315,7 +317,7 @@ private fun ticketSaleTitle(ticketSale: TicketSale): String {
         ?: return stringResource(R.string.ticket_quantity, ticketTypeLabel, ticketSale.quantity)
     return stringResource(
         R.string.ticket_quantity,
-        stringResource(paymentMethod.labelResId),
+        paymentMethod.label,
         ticketSale.quantity
     )
 }
@@ -325,7 +327,7 @@ private fun ticketSalePaymentText(ticketSale: TicketSale): String {
     val paymentText = ticketSale.payments.map { payment ->
         stringResource(
             R.string.payment_allocation,
-            stringResource(payment.method.labelResId),
+            payment.method.label,
             payment.amountCents.toEuroString()
         )
     }.joinToString(separator = ", ")

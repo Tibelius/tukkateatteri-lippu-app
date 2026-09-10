@@ -44,6 +44,7 @@ private const val PAYMENT_OPTIONS_PER_ROW = 2
 @Composable
 fun PaymentMethodSelector(
     selectedPayment: PaymentMethod?,
+    paymentMethods: List<PaymentMethod> = PaymentMethod.entries,
     onPaymentSelected: (PaymentMethod) -> Unit
 ) {
     Text(
@@ -54,7 +55,7 @@ fun PaymentMethodSelector(
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PaymentMethod.entries.chunked(PAYMENT_OPTIONS_PER_ROW).forEach { rowMethods ->
+        paymentMethods.chunked(PAYMENT_OPTIONS_PER_ROW).forEach { rowMethods ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -126,7 +127,7 @@ private fun PaymentOptionCard(
             )
             Box(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(paymentMethod.labelResId),
+                    text = paymentMethod.label,
                     modifier = Modifier.padding(start = 10.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = contentColor,
@@ -145,4 +146,5 @@ private val PaymentMethod.icon: ImageVector
         PaymentMethod.CASH -> Icons.Filled.Payments
         PaymentMethod.EPASSI -> Icons.Filled.Redeem
         PaymentMethod.LIPPUAGENTTI -> Icons.Filled.ConfirmationNumber
+        else -> Icons.Filled.MoreHoriz
     }

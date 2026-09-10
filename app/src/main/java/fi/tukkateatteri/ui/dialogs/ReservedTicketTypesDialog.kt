@@ -36,11 +36,22 @@ import fi.tukkateatteri.ui.components.ScrollableAppDialog
 
 internal val reservedTicketAllocationsSaver = listSaver<List<ReservedTicketAllocation>, String>(
     save = { allocations ->
-        allocations.flatMap { allocation -> listOf(allocation.ticketType.name, allocation.quantity.toString()) }
+        allocations.flatMap { allocation ->
+            listOf(
+                allocation.ticketType.name,
+                allocation.ticketType.label,
+                allocation.ticketType.defaultPriceCents.toString(),
+                allocation.ticketType.sortOrder.toString(),
+                allocation.quantity.toString()
+            )
+        }
     },
     restore = { values ->
-        values.chunked(2).map { (ticketTypeName, quantity) ->
-            ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity.toInt())
+        values.chunked(5).map { (name, label, price, sortOrder, quantity) ->
+            ReservedTicketAllocation(
+                TicketType(name, label, price.toInt(), sortOrder.toInt()),
+                quantity.toInt()
+            )
         }
     }
 )
@@ -48,6 +59,7 @@ internal val reservedTicketAllocationsSaver = listSaver<List<ReservedTicketAlloc
 @Composable
 fun ReservedTicketTypesDialog(
     initialAllocations: List<ReservedTicketAllocation>,
+    availableTicketTypes: List<TicketType> = TicketType.entries.filterNot { it == TicketType.UNSPECIFIED },
     maximumQuantity: Int,
     onDismiss: () -> Unit,
     onSave: (List<ReservedTicketAllocation>) -> Unit
@@ -56,8 +68,10 @@ fun ReservedTicketTypesDialog(
         mutableStateOf(initialAllocations.associate { it.ticketType.name to it.quantity })
     }
     var isTicketTypeMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    val ticketTypesByName = (availableTicketTypes + initialAllocations.map { it.ticketType })
+        .associateBy(TicketType::name)
     val allocatedQuantity = quantities.values.sum()
-    val availableTicketTypes = TicketType.entries.filter { ticketType ->
+    val selectableTicketTypes = availableTicketTypes.filter { ticketType ->
         ticketType != TicketType.UNSPECIFIED && ticketType.name !in quantities
     }
 
@@ -69,7 +83,7 @@ fun ReservedTicketTypesDialog(
                 onSave = {
                     onSave(
                         quantities.map { (ticketTypeName, quantity) ->
-                            ReservedTicketAllocation(TicketType.valueOf(ticketTypeName), quantity)
+                            ReservedTicketAllocation(requireNotNull(ticketTypesByName[ticketTypeName]), quantity)
                         }
                     )
                 }
@@ -90,9 +104,9 @@ fun ReservedTicketTypesDialog(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         quantities.entries
-            .sortedBy { (ticketTypeName, _) -> TicketType.valueOf(ticketTypeName).ordinal }
+            .sortedBy { (ticketTypeName, _) -> ticketTypesByName[ticketTypeName]?.sortOrder }
             .forEach { (ticketTypeName, quantity) ->
-                val ticketType = TicketType.valueOf(ticketTypeName)
+                val ticketType = requireNotNull(ticketTypesByName[ticketTypeName])
                 ReservedTicketTypeRow(
                     ticketType = ticketType,
                     quantity = quantity,
@@ -112,7 +126,7 @@ fun ReservedTicketTypesDialog(
         if (quantities.isNotEmpty()) {
             HorizontalDivider()
         }
-        if (availableTicketTypes.isNotEmpty()) {
+        if (selectableTicketTypes.isNotEmpty()) {
             Box {
                 Button(
                     onClick = { isTicketTypeMenuExpanded = true },
@@ -129,9 +143,9 @@ fun ReservedTicketTypesDialog(
                     expanded = isTicketTypeMenuExpanded,
                     onDismissRequest = { isTicketTypeMenuExpanded = false }
                 ) {
-                    availableTicketTypes.forEach { ticketType ->
+                    selectableTicketTypes.forEach { ticketType ->
                         DropdownMenuItem(
-                            text = { Text(stringResource(ticketType.labelResId)) },
+                            text = { Text(ticketType.displayLabel) },
                             onClick = {
                                 quantities = quantities + (ticketType.name to 1)
                                 isTicketTypeMenuExpanded = false
@@ -157,7 +171,7 @@ private fun ReservedTicketTypeRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = stringResource(ticketType.labelResId),
+            text = ticketType.displayLabel,
             modifier = Modifier.weight(1f),
             fontWeight = FontWeight.Medium
         )
@@ -176,7 +190,7 @@ fun reservedTicketTypesSummary(allocations: List<ReservedTicketAllocation>): Str
     0 -> stringResource(R.string.no_reserved_ticket_types)
     1 -> stringResource(
         R.string.ticket_quantity,
-        stringResource(allocations.single().ticketType.labelResId),
+        allocations.single().ticketType.displayLabel,
         allocations.single().quantity
     )
     else -> {

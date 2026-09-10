@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.AdmissionType
 import fi.tukkateatteri.data.PendingPaymentAllocation
+import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
@@ -29,6 +30,8 @@ import fi.tukkateatteri.ui.components.ReservedTicketTypesSummaryCard
 @Composable
 fun ReservationDialog(
     reservation: Reservation,
+    availableTicketTypes: List<TicketType>,
+    availablePaymentMethods: List<PaymentMethod>,
     onDismiss: () -> Unit,
     onSave: (Reservation) -> Unit,
     onUpdateArrivalCount: (reservationId: Long, arrivalCount: Int) -> Unit,
@@ -54,6 +57,8 @@ fun ReservationDialog(
             maximumQuantity = reservation.unpaidSeatCount,
             reservedTicketAllocations = reservation.reservedTicketAllocations,
             ticketSalesList = reservation.ticketSales,
+            availableTicketTypes = availableTicketTypes,
+            availablePaymentMethods = availablePaymentMethods,
             onDismiss = { showTicketSaleDialog = false },
             onSave = { ticketType, quantity, payments ->
                 onAddTicketSale(ticketType, quantity, payments)
@@ -68,6 +73,8 @@ fun ReservationDialog(
             ticketSale = ticketSale,
             reservedTicketAllocations = reservation.reservedTicketAllocations,
             ticketSalesList = reservation.ticketSales,
+            availableTicketTypes = availableTicketTypes,
+            availablePaymentMethods = availablePaymentMethods,
             onDismiss = { ticketSaleToEditId = null },
             onSave = { ticketType, quantity, payments ->
                 onUpdateTicketSale(ticketSale.id, ticketType, quantity, payments)
@@ -95,6 +102,7 @@ fun ReservationDialog(
     if (showReservationEditor) {
         ReservationEditorDialog(
             reservation = reservation,
+            availableTicketTypes = availableTicketTypes,
             onDismiss = { showReservationEditor = false },
             onSave = { updatedReservation ->
                 onSave(updatedReservation)

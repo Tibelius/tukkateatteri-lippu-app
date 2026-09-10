@@ -30,7 +30,8 @@ data class GoogleSheetImportCandidate(
 
 data class GoogleSheetImportData(
     val candidate: GoogleSheetImportCandidate,
-    val rows: List<ReservationSpreadsheetRow>
+    val rows: List<ReservationSpreadsheetRow>,
+    val schema: SheetColumnSchema
 )
 
 enum class GoogleSheetLockFailure {
@@ -78,7 +79,7 @@ internal class GoogleSheetsClient(
     private val deviceId: String = "Android"
 ) {
     private val localPerformanceLocks = KeyedMutex()
-    private val api = GoogleSheetsApiClient()
+    internal val api = GoogleSheetsApiClient()
 
     private suspend fun loadTabs(
         spreadsheetUrl: String,
@@ -113,6 +114,7 @@ internal class GoogleSheetsClient(
         action: suspend () -> T
     ): T = withContext(Dispatchers.IO) {
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
         val performanceKey = performanceLockKey(spreadsheetId, sheetTitle)
         AppLog.debug(LOG_COMPONENT) { "Waiting for local performance lock; tab=$sheetTitle" }
         localPerformanceLocks.withLock(performanceKey) {
@@ -257,7 +259,7 @@ internal class GoogleSheetsClient(
         AppLog.info(LOG_COMPONENT) { "Starting row export; tab=$sheetTitle, rows=${rows.size}" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val existingRows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
-        val headerRowIndex = existingRows.indexOfFirst { row -> row.any { cell -> cell.normalizedHeader() == HEADER_LAST_NAME } }
+        val headerRowIndex = existingRows.indexOfFirst { row -> row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = api.ensureApplicationHeaders(spreadsheetId, sheetTitle, existingRows, headerRowIndex, accessToken)
         api.requireApplicationHeaders(headers)
@@ -324,10 +326,10 @@ internal class GoogleSheetsClient(
         }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val rows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
-        val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
+        val headerRowIndex = rows.indexOfFirst { row -> row.any { it.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = rows[headerRowIndex]
-            .mapIndexed { index, header -> header.normalizedHeader() to index }
+            .mapIndexed { index, header -> header.canonicalDataHeader() to index }
             .toMap()
         api.requireApplicationHeaders(headers)
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
@@ -368,10 +370,10 @@ internal class GoogleSheetsClient(
         }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         val rows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
-        val headerRowIndex = rows.indexOfFirst { row -> row.any { it.normalizedHeader() == HEADER_LAST_NAME } }
+        val headerRowIndex = rows.indexOfFirst { row -> row.any { it.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = rows[headerRowIndex]
-            .mapIndexed { index, header -> header.normalizedHeader() to index }
+            .mapIndexed { index, header -> header.canonicalDataHeader() to index }
             .toMap()
         val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
             val matchesId = sheetRowId.isNotBlank() &&
@@ -410,21 +412,35 @@ internal class GoogleSheetsClient(
         AppLog.debug(LOG_COMPONENT) {
             "Clearing strikethrough from ${rowNumbers.size} manually managed rows; tab=$sheetTitle"
         }
+        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         api.setRowsStrikethrough(
-            spreadsheetId = spreadsheetUrl.toSpreadsheetId(),
+            spreadsheetId = spreadsheetId,
             sheetTitle = sheetTitle,
             rowNumbers = rowNumbers,
-            lastColumnIndex = SHEET_VALUE_LAST_COLUMN_INDEX,
+            lastColumnIndex = api.loadValues(
+                spreadsheetId,
+                sheetTitle,
+                accessToken
+            ).maxOfOrNull(List<String>::size)?.minus(1)?.coerceAtLeast(0) ?: 0,
             enabled = false,
             accessToken = accessToken
         )
     }
 
-    suspend fun loadImportData(spreadsheetUrl: String, accessToken: String): List<GoogleSheetImportData> =
-        loadTabs(spreadsheetUrl, accessToken)
+    suspend fun loadImportData(
+        spreadsheetUrl: String,
+        accessToken: String,
+        localAliases: Map<String, StoredSheetAlias> = emptyMap()
+    ): List<GoogleSheetImportData> = withContext(Dispatchers.IO) {
+        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val tabs = loadTabs(spreadsheetUrl, accessToken)
+        val storedAliases = tabs.firstOrNull { it.title == APPLICATION_SHEET_TITLE }
+            ?.storedAliases().orEmpty() + localAliases
+        return@withContext tabs
             .mapNotNull { tab ->
                 tab.toImportCandidateOrNull()?.let { candidate ->
-                    parseImportData(tab, candidate)
+                    parseImportData(tab, candidate, storedAliases)
                 }
             }
             .sortedWith(
@@ -436,23 +452,35 @@ internal class GoogleSheetsClient(
                     "Parsed importable spreadsheet data; performances=${imported.size}, rows=${imported.sumOf { it.rows.size }}"
                 }
             }
+    }
 
     suspend fun loadImportDataForTab(
         spreadsheetUrl: String,
         accessToken: String,
-        sheetTitle: String
+        sheetTitle: String,
+        localAliases: Map<String, StoredSheetAlias> = emptyMap()
     ): GoogleSheetImportData = withContext(Dispatchers.IO) {
         val startedAt = System.nanoTime()
         AppLog.debug(LOG_COMPONENT) { "Loading import data for tab=$sheetTitle" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val values = api.loadValuesForTabs(
+            spreadsheetId,
+            listOf(sheetTitle, APPLICATION_SHEET_TITLE),
+            accessToken
+        )
         val tab = GoogleSheetTab(
             title = sheetTitle,
-            rows = api.loadValuesForTabs(spreadsheetId, listOf(sheetTitle), accessToken).getValue(sheetTitle)
+            rows = values.getValue(sheetTitle)
         )
+        val storedAliases = GoogleSheetTab(
+            title = APPLICATION_SHEET_TITLE,
+            rows = values.getValue(APPLICATION_SHEET_TITLE)
+        ).storedAliases() + localAliases
         val candidate = requireNotNull(tab.toImportCandidateOrNull()) {
             "Välilehdeltä puuttuu Esitys: tai Pvm: -tieto."
         }
-        parseImportData(tab, candidate).also { data ->
+        parseImportData(tab, candidate, storedAliases).also { data ->
             AppLog.info(LOG_COMPONENT) {
                 "Loaded import data; tab=$sheetTitle, rows=${data.rows.size}, " +
                     "durationMs=${AppLog.elapsedMillis(startedAt)}"
@@ -462,21 +490,25 @@ internal class GoogleSheetsClient(
 
     private fun parseImportData(
         tab: GoogleSheetTab,
-        candidate: GoogleSheetImportCandidate
+        candidate: GoogleSheetImportCandidate,
+        storedAliases: Map<String, StoredSheetAlias>
     ): GoogleSheetImportData {
-        val rows = tab.toReservationSpreadsheetRows(candidate)
+        val schema = tab.toColumnSchema(storedAliases)
+        val rows = tab.toReservationSpreadsheetRows(candidate, schema)
         val invalidMetadataCount = rows.count {
             it.applicationMutationMetadataState == ApplicationMutationMetadataState.INVALID
         }
         AppLog.debug(LOG_COMPONENT) {
-            "Parsed performance tab=${tab.title}; rows=${rows.size}, invalidMetadata=$invalidMetadataCount"
+            "Parsed performance tab=${tab.title}; rows=${rows.size}, invalidMetadata=$invalidMetadataCount, " +
+                "tickets=${schema.ticketTypes.joinToString { it.displayLabel }}, " +
+                "payments=${schema.paymentMethods.joinToString { it.label }}"
         }
         if (invalidMetadataCount > 0) {
             AppLog.warning(LOG_COMPONENT) {
                 "Found $invalidMetadataCount rows with incomplete or invalid app metadata; tab=${tab.title}"
             }
         }
-        return GoogleSheetImportData(candidate, rows)
+        return GoogleSheetImportData(candidate, rows, schema)
     }
 
     private fun removeExpiredLocks(
@@ -562,6 +594,5 @@ internal class GoogleSheetsClient(
         const val LOCK_DURATION_SECONDS = 30L
         const val LOCK_RENEWAL_INTERVAL_MILLIS = 10_000L
         const val HARD_DELETE_FROM_SHEET = false
-        const val SHEET_VALUE_LAST_COLUMN_INDEX = 25
     }
 }

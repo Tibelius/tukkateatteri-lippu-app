@@ -45,7 +45,7 @@ fun ReservationWithTicketSales.toReservation() = Reservation(
     admissionType = reservation.admissionType,
     arrivalCount = reservation.arrivalCount,
     reservedTicketAllocations = reservedTicketAllocations
-        .sortedBy { allocation -> allocation.ticketType.ordinal }
+        .sortedBy { allocation -> allocation.ticketType.sortOrder }
         .map { allocation ->
             ReservedTicketAllocation(
                 ticketType = allocation.ticketType,

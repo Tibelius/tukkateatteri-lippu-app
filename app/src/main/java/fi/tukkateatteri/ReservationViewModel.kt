@@ -20,6 +20,9 @@ import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetLockedException
+import fi.tukkateatteri.data.spreadsheet.SheetFieldClassification
+import fi.tukkateatteri.data.spreadsheet.SheetFieldMapping
+import fi.tukkateatteri.data.spreadsheet.UnmappedSheetColumnsException
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
 import fi.tukkateatteri.logging.toPaymentLogSummary
@@ -54,6 +57,8 @@ class ReservationViewModel(
     private val addedReservationIdsChannel = Channel<Long>(Channel.BUFFERED)
     private val _transferMessage = MutableStateFlow<UiMessage?>(null)
     private val _isTransferInProgress = MutableStateFlow(false)
+    private val _sheetMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
+    private var pendingMappingOperation: PendingMappingOperation? = null
     private var activeTransferCount = 0
 
     val performances: StateFlow<List<Performance>> = reservationRepository.performances.stateIn(
@@ -85,9 +90,20 @@ class ReservationViewModel(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = emptyList()
     )
+    val availableTicketTypes: StateFlow<List<TicketType>> = reservationRepository.availableTicketTypes.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = TicketType.entries.filterNot { it == TicketType.UNSPECIFIED }
+    )
+    val availablePaymentMethods = reservationRepository.availablePaymentMethods.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = fi.tukkateatteri.data.PaymentMethod.entries
+    )
     val addedReservationIds = addedReservationIdsChannel.receiveAsFlow()
     val transferMessage: StateFlow<UiMessage?> = _transferMessage
     val isTransferInProgress: StateFlow<Boolean> = _isTransferInProgress
+    val sheetMappingRequest: StateFlow<SheetMappingRequest?> = _sheetMappingRequest
 
     private fun launchTrackedOperation(operation: String, action: suspend () -> Unit) {
         viewModelScope.launch {
@@ -269,12 +285,63 @@ class ReservationViewModel(
             } catch (exception: NoGoogleSheetImportCandidatesException) {
                 AppLog.warning(LOG_COMPONENT, exception) { "Spreadsheet contained no importable performances" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_no_import_candidates)
+            } catch (exception: UnmappedSheetColumnsException) {
+                AppLog.info(LOG_COMPONENT) { "Import needs ${exception.headers.size} column classifications" }
+                requestSheetFieldMappings(exception, spreadsheetUrl, accessToken) {
+                    val result = reservationRepository.importGoogleSheet(spreadsheetUrl, accessToken)
+                    _transferMessage.value = UiMessage.Plural(
+                        R.plurals.google_sheets_import_succeeded,
+                        result.performanceCount,
+                        listOf(result.performanceCount, result.reservationCount)
+                    )
+                }
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
                 AppLog.error(LOG_COMPONENT, exception) { "Spreadsheet import failed" }
                 _transferMessage.value = UiMessage.Text(R.string.google_sheets_import_failed)
             }
         }
+    }
+
+    fun applySheetFieldMappings(mappings: Map<String, SheetFieldClassification>) {
+        val pending = pendingMappingOperation ?: return
+        _sheetMappingRequest.value = null
+        pendingMappingOperation = null
+        launchTrackedOperation("save Sheet field mappings") {
+            try {
+                reservationRepository.saveSheetFieldMappings(
+                    pending.spreadsheetUrl,
+                    pending.accessToken,
+                    mappings.map { (header, classification) -> SheetFieldMapping(header, classification) }
+                )
+                pending.retry()
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
+                AppLog.error(LOG_COMPONENT, exception) { "Saving field mappings or retrying the original operation failed" }
+                _transferMessage.value = UiMessage.Text(pending.failureMessageResId)
+            }
+        }
+    }
+
+    fun dismissSheetMappingRequest() {
+        pendingMappingOperation = null
+        _sheetMappingRequest.value = null
+    }
+
+    private fun requestSheetFieldMappings(
+        exception: UnmappedSheetColumnsException,
+        spreadsheetUrl: String,
+        accessToken: String,
+        failureMessageResId: Int = R.string.google_sheets_import_failed,
+        retry: suspend () -> Unit
+    ) {
+        pendingMappingOperation = PendingMappingOperation(
+            spreadsheetUrl = spreadsheetUrl,
+            accessToken = accessToken,
+            failureMessageResId = failureMessageResId,
+            retry = retry
+        )
+        _sheetMappingRequest.value = SheetMappingRequest(exception.headers)
     }
 
     fun syncGoogleSheetPerformance(
@@ -308,6 +375,26 @@ class ReservationViewModel(
                 if (showError) {
                     _transferMessage.value = UiMessage.Text(R.string.google_sheets_performance_locked)
                 }
+            } catch (exception: UnmappedSheetColumnsException) {
+                AppLog.info(LOG_COMPONENT) {
+                    "Performance synchronization needs ${exception.headers.size} column classifications; " +
+                        "performanceId=$performanceId"
+                }
+                requestSheetFieldMappings(
+                    exception = exception,
+                    spreadsheetUrl = spreadsheetUrl,
+                    accessToken = accessToken,
+                    failureMessageResId = R.string.google_sheets_sync_failed
+                ) {
+                    val rowCount = reservationRepository.syncGoogleSheetPerformance(
+                        performanceId,
+                        spreadsheetUrl,
+                        accessToken
+                    )
+                    AppLog.info(LOG_COMPONENT) {
+                        "Synchronized performanceId=$performanceId after field classification; receivedRows=$rowCount"
+                    }
+                }
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
                 AppLog.error(LOG_COMPONENT, exception) {
@@ -335,6 +422,20 @@ class ReservationViewModel(
                             spreadsheetUrl = spreadsheetUrl,
                             accessToken = accessToken
                         )
+                    } catch (exception: UnmappedSheetColumnsException) {
+                        AppLog.info(LOG_COMPONENT) {
+                            "Performance batch synchronization needs ${exception.headers.size} column classifications; " +
+                                "performanceId=${performance.id}"
+                        }
+                        requestSheetFieldMappings(
+                            exception = exception,
+                            spreadsheetUrl = spreadsheetUrl,
+                            accessToken = accessToken,
+                            failureMessageResId = R.string.google_sheets_sync_failed
+                        ) {
+                            syncGoogleSheetPerformances(performances, spreadsheetUrl, accessToken)
+                        }
+                        return@launchTrackedOperation
                     } catch (exception: Exception) {
                         exception.rethrowIfCancellation()
                         AppLog.error(LOG_COMPONENT, exception) {
@@ -405,6 +506,15 @@ class ReservationViewModel(
         private const val STOP_TIMEOUT_MILLIS = 5_000L
     }
 }
+
+data class SheetMappingRequest(val headers: List<String>)
+
+private data class PendingMappingOperation(
+    val spreadsheetUrl: String,
+    val accessToken: String,
+    @StringRes val failureMessageResId: Int,
+    val retry: suspend () -> Unit
+)
 
 private fun Exception.rethrowIfCancellation() {
     if (this is CancellationException) throw this

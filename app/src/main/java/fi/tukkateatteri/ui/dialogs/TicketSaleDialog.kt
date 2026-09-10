@@ -40,6 +40,8 @@ fun TicketSaleDialog(
     ticketSale: TicketSale? = null,
     reservedTicketAllocations: List<ReservedTicketAllocation> = emptyList(),
     ticketSalesList: List<TicketSale> = emptyList(),
+    availableTicketTypes: List<TicketType> = TicketType.entries.filterNot { it == TicketType.UNSPECIFIED },
+    availablePaymentMethods: List<PaymentMethod> = PaymentMethod.entries,
     onDismiss: () -> Unit,
     onSave: (TicketType, Int, List<PendingPaymentAllocation>) -> Unit,
     onDelete: (() -> Unit)? = null
@@ -90,11 +92,16 @@ fun TicketSaleDialog(
     var ticketTypeName by rememberSaveable(ticketSale?.id) {
         mutableStateOf(initialTicketType.name)
     }
-    val ticketType = TicketType.valueOf(ticketTypeName)
+    val ticketOptions = (availableTicketTypes + listOfNotNull(ticketSale?.ticketType)).distinctBy(TicketType::name)
+    val ticketType = ticketOptions.firstOrNull { it.name == ticketTypeName } ?: ticketOptions.first()
     val totalPriceCents = ticketType.defaultPriceCents * quantity
-    val selectedPayment = selectedPaymentName?.let(PaymentMethod::valueOf)
-    val firstSplitMethod = PaymentMethod.valueOf(firstSplitMethodName)
-    val secondSplitMethod = PaymentMethod.valueOf(secondSplitMethodName)
+    val paymentOptions = (availablePaymentMethods + ticketSale?.payments.orEmpty().map { it.method })
+        .distinctBy(PaymentMethod::name)
+        .ifEmpty { PaymentMethod.entries }
+    val splitPaymentOptions = paymentOptions.filter(PaymentMethod::allowsSplitPayment)
+    val selectedPayment = selectedPaymentName?.let { name -> paymentOptions.firstOrNull { it.name == name } }
+    val firstSplitMethod = paymentOptions.firstOrNull { it.name == firstSplitMethodName } ?: paymentOptions.first()
+    val secondSplitMethod = paymentOptions.firstOrNull { it.name == secondSplitMethodName } ?: paymentOptions.last()
     val firstSplitCents = firstSplitAmount.toEuroCentsOrNull()
     val secondSplitCents = secondSplitAmount.toEuroCentsOrNull()
     val payments = when {
@@ -111,8 +118,8 @@ fun TicketSaleDialog(
             payments.sumOf(PendingPaymentAllocation::amountCents) == totalPriceCents &&
             (!isSplitPayment || (
                 firstSplitMethod != secondSplitMethod &&
-                    firstSplitMethod != PaymentMethod.LIPPUAGENTTI &&
-                    secondSplitMethod != PaymentMethod.LIPPUAGENTTI
+                    firstSplitMethod.allowsSplitPayment &&
+                    secondSplitMethod.allowsSplitPayment
                 ))
         )
 
@@ -157,7 +164,8 @@ fun TicketSaleDialog(
             onSelected = { option ->
                 ticketTypeName = option.name
                 isTicketTypeMenuExpanded = false
-            }
+            },
+            options = ticketOptions
         )
         SeatCountSelector(
             seatCount = quantity,
@@ -184,20 +192,26 @@ fun TicketSaleDialog(
                     onFirstAmountChange = { firstSplitAmount = it },
                     onSecondAmountChange = { secondSplitAmount = it },
                     isPaymentValid = isPaymentValid,
-                    onUseSinglePayment = { isSplitPayment = false }
+                    onUseSinglePayment = { isSplitPayment = false },
+                    paymentMethods = splitPaymentOptions
                 )
             } else {
                 PaymentMethodSelector(
                     selectedPayment = selectedPayment,
+                    paymentMethods = paymentOptions,
                     onPaymentSelected = { method -> selectedPaymentName = method.name }
                 )
-                TextButton(onClick = { isSplitPayment = true }) {
-                    Text(stringResource(R.string.split_payment))
+                if (splitPaymentOptions.size >= MINIMUM_SPLIT_PAYMENT_METHODS) {
+                    TextButton(onClick = { isSplitPayment = true }) {
+                        Text(stringResource(R.string.split_payment))
+                    }
                 }
             }
         }
     }
 }
+
+private const val MINIMUM_SPLIT_PAYMENT_METHODS = 2
 
 @Composable
 private fun TicketTypeDropdown(
@@ -205,18 +219,19 @@ private fun TicketTypeDropdown(
     expanded: Boolean,
     onExpand: () -> Unit,
     onDismiss: () -> Unit,
-    onSelected: (TicketType) -> Unit
+    onSelected: (TicketType) -> Unit,
+    options: List<TicketType>
 ) {
     Box {
         Button(onClick = onExpand, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(selectedTicketType.labelResId))
+            Text(selectedTicketType.displayLabel)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-            TicketType.entries
+            options
                 .filterNot { it == TicketType.UNSPECIFIED }
                 .forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(stringResource(option.labelResId)) },
+                        text = { Text(option.displayLabel) },
                         onClick = { onSelected(option) }
                     )
                 }
@@ -235,19 +250,22 @@ private fun SplitPaymentFields(
     onFirstAmountChange: (String) -> Unit,
     onSecondAmountChange: (String) -> Unit,
     isPaymentValid: Boolean,
-    onUseSinglePayment: () -> Unit
+    onUseSinglePayment: () -> Unit,
+    paymentMethods: List<PaymentMethod> = PaymentMethod.entries
 ) {
     Text(stringResource(R.string.split_payment), style = MaterialTheme.typography.titleMedium)
     PaymentMethodDropdown(
         selected = firstMethod,
         excludedMethod = secondMethod,
-        onSelected = onFirstMethodSelected
+        onSelected = onFirstMethodSelected,
+        options = paymentMethods
     )
     PaymentAmountField(value = firstAmount, onValueChange = onFirstAmountChange)
     PaymentMethodDropdown(
         selected = secondMethod,
         excludedMethod = firstMethod,
-        onSelected = onSecondMethodSelected
+        onSelected = onSecondMethodSelected,
+        options = paymentMethods
     )
     PaymentAmountField(value = secondAmount, onValueChange = onSecondAmountChange)
     if (!isPaymentValid) {
@@ -265,21 +283,22 @@ private fun SplitPaymentFields(
 private fun PaymentMethodDropdown(
     selected: PaymentMethod,
     excludedMethod: PaymentMethod,
-    onSelected: (PaymentMethod) -> Unit
+    onSelected: (PaymentMethod) -> Unit,
+    options: List<PaymentMethod>
 ) {
     var expanded by rememberSaveable(selected) { mutableStateOf(false) }
     Box {
         Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(selected.labelResId))
+            Text(selected.label)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            PaymentMethod.entries
+            options
                 .filterNot { method ->
-                    method == excludedMethod || method == PaymentMethod.LIPPUAGENTTI
+                    method == excludedMethod || !method.allowsSplitPayment
                 }
                 .forEach { method ->
                     DropdownMenuItem(
-                        text = { Text(stringResource(method.labelResId)) },
+                        text = { Text(method.label) },
                         onClick = {
                             onSelected(method)
                             expanded = false

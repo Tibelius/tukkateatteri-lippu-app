@@ -15,6 +15,33 @@ internal class GoogleSheetsApiClient {
             accessToken = accessToken
         )
 
+    fun ensureApplicationSheet(spreadsheetId: String, accessToken: String) {
+        val metadata = loadSpreadsheetMetadata(spreadsheetId, accessToken)
+        val sheets = metadata.getJSONArray("sheets")
+        val exists = (0 until sheets.length()).any { index ->
+            sheets.getJSONObject(index).getJSONObject("properties").getString("title") == APPLICATION_SHEET_TITLE
+        }
+        if (!exists) {
+            AppLog.info(LOG_COMPONENT) { "Creating app-managed spreadsheet tab '$APPLICATION_SHEET_TITLE'" }
+            val request = JSONObject().put(
+                "requests",
+                JSONArray().put(
+                    JSONObject().put(
+                        "addSheet",
+                        JSONObject().put("properties", JSONObject().put("title", APPLICATION_SHEET_TITLE))
+                    )
+                )
+            )
+            sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
+        }
+        val headers = REQUIRED_ALIAS_HEADERS.mapIndexed { index, header ->
+            SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, index, 1), header)
+        } + REQUIRED_LOCK_HEADERS.mapIndexed { index, header ->
+            SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, LOCK_TABLE_START_COLUMN + index, 1), header)
+        }
+        updateCells(spreadsheetId, accessToken, headers)
+    }
+
     fun loadValues(spreadsheetId: String, title: String, accessToken: String): List<List<String>> {
         val range = URLEncoder.encode(valuesRange(title), Charsets.UTF_8.name())
         val response = getJson("$API_BASE/spreadsheets/$spreadsheetId/values/$range", accessToken)
@@ -50,7 +77,7 @@ internal class GoogleSheetsApiClient {
     }
 
     private fun valuesRange(sheetTitle: String): String =
-        "${sheetTitle.toQuotedSheetName()}!$SHEET_VALUE_COLUMNS"
+        sheetTitle.toQuotedSheetName()
 
     private fun getJson(url: String, accessToken: String): JSONObject {
         val operation = url.toApiOperation()
@@ -91,7 +118,7 @@ internal class GoogleSheetsApiClient {
         headerRowIndex: Int,
         accessToken: String
     ): Map<String, Int> {
-        val headers = rows[headerRowIndex].mapIndexed { index, header -> header.normalizedHeader() to index }.toMap().toMutableMap()
+        val headers = rows[headerRowIndex].mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap().toMutableMap()
         if (HEADER_SHEET_ROW_ID !in headers) {
             val columnIndex = (headers.values.maxOrNull() ?: -1) + 1
             AppLog.info(LOG_COMPONENT) {
@@ -389,7 +416,6 @@ internal class GoogleSheetsApiClient {
         const val HTTP_GET = "GET"
         const val HTTP_POST = "POST"
         const val SHEET_DIMENSION_ROWS = "ROWS"
-        const val SHEET_VALUE_COLUMNS = "A:Z"
         val HTTP_SUCCESS_CODES = 200..299
     }
 }

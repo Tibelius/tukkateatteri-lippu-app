@@ -56,28 +56,41 @@ private fun String.decoded(): String = String(Base64.getUrlDecoder().decode(this
 
 private fun Map<TicketType, Int>.encodedTicketTypeCounts(): String = entries
     .sortedBy { (type, _) -> type.name }
-    .joinToString(SNAPSHOT_COUNT_SEPARATOR) { (type, quantity) -> "${type.name}=$quantity" }
+    .joinToString(SNAPSHOT_COUNT_SEPARATOR) { (type, quantity) ->
+        listOf(type.name, type.label, type.defaultPriceCents, type.sortOrder)
+            .joinToString(SNAPSHOT_CONFIG_SEPARATOR)
+            .encoded() + ":$quantity"
+    }
 
 private fun Map<PaymentMethod, Int>.encodedPaymentMethodCounts(): String = entries
     .sortedBy { (method, _) -> method.name }
-    .joinToString(SNAPSHOT_COUNT_SEPARATOR) { (method, quantity) -> "${method.name}=$quantity" }
+    .joinToString(SNAPSHOT_COUNT_SEPARATOR) { (method, quantity) ->
+        listOf(method.name, method.label, method.allowsSplitPayment, method.sortOrder)
+            .joinToString(SNAPSHOT_CONFIG_SEPARATOR)
+            .encoded() + ":$quantity"
+    }
 
-private fun String.toTicketTypeCounts(): Map<TicketType, Int> = countPairs().mapNotNull { (name, quantity) ->
-    TicketType.entries.find { it.name == name }?.let { it to quantity }
+private fun String.toTicketTypeCounts(): Map<TicketType, Int> = configCountPairs().mapNotNull { (encoded, quantity) ->
+    val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+    if (values.size != 4) return@mapNotNull null
+    TicketType(values[0], values[1], values[2].toInt(), values[3].toInt()) to quantity
 }.toMap()
 
-private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = countPairs().mapNotNull { (name, quantity) ->
-    PaymentMethod.entries.find { it.name == name }?.let { it to quantity }
+private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = configCountPairs().mapNotNull { (encoded, quantity) ->
+    val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+    if (values.size != 4) return@mapNotNull null
+    PaymentMethod(values[0], values[1], values[2].toBoolean(), values[3].toInt()) to quantity
 }.toMap()
 
-private fun String.countPairs(): List<Pair<String, Int>> = takeIf(String::isNotBlank)
+private fun String.configCountPairs(): List<Pair<String, Int>> = takeIf(String::isNotBlank)
     ?.split(SNAPSHOT_COUNT_SEPARATOR)
     ?.map { entry ->
-        val (name, quantity) = entry.split("=", limit = 2)
-        name to quantity.toInt()
+        val (encoded, quantity) = entry.split(":", limit = 2)
+        encoded to quantity.toInt()
     }
     .orEmpty()
 
 private const val SNAPSHOT_FIELD_SEPARATOR = "|"
 private const val SNAPSHOT_COUNT_SEPARATOR = ","
+private const val SNAPSHOT_CONFIG_SEPARATOR = "\u001F"
 private const val SNAPSHOT_FIELD_COUNT = 10
