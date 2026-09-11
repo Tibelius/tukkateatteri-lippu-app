@@ -1,0 +1,625 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 14,
+    "identityHash": "f642923352ced08295e876de87bf3c51",
+    "entities": [
+      {
+        "tableName": "reservations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `performance_id` INTEGER NOT NULL, `last_name` TEXT NOT NULL, `first_name` TEXT NOT NULL, `contact` TEXT NOT NULL, `seat_count` INTEGER NOT NULL, `notes` TEXT NOT NULL, `source_identity` TEXT NOT NULL, `sheet_row_id` TEXT NOT NULL, `sync_state` TEXT NOT NULL, `admission_type` TEXT NOT NULL, `arrival_count` INTEGER NOT NULL, `is_present` INTEGER NOT NULL, `payment_method` TEXT, FOREIGN KEY(`performance_id`) REFERENCES `performances`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "performanceId",
+            "columnName": "performance_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastName",
+            "columnName": "last_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstName",
+            "columnName": "first_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contact",
+            "columnName": "contact",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seatCount",
+            "columnName": "seat_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceIdentity",
+            "columnName": "source_identity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sheetRowId",
+            "columnName": "sheet_row_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncState",
+            "columnName": "sync_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "admissionType",
+            "columnName": "admission_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "arrivalCount",
+            "columnName": "arrival_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPresent",
+            "columnName": "is_present",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethod",
+            "columnName": "payment_method",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_reservations_source_identity",
+            "unique": false,
+            "columnNames": [
+              "source_identity"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_reservations_source_identity` ON `${TABLE_NAME}` (`source_identity`)"
+          },
+          {
+            "name": "index_reservations_sheet_row_id",
+            "unique": false,
+            "columnNames": [
+              "sheet_row_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_reservations_sheet_row_id` ON `${TABLE_NAME}` (`sheet_row_id`)"
+          },
+          {
+            "name": "index_reservations_performance_id",
+            "unique": false,
+            "columnNames": [
+              "performance_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_reservations_performance_id` ON `${TABLE_NAME}` (`performance_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "performances",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "performance_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ticket_sales",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `reservation_id` INTEGER NOT NULL, `ticket_type` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `unit_price_cents` INTEGER NOT NULL, `origin` TEXT NOT NULL, `counts_as_arrival` INTEGER NOT NULL, FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reservationId",
+            "columnName": "reservation_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ticketType",
+            "columnName": "ticket_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitPriceCents",
+            "columnName": "unit_price_cents",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "countsAsArrival",
+            "columnName": "counts_as_arrival",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ticket_sales_reservation_id",
+            "unique": false,
+            "columnNames": [
+              "reservation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ticket_sales_reservation_id` ON `${TABLE_NAME}` (`reservation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "reservations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "reservation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "payment_allocations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `ticket_sale_id` INTEGER NOT NULL, `payment_method` TEXT NOT NULL, `amount_cents` INTEGER NOT NULL, `zettle_successful` INTEGER NOT NULL, FOREIGN KEY(`ticket_sale_id`) REFERENCES `ticket_sales`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ticketSaleId",
+            "columnName": "ticket_sale_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethod",
+            "columnName": "payment_method",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amountCents",
+            "columnName": "amount_cents",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zettleSuccessful",
+            "columnName": "zettle_successful",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_payment_allocations_ticket_sale_id",
+            "unique": false,
+            "columnNames": [
+              "ticket_sale_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_payment_allocations_ticket_sale_id` ON `${TABLE_NAME}` (`ticket_sale_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "ticket_sales",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "ticket_sale_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "reserved_ticket_allocations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`reservation_id` INTEGER NOT NULL, `ticket_type` TEXT NOT NULL, `quantity` INTEGER NOT NULL, PRIMARY KEY(`reservation_id`, `ticket_type`), FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "reservationId",
+            "columnName": "reservation_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ticketType",
+            "columnName": "ticket_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "reservation_id",
+            "ticket_type"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_reserved_ticket_allocations_reservation_id",
+            "unique": false,
+            "columnNames": [
+              "reservation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_reserved_ticket_allocations_reservation_id` ON `${TABLE_NAME}` (`reservation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "reservations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "reservation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "google_sheet_sources",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`actName` TEXT NOT NULL, `spreadsheetUrl` TEXT NOT NULL, PRIMARY KEY(`actName`))",
+        "fields": [
+          {
+            "fieldPath": "actName",
+            "columnName": "actName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spreadsheetUrl",
+            "columnName": "spreadsheetUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "actName"
+          ]
+        }
+      },
+      {
+        "tableName": "performances",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `act_name` TEXT NOT NULL, `performance_date` TEXT NOT NULL, `is_active` INTEGER NOT NULL, `source_sheet_title` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actName",
+            "columnName": "act_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "performance_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceSheetTitle",
+            "columnName": "source_sheet_title",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_performances_act_name_performance_date",
+            "unique": true,
+            "columnNames": [
+              "act_name",
+              "performance_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_performances_act_name_performance_date` ON `${TABLE_NAME}` (`act_name`, `performance_date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "pending_sheet_changes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `reservation_id` INTEGER NOT NULL, `performance_id` INTEGER NOT NULL, `operation` TEXT NOT NULL, `base_row_json` TEXT, `desired_row_json` TEXT, `status` TEXT NOT NULL, `last_error` TEXT NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`reservation_id`) REFERENCES `reservations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reservationId",
+            "columnName": "reservation_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "performanceId",
+            "columnName": "performance_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseRowJson",
+            "columnName": "base_row_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "desiredRowJson",
+            "columnName": "desired_row_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pending_sheet_changes_performance_id",
+            "unique": false,
+            "columnNames": [
+              "performance_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_sheet_changes_performance_id` ON `${TABLE_NAME}` (`performance_id`)"
+          },
+          {
+            "name": "index_pending_sheet_changes_reservation_id",
+            "unique": true,
+            "columnNames": [
+              "reservation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_pending_sheet_changes_reservation_id` ON `${TABLE_NAME}` (`reservation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "reservations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "reservation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "sheet_field_definitions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`spreadsheet_url` TEXT NOT NULL, `normalized_header` TEXT NOT NULL, `kind` TEXT NOT NULL, `identifier` TEXT NOT NULL, `label` TEXT NOT NULL, `price_cents` INTEGER, `allows_split_payment` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, `active` INTEGER NOT NULL, PRIMARY KEY(`spreadsheet_url`, `normalized_header`))",
+        "fields": [
+          {
+            "fieldPath": "spreadsheetUrl",
+            "columnName": "spreadsheet_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedHeader",
+            "columnName": "normalized_header",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identifier",
+            "columnName": "identifier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priceCents",
+            "columnName": "price_cents",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "allowsSplitPayment",
+            "columnName": "allows_split_payment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sort_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "active",
+            "columnName": "active",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "spreadsheet_url",
+            "normalized_header"
+          ]
+        }
+      },
+      {
+        "tableName": "sheet_field_aliases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`normalizedAlias` TEXT NOT NULL, `kind` TEXT NOT NULL, `label` TEXT NOT NULL, `allowsSplitPayment` INTEGER NOT NULL, PRIMARY KEY(`normalizedAlias`))",
+        "fields": [
+          {
+            "fieldPath": "normalizedAlias",
+            "columnName": "normalizedAlias",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allowsSplitPayment",
+            "columnName": "allowsSplitPayment",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "normalizedAlias"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f642923352ced08295e876de87bf3c51')"
+    ]
+  }
+}

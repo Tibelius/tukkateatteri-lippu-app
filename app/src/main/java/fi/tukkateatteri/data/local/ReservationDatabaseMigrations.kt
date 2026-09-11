@@ -335,6 +335,15 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         }
     }
 
+    private val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE payment_allocations " +
+                    "ADD COLUMN zettle_successful INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -347,6 +356,7 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         MIGRATION_9_10,
         MIGRATION_10_11,
         MIGRATION_11_12,
-        MIGRATION_12_13
+        MIGRATION_12_13,
+        MIGRATION_13_14
     )
 }

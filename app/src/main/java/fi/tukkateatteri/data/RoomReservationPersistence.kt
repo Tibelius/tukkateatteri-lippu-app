@@ -24,6 +24,11 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
     var updatedCount = 0
     var skippedCount = 0
     rows.forEach { row ->
+        val isDoorSale = row.isDoorSale
+        val admissionType = if (isDoorSale) AdmissionType.DOOR_SALE else AdmissionType.RESERVATION
+        val storedLastName = row.lastName.takeUnless { isDoorSale }.orEmpty().trim()
+        val storedFirstName = row.firstName.takeUnless { isDoorSale }.orEmpty().trim()
+        val storedArrivalCount = if (isDoorSale) row.reservedSeatCount else row.arrivalCount
         val existingReservation = if (row.sheetRowId.isNotBlank()) {
             reservationDao.findBySheetRowId(row.sheetRowId)
         } else {
@@ -53,17 +58,17 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
         val reservationId = existingReservation?.id ?: reservationDao.insert(
             ReservationEntity(
                 performanceId = performanceId,
-                lastName = row.lastName.trim(),
-                firstName = row.firstName.trim(),
+                lastName = storedLastName,
+                firstName = storedFirstName,
                 contact = row.contact.trim(),
                 seatCount = row.reservedSeatCount,
                 notes = row.notes,
                 sourceIdentity = row.sourceIdentity,
                 sheetRowId = row.sheetRowId,
                 syncState = ReservationSyncState.SYNCED,
-                admissionType = AdmissionType.RESERVATION,
-                arrivalCount = row.arrivalCount,
-                isPresent = row.arrivalCount > 0
+                admissionType = admissionType,
+                arrivalCount = storedArrivalCount,
+                isPresent = storedArrivalCount > 0
             )
         ).also {
             insertedCount += 1
@@ -72,16 +77,17 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
         if (existingReservation != null) {
             reservationDao.update(
                 existingReservation.copy(
-                    lastName = row.lastName.trim(),
-                    firstName = row.firstName.trim(),
+                    lastName = storedLastName,
+                    firstName = storedFirstName,
                     contact = row.contact.trim(),
                     seatCount = row.reservedSeatCount,
                     notes = row.notes,
                     sourceIdentity = row.sourceIdentity.ifBlank { existingReservation.sourceIdentity },
                     sheetRowId = row.sheetRowId.ifBlank { existingReservation.sheetRowId },
                     syncState = ReservationSyncState.SYNCED,
-                    arrivalCount = row.arrivalCount,
-                    isPresent = row.arrivalCount > 0
+                    admissionType = admissionType,
+                    arrivalCount = storedArrivalCount,
+                    isPresent = storedArrivalCount > 0
                 )
             )
             updatedCount += 1
@@ -136,7 +142,7 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                             quantity = sale.quantity,
                             unitPriceCents = sale.unitPriceCents,
                             origin = TicketSaleOrigin.IMPORTED,
-                            countsAsArrival = false
+                            countsAsArrival = isDoorSale
                         )
                     )
                     reservationDao.insertPaymentAllocations(
@@ -243,7 +249,8 @@ internal suspend fun RoomReservationRepository.replacePaymentAllocations(
             PaymentAllocationEntity(
                 ticketSaleId = ticketSaleId,
                 paymentMethod = payment.method,
-                amountCents = payment.amountCents
+                amountCents = payment.amountCents,
+                zettleSuccessful = payment.zettleSuccessful
             )
         }
     )
@@ -271,10 +278,7 @@ internal fun RoomReservationRepository.validateTicketSale(
     require(payments.all { payment -> payment.amountCents >= 0 }) {
         "Payment amounts must not be negative."
     }
-    require(
-        payments.sumOf(PendingPaymentAllocation::amountCents) ==
-            ticketType.defaultPriceCents * quantity
-    ) {
-        "Payment total must match the ticket price."
+    require(payments.sumOf(PendingPaymentAllocation::amountCents) <= ticketType.defaultPriceCents * quantity) {
+        "Payment total must not exceed the ticket price."
     }
 }

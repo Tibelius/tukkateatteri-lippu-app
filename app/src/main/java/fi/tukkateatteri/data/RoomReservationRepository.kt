@@ -3,11 +3,13 @@ package fi.tukkateatteri.data
 import androidx.room.withTransaction
 import fi.tukkateatteri.data.local.GoogleSheetSourceDao
 import fi.tukkateatteri.data.local.PendingSheetChangeDao
+import fi.tukkateatteri.data.local.PaymentAllocationEntity
 import fi.tukkateatteri.data.local.PerformanceDao
 import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDao
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
+import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.SheetFieldDefinitionDao
 import fi.tukkateatteri.data.local.SheetFieldAliasDao
 import fi.tukkateatteri.data.local.toAliasEntities
@@ -192,11 +194,11 @@ internal class RoomReservationRepository(
                         reservationDao.getWithTicketSalesById(reservation.id)
                     )
                     val existingEntity = existingReservation.reservation
-                    val existingPaidSeatCount = existingReservation.toReservation().paidSeatCount
+                    val existingRecordedSaleSeatCount = existingReservation.toReservation().recordedSaleSeatCount
                     require(
                         reservation.seatCount >= maxOf(
                             existingEntity.arrivalCount,
-                            existingPaidSeatCount
+                            existingRecordedSaleSeatCount
                         )
                     ) {
                         "Seat count must not be lower than arrived or redeemed tickets."
@@ -257,7 +259,7 @@ internal class RoomReservationRepository(
                         reservationDao.getWithTicketSalesById(reservationId)
                     )
                     val reservation = currentReservation.reservation
-                    require(quantity <= currentReservation.toReservation().unpaidSeatCount) {
+                    require(quantity <= currentReservation.toReservation().availableTicketSaleSeatCount) {
                         "Ticket quantity exceeds the number of unredeemed seats."
                     }
                     val ticketSaleId = reservationDao.insertTicketSale(
@@ -339,9 +341,22 @@ internal class RoomReservationRepository(
                         reservationDao.getWithTicketSalesById(existingTicketSale.reservationId)
                     )
                     val reservation = reservationWithSales.reservation
-                    val otherPaidSeatCount = reservationWithSales.toReservation().paidSeatCount -
-                        existingTicketSale.quantity
-                    require(quantity <= reservation.seatCount - otherPaidSeatCount) {
+                    val protectedPayments = reservationWithSales.ticketSales
+                        .first { sale -> sale.ticketSale.id == ticketSaleId }
+                        .payments
+                        .filter(PaymentAllocationEntity::zettleSuccessful)
+                    if (protectedPayments.isNotEmpty()) {
+                        require(ticketType == existingTicketSale.ticketType && quantity == existingTicketSale.quantity) {
+                            "A ticket sale with a completed terminal payment cannot change ticket type or quantity."
+                        }
+                        require(payments.retainProtectedZettlePayments(protectedPayments)) {
+                            "A completed terminal payment cannot be changed or removed."
+                        }
+                    }
+                    val otherRecordedSeatCount = reservationWithSales.ticketSales
+                        .filterNot { sale -> sale.ticketSale.id == ticketSaleId }
+                        .sumOf { sale -> sale.ticketSale.quantity }
+                    require(quantity <= reservation.seatCount - otherRecordedSeatCount) {
                         "Ticket quantity exceeds the number of unredeemed seats."
                     }
                     reservationDao.updateTicketSale(
@@ -385,6 +400,12 @@ internal class RoomReservationRepository(
                         AppLog.warning(REPOSITORY_LOG_COMPONENT) { "Ticket sale deletion found no row; ticketSaleId=$ticketSaleId" }
                         return@withTransaction 0L
                     }
+                    require(
+                        reservationDao.getTicketSaleWithPaymentsById(ticketSaleId)
+                            ?.payments
+                            .orEmpty()
+                            .none(PaymentAllocationEntity::zettleSuccessful)
+                    ) { "A ticket sale with a completed terminal payment cannot be deleted." }
                     reservationDao.deleteTicketSaleById(ticketSaleId)
                     if (ticketSale.countsAsArrival) {
                         reservationDao.getById(ticketSale.reservationId)?.let { reservation ->
@@ -409,6 +430,10 @@ internal class RoomReservationRepository(
     }
 
     override suspend fun deleteReservation(reservationId: Long, accessToken: String?) {
+        require(
+            reservationDao.getWithTicketSalesById(reservationId)
+                ?.hasProtectedZettlePayment() != true
+        ) { "A reservation with a completed terminal payment cannot be deleted." }
         val target = activeCloudTarget()
         if (target == null) {
             AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Deleting reservation locally; reservationId=$reservationId" }
@@ -429,13 +454,22 @@ internal class RoomReservationRepository(
     override suspend fun deleteAllReservations(accessToken: String?) {
         val target = activeCloudTarget()
         if (target == null) {
-            performanceDao.getActive()?.let {
-                AppLog.info(REPOSITORY_LOG_COMPONENT) { "Deleting all local reservations; performanceId=${it.id}" }
-                reservationDao.deleteAllByPerformance(it.id)
+            performanceDao.getActive()?.let { performance ->
+                val reservations = reservationDao.getByPerformanceWithTicketSales(performance.id)
+                require(reservations.none { it.hasProtectedZettlePayment() }) {
+                    "Reservations with completed terminal payments cannot be deleted."
+                }
+                AppLog.info(REPOSITORY_LOG_COMPONENT) {
+                    "Deleting all local reservations; performanceId=${performance.id}"
+                }
+                reservationDao.deleteAllByPerformance(performance.id)
             }
             return
         }
         val reservations = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
+        require(reservations.none { it.hasProtectedZettlePayment() }) {
+            "Reservations with completed terminal payments cannot be deleted."
+        }
         val baseRows = reservations.associate { reservation ->
             reservation.reservation.id to ReservationSpreadsheetRow.fromReservation(
                 reservation.toReservation()
@@ -557,3 +591,19 @@ internal class RoomReservationRepository(
         .associate { it.normalizedAlias to it.toStoredAlias() }
 
 }
+
+private fun List<PendingPaymentAllocation>.retainProtectedZettlePayments(
+    protectedPayments: List<PaymentAllocationEntity>
+): Boolean = protectedPayments.all { protected ->
+    count { pending ->
+        pending.zettleSuccessful &&
+            pending.method == protected.paymentMethod &&
+            pending.amountCents == protected.amountCents
+    } >= protectedPayments.count { candidate ->
+        candidate.paymentMethod == protected.paymentMethod &&
+            candidate.amountCents == protected.amountCents
+    }
+}
+
+private fun ReservationWithTicketSales.hasProtectedZettlePayment(): Boolean =
+    ticketSales.any { sale -> sale.payments.any(PaymentAllocationEntity::zettleSuccessful) }

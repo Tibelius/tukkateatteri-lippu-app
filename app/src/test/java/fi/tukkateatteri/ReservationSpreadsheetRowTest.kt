@@ -65,9 +65,29 @@ class ReservationSpreadsheetRowTest {
         val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(splitSale)))
 
         assertTrue(row.paymentTicketCounts.isEmpty())
-        assertTrue(row.notes.contains("Sekamaksu"))
+        assertTrue(row.notes.contains("Useita maksutapoja"))
         assertTrue(row.notes.contains("cash 10,00 €"))
         assertTrue(row.notes.contains("card 12,00 €"))
+    }
+
+    @Test
+    fun exportRows_recordsPartialPaymentsAsNotesInsteadOfCompletedTicketCounts() {
+        val partialSale = TicketSale(
+            id = 1,
+            reservationId = 1,
+            ticketType = TicketType.BASIC,
+            quantity = 1,
+            unitPriceCents = TicketType.BASIC.defaultPriceCents,
+            payments = listOf(
+                PaymentAllocation(1, 1, PaymentMethod.CARD, 2_000, zettleSuccessful = true)
+            )
+        )
+
+        val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(partialSale)))
+
+        assertTrue(row.paymentTicketCounts.isEmpty())
+        assertTrue(row.notes.contains("Osamaksu"))
+        assertTrue(row.notes.contains("card 20,00 €"))
     }
 
     @Test
@@ -121,11 +141,34 @@ class ReservationSpreadsheetRowTest {
     }
 
     @Test
+    fun directRowConversionUsesDoorSaleFormattingAndPreservesIdentity() {
+        val reservation = reservation(
+            admissionType = AdmissionType.DOOR_SALE,
+            lastName = "",
+            firstName = "",
+            seatCount = 1,
+            ticketSales = listOf(sale(1, TicketType.BASIC, 1, PaymentMethod.CARD))
+        ).copy(
+            sourceIdentity = "local-door-sale-1",
+            sheetRowId = "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe"
+        )
+
+        val row = ReservationSpreadsheetRow.fromReservation(reservation)
+
+        assertEquals("Ovimyynti", row.lastName)
+        assertEquals("local-door-sale-1", row.sourceIdentity)
+        assertEquals(reservation.sheetRowId, row.sheetRowId)
+        assertEquals(1, row.reservedTicketCounts[TicketType.BASIC])
+        assertEquals(1, row.paymentTicketCounts[PaymentMethod.CARD])
+        assertTrue(row.isDoorSale)
+    }
+
+    @Test
     fun freeTicketsAreFullyRedeemedWithoutARecordedPayment() {
         val freeTicket = sale(1, TicketType.FREE_TICKET, 1, null)
 
         assertTrue(freeTicket.isPaid)
-        assertFalse(freeTicket.isSplitPayment)
+        assertFalse(freeTicket.hasMultiplePayments)
         assertEquals(0, freeTicket.paidAmountCents)
     }
 

@@ -27,5 +27,7 @@ data class PaymentAllocationEntity(
     @ColumnInfo(name = "payment_method")
     val paymentMethod: PaymentMethod,
     @ColumnInfo(name = "amount_cents")
-    val amountCents: Int
+    val amountCents: Int,
+    @ColumnInfo(name = "zettle_successful")
+    val zettleSuccessful: Boolean = false
 )

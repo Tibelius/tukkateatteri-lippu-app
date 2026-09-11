@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import fi.tukkateatteri.logging.AppLog
 
+private const val DATABASE_VERSION = 14
+
 @Database(
     entities = [
         ReservationEntity::class,
@@ -19,7 +21,7 @@ import fi.tukkateatteri.logging.AppLog
         SheetFieldDefinitionEntity::class,
         SheetFieldAliasEntity::class
     ],
-    version = 13,
+    version = DATABASE_VERSION,
     exportSchema = true
 )
 @TypeConverters(ReservationTypeConverters::class)
@@ -33,7 +35,9 @@ abstract class ReservationDatabase : RoomDatabase() {
 
     companion object {
         fun create(context: Context): ReservationDatabase {
-            AppLog.debug(LOG_COMPONENT) { "Opening Room database '$DATABASE_NAME' at schema version 13" }
+            AppLog.debug(LOG_COMPONENT) {
+                "Opening Room database '$DATABASE_NAME' at schema version $DATABASE_VERSION"
+            }
             return Room
                 .databaseBuilder(
                     context.applicationContext,

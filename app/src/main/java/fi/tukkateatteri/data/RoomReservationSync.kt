@@ -197,7 +197,9 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
                     sourceIdentity = row.sourceIdentity
                 )
             }
-        val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId)
+        val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId).map { change ->
+            repairMalformedDoorSaleConflict(change, importData.rows)
+        }
         val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
         val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
         AppLog.debug(REPOSITORY_LOG_COMPONENT) {
@@ -230,6 +232,33 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
     }
 }
 
+private suspend fun RoomReservationRepository.repairMalformedDoorSaleConflict(
+    change: PendingSheetChangeEntity,
+    remoteRows: List<ReservationSpreadsheetRow>
+): PendingSheetChangeEntity {
+    if (change.status != PendingSheetChangeStatus.CONFLICT) return change
+    val reservation = reservationDao.getWithTicketSalesById(change.reservationId)
+        ?.toReservation()
+        ?.takeIf { it.admissionType == AdmissionType.DOOR_SALE }
+        ?: return change
+    val desiredRow = ReservationSpreadsheetRow.fromReservation(reservation)
+    val malformedRemoteRow = remoteRows.firstOrNull { remoteRow ->
+        remoteRow.sheetRowId == desiredRow.sheetRowId && remoteRow.isMalformedAppOwnedDoorSaleRow
+    } ?: return change
+    return change.copy(
+        baseRowJson = malformedRemoteRow.toSnapshotJson(),
+        desiredRowJson = desiredRow.toSnapshotJson(),
+        status = PendingSheetChangeStatus.PENDING,
+        lastError = ""
+    ).also { repairedChange ->
+        pendingSheetChangeDao.upsert(repairedChange)
+        AppLog.warning(REPOSITORY_LOG_COMPONENT) {
+            "Restaged malformed door-sale conflict for automatic repair; " +
+                "reservationId=${change.reservationId}"
+        }
+    }
+}
+
 internal suspend fun RoomReservationRepository.replayPendingChange(
     target: CloudSheetTarget,
     accessToken: String,
@@ -258,6 +287,21 @@ internal suspend fun RoomReservationRepository.replayPendingChange(
                 }
                 baseRow == null && remoteRow?.hasSameSheetContentAs(desired) == true -> {
                     markPendingChangeSynced(change, remoteRow.sheetRowId)
+                }
+                baseRow != null &&
+                    remoteRow?.isMalformedAppOwnedDoorSaleRow == true &&
+                    desired.isDoorSale -> {
+                    AppLog.warning(REPOSITORY_LOG_COMPONENT) {
+                        "Repairing an app-owned door-sale row that was previously exported without its label; " +
+                            "reservationId=${change.reservationId}"
+                    }
+                    val exported = googleSheetsClient.exportRows(
+                        target.spreadsheetUrl,
+                        target.sheetTitle,
+                        accessToken,
+                        listOf(desired)
+                    ).single()
+                    markPendingChangeSynced(change, exported.sheetRowId)
                 }
                 baseRow != null && remoteRow != null -> {
                     val merge = mergePendingSheetRow(baseRow, desired, remoteRow)

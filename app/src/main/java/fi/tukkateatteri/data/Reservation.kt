@@ -44,11 +44,20 @@ data class Reservation(
     val paidSeatCount: Int
         get() = ticketSales.filter(TicketSale::isPaid).sumOf(TicketSale::quantity)
 
+    val recordedSaleSeatCount: Int
+        get() = ticketSales.sumOf(TicketSale::quantity)
+
     val reservedTicketCount: Int
         get() = reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
 
     val unpaidSeatCount: Int
         get() = (seatCount - paidSeatCount).coerceAtLeast(0)
+
+    val availableTicketSaleSeatCount: Int
+        get() = (seatCount - recordedSaleSeatCount).coerceAtLeast(0)
+
+    val hasPartialPayment: Boolean
+        get() = ticketSales.any { sale -> sale.paidAmountCents in 1 until sale.totalPriceCents }
 
     val isPresent: Boolean
         get() = arrivalCount > 0
@@ -101,6 +110,9 @@ data class PaymentMethod(
     override fun hashCode(): Int = name.hashCode()
 
     override fun toString(): String = name
+
+    val allowsPartialPayment: Boolean
+        get() = allowsSplitPayment
 
     companion object {
         private const val CARD_ID = "CARD"

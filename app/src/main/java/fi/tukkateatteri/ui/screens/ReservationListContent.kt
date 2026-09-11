@@ -250,6 +250,15 @@ private fun ReservationForegroundCard(
                     contentColor = MaterialTheme.colorScheme.error
                 )
             }
+            if (reservation.hasPartialPayment) {
+                ReservationStatusRow(
+                    icon = Icons.Filled.WarningAmber,
+                    text = stringResource(R.string.partial_payment_pending),
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            }
             if (reservation.arrivalCount > 0) {
                 ReservationStatusRow(
                     icon = Icons.Filled.Person,

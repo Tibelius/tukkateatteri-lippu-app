@@ -70,7 +70,8 @@ private fun TicketSaleWithPayments.toTicketSale() = TicketSale(
             id = payment.id,
             ticketSaleId = payment.ticketSaleId,
             method = payment.paymentMethod,
-            amountCents = payment.amountCents
+            amountCents = payment.amountCents,
+            zettleSuccessful = payment.zettleSuccessful
         )
     }
 )

@@ -7,39 +7,35 @@ import org.junit.Test
 
 class TicketSaleDialogTest {
     @Test
-    fun terminalChargeIsAvailableForValidNewCardSale() {
+    fun terminalChargeIsAvailableForValidCardAllocation() {
         assertTrue(terminalChargeEligibility())
     }
 
     @Test
     fun terminalChargeIsUnavailableForManualOrUnsafeCases() {
         assertFalse(terminalChargeEligibility(isGatewayAvailable = false))
-        assertFalse(terminalChargeEligibility(isNewSale = false))
-        assertFalse(terminalChargeEligibility(isSplitPayment = true))
-        assertFalse(terminalChargeEligibility(selectedPayment = PaymentMethod.CASH))
+        assertFalse(terminalChargeEligibility(hasCardPayment = false))
         assertFalse(terminalChargeEligibility(totalPriceCents = 0))
         assertFalse(terminalChargeEligibility(quantity = 0))
         assertFalse(terminalChargeEligibility(quantity = 3, maximumQuantity = 2))
-        assertFalse(terminalChargeEligibility(isPaymentValid = false))
+        assertFalse(terminalChargeEligibility(paymentAmountCents = 0))
+        assertFalse(terminalChargeEligibility(paymentAmountCents = 2_201))
+        assertTrue(terminalChargeEligibility(paymentAmountCents = 2_000))
     }
 
     private fun terminalChargeEligibility(
         isGatewayAvailable: Boolean = true,
-        isNewSale: Boolean = true,
-        isSplitPayment: Boolean = false,
-        selectedPayment: PaymentMethod = PaymentMethod.CARD,
+        hasCardPayment: Boolean = true,
         totalPriceCents: Int = 2_200,
         quantity: Int = 1,
         maximumQuantity: Int = 1,
-        isPaymentValid: Boolean = true
+        paymentAmountCents: Int = totalPriceCents
     ): Boolean = canChargeWithTerminal(
         isGatewayAvailable = isGatewayAvailable,
-        isNewSale = isNewSale,
-        isSplitPayment = isSplitPayment,
-        selectedPayment = selectedPayment,
+        hasCardPayment = hasCardPayment,
         totalPriceCents = totalPriceCents,
         quantity = quantity,
         maximumQuantity = maximumQuantity,
-        isPaymentValid = isPaymentValid
+        paymentAmountCents = paymentAmountCents
     )
 }

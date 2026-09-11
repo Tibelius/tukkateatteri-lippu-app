@@ -54,7 +54,7 @@ fun ReservationDialog(
 
     if (showTicketSaleDialog) {
         TicketSaleDialog(
-            maximumQuantity = reservation.unpaidSeatCount,
+            maximumQuantity = reservation.availableTicketSaleSeatCount,
             reservedTicketAllocations = reservation.reservedTicketAllocations,
             ticketSalesList = reservation.ticketSales,
             availableTicketTypes = availableTicketTypes,
@@ -69,7 +69,7 @@ fun ReservationDialog(
 
     reservation.ticketSales.find { ticketSale -> ticketSale.id == ticketSaleToEditId }?.let { ticketSale ->
         TicketSaleDialog(
-            maximumQuantity = reservation.unpaidSeatCount + ticketSale.quantity,
+            maximumQuantity = reservation.availableTicketSaleSeatCount + ticketSale.quantity,
             ticketSale = ticketSale,
             reservedTicketAllocations = reservation.reservedTicketAllocations,
             ticketSalesList = reservation.ticketSales,
@@ -80,9 +80,13 @@ fun ReservationDialog(
                 onUpdateTicketSale(ticketSale.id, ticketType, quantity, payments)
                 ticketSaleToEditId = null
             },
-            onDelete = {
-                onDeleteTicketSale(ticketSale.id)
-                ticketSaleToEditId = null
+            onDelete = if (ticketSale.payments.any { it.zettleSuccessful }) {
+                null
+            } else {
+                {
+                    onDeleteTicketSale(ticketSale.id)
+                    ticketSaleToEditId = null
+                }
             }
         )
     }
@@ -120,7 +124,9 @@ fun ReservationDialog(
             onMenuExpand = { isMenuExpanded = true },
             onMenuDismiss = { isMenuExpanded = false },
             onEditReservation = { showReservationEditor = true },
-            onDelete = onDelete,
+            onDelete = onDelete.takeUnless {
+                reservation.ticketSales.any { sale -> sale.payments.any { it.zettleSuccessful } }
+            },
             onDismiss = onDismiss
         )
         Text(
@@ -152,7 +158,7 @@ fun ReservationDialog(
         )
         Button(
             onClick = { showTicketSaleDialog = true },
-            enabled = reservation.unpaidSeatCount > 0,
+            enabled = reservation.availableTicketSaleSeatCount > 0,
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Filled.Add, contentDescription = null)

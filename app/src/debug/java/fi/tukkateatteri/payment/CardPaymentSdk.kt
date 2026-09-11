@@ -24,6 +24,12 @@ fun configureCardPaymentSdk(application: Application) {
         ZettleSDK.configure(
             config(application.applicationContext) {
                 isDevMode = true
+
+                auth {
+                    this.clientId = "local_dev_mode_placeholder_client_id"
+                    this.redirectUrl = "tukkateatteri-zettle://zettle-auth"
+                }
+
                 addFeature(com.zettle.sdk.feature.cardreader.ui.CardReaderFeature)
             }
         )

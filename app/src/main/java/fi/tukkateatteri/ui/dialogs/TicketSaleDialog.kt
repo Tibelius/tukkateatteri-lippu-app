@@ -2,20 +2,30 @@ package fi.tukkateatteri.ui.dialogs
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,9 +37,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
@@ -46,9 +58,9 @@ import fi.tukkateatteri.payment.CardPaymentRequest
 import fi.tukkateatteri.payment.createCardPaymentGateway
 import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.PaymentMethodSelector
-import fi.tukkateatteri.ui.components.SeatCountSelector
-import fi.tukkateatteri.ui.components.ScrollableAppDialog
 import fi.tukkateatteri.ui.components.RemainingReservedTicketTypesSummaryCard
+import fi.tukkateatteri.ui.components.ScrollableAppDialog
+import fi.tukkateatteri.ui.components.SeatCountSelector
 import java.util.UUID
 
 @Composable
@@ -64,432 +76,489 @@ fun TicketSaleDialog(
     onDelete: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val cardPaymentGateway = remember { createCardPaymentGateway() }
-    val initialFirstPayment = ticketSale?.payments?.getOrNull(0)
-    val initialSecondPayment = ticketSale?.payments?.getOrNull(1)
-    var quantity by rememberSaveable(ticketSale?.id) {
-        mutableIntStateOf(ticketSale?.quantity ?: 1)
+    val gateway = remember { createCardPaymentGateway() }
+    val terminalProtected = ticketSale?.payments?.any { it.zettleSuccessful } == true
+    var quantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(ticketSale?.quantity ?: 1) }
+    var typeMenuOpen by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var typeName by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialTicketType(ticketSale, reservedTicketAllocations, ticketSalesList).name)
     }
-    var isTicketTypeMenuExpanded by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
-    var selectedPaymentName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(ticketSale?.singlePaymentMethod?.name)
+    var storedPaymentValues by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(ticketSale?.payments.orEmpty().map { it.toStoredPayment().encode() })
     }
-    var isSplitPayment by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(ticketSale?.isSplitPayment == true)
-    }
-    var firstSplitMethodName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialFirstPayment?.method?.name ?: PaymentMethod.CASH.name)
-    }
-    var secondSplitMethodName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialSecondPayment?.method?.name ?: PaymentMethod.CARD.name)
-    }
-    var firstSplitAmount by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialFirstPayment?.amountCents?.toDecimalInput().orEmpty())
-    }
-    var secondSplitAmount by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialSecondPayment?.amountCents?.toDecimalInput().orEmpty())
-    }
-    var showCardPaymentConfirmation by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
-    var pendingCardTicketTypeName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
-    var pendingCardPaymentMethodName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
-    var pendingCardQuantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
-    var pendingCardAmountCents by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
-    var cardPaymentError by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var editingIndex by rememberSaveable(ticketSale?.id) { mutableStateOf<Int?>(null) }
+    var selectedMethodName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
+    var customAmountEnabled by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var customAmount by rememberSaveable(ticketSale?.id) { mutableStateOf("") }
+    var confirmationAction by remember { mutableStateOf<PaymentAction?>(null) }
+    var showTerminalConfirmation by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var terminalError by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var pendingTypeName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
+    var pendingQuantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
+    var pendingAmount by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
+    var pendingBaseValues by rememberSaveable(ticketSale?.id) { mutableStateOf(emptyList<String>()) }
 
-    val redeemedByType = ticketSalesList
-        .filterNot { sale -> sale.id == ticketSale?.id }
-        .groupBy(TicketSale::ticketType)
-        .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
-
-    val remainingAllocations = reservedTicketAllocations.mapNotNull { allocation ->
-        val remainingQuantity = allocation.quantity -
-            redeemedByType.getOrDefault(allocation.ticketType, 0)
-
-        remainingQuantity
-            .takeIf { it > 0 }
-            ?.let { allocation.copy(quantity = it) }
-    }
-
-    val initialTicketType = ticketSale?.ticketType?.takeUnless { type -> type == TicketType.UNSPECIFIED }
-        ?: remainingAllocations.firstOrNull()?.ticketType
-        ?: TicketType.BASIC
-
-    var ticketTypeName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialTicketType.name)
-    }
-    val ticketOptions = (availableTicketTypes + listOfNotNull(ticketSale?.ticketType)).distinctBy(TicketType::name)
-    val ticketType = ticketOptions.firstOrNull { it.name == ticketTypeName } ?: ticketOptions.first()
-    val totalPriceCents = ticketType.defaultPriceCents * quantity
-    val paymentOptions = (availablePaymentMethods + ticketSale?.payments.orEmpty().map { it.method })
+    val typeOptions = (availableTicketTypes + listOfNotNull(ticketSale?.ticketType))
+        .filterNot { it == TicketType.UNSPECIFIED }
+        .distinctBy(TicketType::name)
+    val ticketType = typeOptions.firstOrNull { it.name == typeName } ?: typeOptions.first()
+    val methodOptions = (availablePaymentMethods + ticketSale?.payments.orEmpty().map { it.method })
         .distinctBy(PaymentMethod::name)
         .ifEmpty { PaymentMethod.entries }
-    val splitPaymentOptions = paymentOptions.filter(PaymentMethod::allowsSplitPayment)
-    val selectedPayment = selectedPaymentName?.let { name -> paymentOptions.firstOrNull { it.name == name } }
-    val firstSplitMethod = paymentOptions.firstOrNull { it.name == firstSplitMethodName } ?: paymentOptions.first()
-    val secondSplitMethod = paymentOptions.firstOrNull { it.name == secondSplitMethodName } ?: paymentOptions.last()
-    val firstSplitCents = firstSplitAmount.toEuroCentsOrNull()
-    val secondSplitCents = secondSplitAmount.toEuroCentsOrNull()
-    val payments = when {
-        totalPriceCents == 0 -> emptyList()
-        !isSplitPayment && selectedPayment != null -> listOf(PendingPaymentAllocation(selectedPayment, totalPriceCents))
-        isSplitPayment && firstSplitCents != null && secondSplitCents != null -> listOf(
-            PendingPaymentAllocation(firstSplitMethod, firstSplitCents),
-            PendingPaymentAllocation(secondSplitMethod, secondSplitCents)
-        )
-        else -> emptyList()
+    val storedPayments = storedPaymentValues.mapNotNull(String::decodeStoredPayment)
+    val basePayments = storedPayments.filterIndexed { index, _ -> index != editingIndex }
+    val total = ticketType.defaultPriceCents * quantity
+    val remainingBeforeDraft = (total - basePayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
+    val selectedMethod = selectedMethodName?.let { name -> methodOptions.firstOrNull { it.name == name } }
+    val draftAmount = when {
+        selectedMethod == null -> null
+        customAmountEnabled -> customAmount.toEuroCentsOrNull()
+        else -> remainingBeforeDraft
     }
-    val isPaymentValid = totalPriceCents == 0 || (
-        payments.isNotEmpty() &&
-            payments.sumOf(PendingPaymentAllocation::amountCents) == totalPriceCents &&
-            (!isSplitPayment || (
-                firstSplitMethod != secondSplitMethod &&
-                    firstSplitMethod.allowsSplitPayment &&
-                    secondSplitMethod.allowsSplitPayment
-                ))
-        )
-    val canChargeWithTerminal = canChargeWithTerminal(
-        isGatewayAvailable = cardPaymentGateway.isAvailable,
-        isNewSale = ticketSale == null,
-        isSplitPayment = isSplitPayment,
-        selectedPayment = selectedPayment,
-        totalPriceCents = totalPriceCents,
-        quantity = quantity,
-        maximumQuantity = maximumQuantity,
-        isPaymentValid = isPaymentValid
-    )
-    val cardPaymentLauncher = rememberLauncherForActivityResult(
+    val isPartialDraft = draftAmount != null && draftAmount < remainingBeforeDraft
+    val validDraft = selectedMethod != null && draftAmount != null &&
+        draftAmount in 1..remainingBeforeDraft &&
+        !(isPartialDraft && !selectedMethod.allowsPartialPayment)
+    val draft = if (validDraft) StoredPayment(selectedMethod.name, draftAmount, false) else null
+    val finalStoredPayments = basePayments + listOfNotNull(draft)
+    val finalPayments = finalStoredPayments.mapNotNull { it.toPending(methodOptions) }
+    val editingPayment = editingIndex != null || selectedMethod != null
+    val canSave = quantity in 1..maximumQuantity && when {
+        total == 0 -> true
+        editingPayment -> validDraft
+        ticketSale != null -> finalPayments.isNotEmpty()
+        else -> false
+    }
+    val remainingAfterDraft = (total - finalStoredPayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
+
+    val terminalLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val pendingTicketType = ticketOptions.firstOrNull { it.name == pendingCardTicketTypeName }
-        val pendingPaymentMethod = paymentOptions.firstOrNull { it.name == pendingCardPaymentMethodName }
-        when (val outcome = cardPaymentGateway.parsePaymentResult(result)) {
+        val pendingType = typeOptions.firstOrNull { it.name == pendingTypeName }
+        when (val outcome = gateway.parsePaymentResult(result)) {
             is CardPaymentOutcome.Completed -> {
-                if (
-                    pendingTicketType == null ||
-                    pendingPaymentMethod == null ||
-                    pendingCardQuantity <= 0 ||
-                    outcome.amountCents != pendingCardAmountCents.toLong()
-                ) {
-                    cardPaymentError = true
+                if (pendingType == null || pendingQuantity <= 0 || outcome.amountCents != pendingAmount.toLong()) {
+                    terminalError = true
                 } else {
+                    val payments = pendingBaseValues.mapNotNull(String::decodeStoredPayment) +
+                        StoredPayment(PaymentMethod.CARD.name, pendingAmount, true)
                     onSave(
-                        pendingTicketType,
-                        pendingCardQuantity,
-                        listOf(
-                            PendingPaymentAllocation(
-                                method = pendingPaymentMethod,
-                                amountCents = pendingCardAmountCents
-                            )
-                        )
+                        pendingType,
+                        pendingQuantity,
+                        payments.mapNotNull { it.toPending(methodOptions) }
                     )
                 }
             }
-
             CardPaymentOutcome.Cancelled -> Unit
-            is CardPaymentOutcome.Failed -> cardPaymentError = true
+            is CardPaymentOutcome.Failed -> terminalError = true
         }
-        pendingCardTicketTypeName = null
-        pendingCardPaymentMethodName = null
-        pendingCardQuantity = 0
-        pendingCardAmountCents = 0
+        pendingTypeName = null
+        pendingQuantity = 0
+        pendingAmount = 0
+        pendingBaseValues = emptyList()
     }
 
     ScrollableAppDialog(
         onDismissRequest = onDismiss,
         actions = {
-            onDelete?.let { delete ->
-                TextButton(onClick = delete) {
-                    Text(
-                        text = stringResource(R.string.delete_ticket_sale),
-                        color = MaterialTheme.colorScheme.error
-                    )
+            if (!terminalProtected) {
+                onDelete?.let { delete ->
+                    TextButton(
+                        onClick = {
+                            if (ticketSale?.isPaid == true) {
+                                confirmationAction = PaymentAction.DeleteSale
+                            } else {
+                                delete()
+                            }
+                        }
+                    ) {
+                        Text(stringResource(R.string.delete_ticket_sale), color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
             CancelSaveActions(
                 onCancel = onDismiss,
-                onSave = { onSave(ticketType, quantity, payments) },
-                saveEnabled = quantity in 1..maximumQuantity && isPaymentValid
+                onSave = { onSave(ticketType, quantity, finalPayments) },
+                saveEnabled = canSave
             )
         }
     ) {
         Text(
-            text = stringResource(
-                if (ticketSale == null) R.string.add_ticket_sale else R.string.edit_ticket_sale
-            ),
+            stringResource(if (ticketSale == null) R.string.add_ticket_sale else R.string.edit_ticket_sale),
             style = MaterialTheme.typography.headlineSmall
         )
-
         if (reservedTicketAllocations.isNotEmpty()) {
-            RemainingReservedTicketTypesSummaryCard(remainingAllocations)
+            RemainingReservedTicketTypesSummaryCard(
+                remainingTicketAllocations(reservedTicketAllocations, ticketSalesList, ticketSale)
+            )
         }
-
-        Text(
-            text = stringResource(R.string.ticket_type),
-            style = MaterialTheme.typography.titleMedium
-        )
+        Text(stringResource(R.string.ticket_type), style = MaterialTheme.typography.titleMedium)
         TicketTypeDropdown(
-            selectedTicketType = ticketType,
-            expanded = isTicketTypeMenuExpanded,
-            onExpand = { isTicketTypeMenuExpanded = true },
-            onDismiss = { isTicketTypeMenuExpanded = false },
-            onSelected = { option ->
-                ticketTypeName = option.name
-                isTicketTypeMenuExpanded = false
-            },
-            options = ticketOptions
+            selected = ticketType,
+            options = typeOptions,
+            expanded = typeMenuOpen,
+            enabled = !terminalProtected,
+            onExpand = { typeMenuOpen = true },
+            onDismiss = { typeMenuOpen = false },
+            onSelect = {
+                typeName = it.name
+                typeMenuOpen = false
+            }
         )
         SeatCountSelector(
             seatCount = quantity,
+            minimumSeatCount = if (terminalProtected) quantity else 1,
             maximumSeatCount = maximumQuantity,
             onDecrease = { quantity-- },
             onIncrease = { if (quantity < maximumQuantity) quantity++ }
         )
         Text(
-            text = stringResource(
-                R.string.label_with_value,
-                stringResource(R.string.payment_amount),
-                totalPriceCents.toEuroString()
-            ),
+            stringResource(R.string.payment_total, total.toEuroString()),
             style = MaterialTheme.typography.titleMedium
         )
-        if (totalPriceCents > 0) {
-            if (isSplitPayment) {
-                SplitPaymentFields(
-                    firstMethod = firstSplitMethod,
-                    secondMethod = secondSplitMethod,
-                    firstAmount = firstSplitAmount,
-                    secondAmount = secondSplitAmount,
-                    onFirstMethodSelected = { firstSplitMethodName = it.name },
-                    onSecondMethodSelected = { secondSplitMethodName = it.name },
-                    onFirstAmountChange = { firstSplitAmount = it },
-                    onSecondAmountChange = { secondSplitAmount = it },
-                    isPaymentValid = isPaymentValid,
-                    onUseSinglePayment = { isSplitPayment = false },
-                    paymentMethods = splitPaymentOptions
-                )
-            } else {
-                PaymentMethodSelector(
-                    selectedPayment = selectedPayment,
-                    paymentMethods = paymentOptions,
-                    onPaymentSelected = { method -> selectedPaymentName = method.name }
-                )
-                if (splitPaymentOptions.size >= MINIMUM_SPLIT_PAYMENT_METHODS) {
-                    TextButton(onClick = { isSplitPayment = true }) {
-                        Text(stringResource(R.string.split_payment))
+
+        if (storedPayments.isNotEmpty()) {
+            PaymentAllocationList(
+                payments = storedPayments,
+                methods = methodOptions,
+                editingIndex = editingIndex,
+                onEdit = { index ->
+                    val action = PaymentAction.Edit(index)
+                    if (ticketSale?.isPaid == true) confirmationAction = action
+                    else startEditing(index, storedPayments) { method, amount ->
+                        editingIndex = index
+                        selectedMethodName = method
+                        customAmount = amount.toDecimalInput()
+                        customAmountEnabled = true
                     }
+                },
+                onDelete = { index ->
+                    val action = PaymentAction.Delete(index)
+                    if (ticketSale?.isPaid == true) confirmationAction = action
+                    else storedPaymentValues = storedPaymentValues.filterIndexed { i, _ -> i != index }
                 }
-            }
+            )
         }
-        if (canChargeWithTerminal) {
+
+        if (total > 0 && remainingBeforeDraft > 0) {
+            PaymentEntry(
+                selectedMethod = selectedMethod,
+                methods = if (
+                    customAmountEnabled &&
+                    (customAmount.toEuroCentsOrNull() ?: 0) < remainingBeforeDraft
+                ) {
+                    methodOptions.filter(PaymentMethod::allowsPartialPayment)
+                } else methodOptions,
+                customAmountEnabled = customAmountEnabled,
+                customAmount = customAmount,
+                remaining = remainingAfterDraft,
+                onMethodSelected = { selectedMethodName = it.name },
+                onToggleCustomAmount = {
+                    customAmountEnabled = !customAmountEnabled
+                    if (customAmountEnabled && selectedMethod?.allowsPartialPayment == false) {
+                        selectedMethodName = null
+                    }
+                    if (!customAmountEnabled) customAmount = ""
+                },
+                onAmountChanged = { customAmount = it }
+            )
+        } else if (total > 0) {
+            Text(
+                stringResource(R.string.payment_complete),
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        val terminalAvailable = canChargeWithTerminal(
+            isGatewayAvailable = gateway.isAvailable,
+            hasCardPayment = selectedMethod == PaymentMethod.CARD,
+            totalPriceCents = total,
+            quantity = quantity,
+            maximumQuantity = maximumQuantity,
+            paymentAmountCents = draftAmount ?: 0
+        )
+        if (terminalAvailable) {
             FilledTonalButton(
-                onClick = { showCardPaymentConfirmation = true },
+                onClick = { showTerminalConfirmation = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Filled.CreditCard,
-                    contentDescription = null,
-                    modifier = Modifier.size(CARD_PAYMENT_ICON_SIZE)
-                )
-                Spacer(Modifier.width(CARD_PAYMENT_BUTTON_CONTENT_SPACING))
+                Icon(Icons.Filled.CreditCard, null, Modifier.size(TERMINAL_ICON_SIZE))
+                Spacer(Modifier.width(TERMINAL_CONTENT_SPACING))
                 Text(stringResource(R.string.charge_card_terminal))
             }
         }
-        if (cardPaymentError) {
-            Text(
-                text = stringResource(R.string.card_terminal_payment_failed),
-                color = MaterialTheme.colorScheme.error
-            )
+        if (terminalError) {
+            Text(stringResource(R.string.card_terminal_payment_failed), color = MaterialTheme.colorScheme.error)
         }
     }
 
-    if (showCardPaymentConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showCardPaymentConfirmation = false },
-            title = { Text(stringResource(R.string.confirm_card_terminal_payment_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.confirm_card_terminal_payment_message,
-                        quantity,
-                        ticketType.displayLabel,
-                        totalPriceCents.toEuroString()
-                    )
-                )
-            },
-            dismissButton = {
-                TextButton(onClick = { showCardPaymentConfirmation = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showCardPaymentConfirmation = false
-                        cardPaymentError = false
-                        val method = selectedPayment ?: return@Button
-                        val pending = PendingCardPayment(
-                            ticketType = ticketType,
-                            quantity = quantity,
-                            paymentMethod = method,
-                            amountCents = totalPriceCents
-                        )
-                        val intent = cardPaymentGateway.createPaymentIntent(
-                            context,
-                            CardPaymentRequest(
-                                amountCents = pending.amountCents,
-                                reference = UUID.randomUUID().toString()
-                            )
-                        )
-                        if (intent == null) {
-                            cardPaymentError = true
-                        } else {
-                            pendingCardTicketTypeName = pending.ticketType.name
-                            pendingCardPaymentMethodName = pending.paymentMethod.name
-                            pendingCardQuantity = pending.quantity
-                            pendingCardAmountCents = pending.amountCents
-                            cardPaymentLauncher.launch(intent)
-                        }
+    confirmationAction?.let { action ->
+        CompletedPaymentWarning(
+            onDismiss = { confirmationAction = null },
+            onConfirm = {
+                when (action) {
+                    is PaymentAction.Edit -> startEditing(action.index, storedPayments) { method, amount ->
+                        editingIndex = action.index
+                        selectedMethodName = method
+                        customAmount = amount.toDecimalInput()
+                        customAmountEnabled = true
                     }
-                ) {
-                    Text(stringResource(R.string.charge_card_terminal_confirm))
+                    is PaymentAction.Delete -> {
+                        storedPaymentValues = storedPaymentValues.filterIndexed { i, _ -> i != action.index }
+                    }
+                    PaymentAction.DeleteSale -> onDelete?.invoke()
+                }
+                confirmationAction = null
+            }
+        )
+    }
+
+    if (showTerminalConfirmation) {
+        TerminalPaymentConfirmation(
+            quantity = quantity,
+            ticketType = ticketType,
+            amount = draftAmount ?: 0,
+            onDismiss = { showTerminalConfirmation = false },
+            onConfirm = {
+                showTerminalConfirmation = false
+                terminalError = false
+                val amount = draftAmount ?: return@TerminalPaymentConfirmation
+                val intent = gateway.createPaymentIntent(
+                    context,
+                    CardPaymentRequest(amount, UUID.randomUUID().toString())
+                )
+                if (intent == null) terminalError = true else {
+                    pendingTypeName = ticketType.name
+                    pendingQuantity = quantity
+                    pendingAmount = amount
+                    pendingBaseValues = basePayments.map(StoredPayment::encode)
+                    terminalLauncher.launch(intent)
                 }
             }
         )
     }
 }
 
-private const val MINIMUM_SPLIT_PAYMENT_METHODS = 2
-private val CARD_PAYMENT_ICON_SIZE = 20.dp
-private val CARD_PAYMENT_BUTTON_CONTENT_SPACING = 8.dp
+@Composable
+private fun PaymentEntry(
+    selectedMethod: PaymentMethod?,
+    methods: List<PaymentMethod>,
+    customAmountEnabled: Boolean,
+    customAmount: String,
+    remaining: Int,
+    onMethodSelected: (PaymentMethod) -> Unit,
+    onToggleCustomAmount: () -> Unit,
+    onAmountChanged: (String) -> Unit
+) {
+    Text(stringResource(R.string.add_payment), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    PaymentMethodSelector(selectedMethod, methods, onMethodSelected)
+    TextButton(onClick = onToggleCustomAmount) {
+        Text(
+            stringResource(
+                if (customAmountEnabled) R.string.use_remaining_payment_amount else R.string.use_partial_payment
+            )
+        )
+    }
+    if (customAmountEnabled) {
+        OutlinedTextField(
+            value = customAmount,
+            onValueChange = onAmountChanged,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.payment_amount)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true
+        )
+    }
+    Text(
+        stringResource(R.string.payment_remaining, remaining.toEuroString()),
+        color = if (remaining == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    )
+}
 
-private data class PendingCardPayment(
-    val ticketType: TicketType,
-    val quantity: Int,
-    val paymentMethod: PaymentMethod,
-    val amountCents: Int
-)
+@Composable
+private fun PaymentAllocationList(
+    payments: List<StoredPayment>,
+    methods: List<PaymentMethod>,
+    editingIndex: Int?,
+    onEdit: (Int) -> Unit,
+    onDelete: (Int) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        payments.forEachIndexed { index, payment ->
+            val method = methods.firstOrNull { it.name == payment.methodName }
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (payment.zettleSuccessful) {
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    } else MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(
+                                R.string.payment_allocation,
+                                method?.label ?: payment.methodName,
+                                payment.amountCents.toEuroString()
+                            ),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (payment.zettleSuccessful) {
+                            Text(stringResource(R.string.terminal_payment_confirmed), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (payment.zettleSuccessful) {
+                        Icon(Icons.Filled.Lock, stringResource(R.string.terminal_payment_locked))
+                    } else if (editingIndex != index) {
+                        IconButton(onClick = { onEdit(index) }) {
+                            Icon(Icons.Filled.Edit, stringResource(R.string.edit_payment))
+                        }
+                        IconButton(onClick = { onDelete(index) }) {
+                            Icon(Icons.Filled.Delete, stringResource(R.string.delete_payment))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-internal fun canChargeWithTerminal(
-    isGatewayAvailable: Boolean,
-    isNewSale: Boolean,
-    isSplitPayment: Boolean,
-    selectedPayment: PaymentMethod?,
-    totalPriceCents: Int,
+@Composable
+private fun CompletedPaymentWarning(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.change_completed_payment_title)) },
+        text = { Text(stringResource(R.string.change_completed_payment_message)) },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+        confirmButton = { Button(onClick = onConfirm) { Text(stringResource(R.string.continue_action)) } }
+    )
+}
+
+@Composable
+private fun TerminalPaymentConfirmation(
     quantity: Int,
-    maximumQuantity: Int,
-    isPaymentValid: Boolean
-): Boolean = isGatewayAvailable &&
-    isNewSale &&
-    !isSplitPayment &&
-    selectedPayment == PaymentMethod.CARD &&
-    totalPriceCents > 0 &&
-    quantity in 1..maximumQuantity &&
-    isPaymentValid
+    ticketType: TicketType,
+    amount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.confirm_card_terminal_payment_title)) },
+        text = {
+            Text(stringResource(R.string.confirm_card_terminal_payment_message_ticket, quantity, ticketType.displayLabel))
+            Text(stringResource(R.string.confirm_card_terminal_payment_message_total, amount.toEuroString()))
+            Text(stringResource(R.string.confirm_card_terminal_payment_message_info))
+
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+        confirmButton = { Button(onClick = onConfirm) { Text(stringResource(R.string.charge_card_terminal_confirm)) } }
+    )
+}
 
 @Composable
 private fun TicketTypeDropdown(
-    selectedTicketType: TicketType,
+    selected: TicketType,
+    options: List<TicketType>,
     expanded: Boolean,
+    enabled: Boolean,
     onExpand: () -> Unit,
     onDismiss: () -> Unit,
-    onSelected: (TicketType) -> Unit,
-    options: List<TicketType>
+    onSelect: (TicketType) -> Unit
 ) {
     Box {
-        Button(onClick = onExpand, modifier = Modifier.fillMaxWidth()) {
-            Text(selectedTicketType.displayLabel)
+        Button(onClick = onExpand, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            Text(selected.displayLabel)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-            options
-                .filterNot { it == TicketType.UNSPECIFIED }
-                .forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.displayLabel) },
-                        onClick = { onSelected(option) }
-                    )
-                }
+        DropdownMenu(expanded, onDismiss) {
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option.displayLabel) }, onClick = { onSelect(option) })
+            }
         }
     }
 }
 
-@Composable
-private fun SplitPaymentFields(
-    firstMethod: PaymentMethod,
-    secondMethod: PaymentMethod,
-    firstAmount: String,
-    secondAmount: String,
-    onFirstMethodSelected: (PaymentMethod) -> Unit,
-    onSecondMethodSelected: (PaymentMethod) -> Unit,
-    onFirstAmountChange: (String) -> Unit,
-    onSecondAmountChange: (String) -> Unit,
-    isPaymentValid: Boolean,
-    onUseSinglePayment: () -> Unit,
-    paymentMethods: List<PaymentMethod> = PaymentMethod.entries
+private fun initialTicketType(
+    edited: TicketSale?,
+    reservations: List<ReservedTicketAllocation>,
+    sales: List<TicketSale>
+): TicketType {
+    edited?.ticketType?.takeUnless { it == TicketType.UNSPECIFIED }?.let { return it }
+    val sold = sales.groupBy(TicketSale::ticketType).mapValues { (_, items) -> items.sumOf(TicketSale::quantity) }
+    return reservations.firstOrNull { it.quantity > sold.getOrDefault(it.ticketType, 0) }?.ticketType
+        ?: TicketType.BASIC
+}
+
+private fun remainingTicketAllocations(
+    reservations: List<ReservedTicketAllocation>,
+    sales: List<TicketSale>,
+    edited: TicketSale?
+): List<ReservedTicketAllocation> {
+    val sold = sales.filterNot { it.id == edited?.id }
+        .groupBy(TicketSale::ticketType)
+        .mapValues { (_, items) -> items.sumOf(TicketSale::quantity) }
+    return reservations.mapNotNull { allocation ->
+        (allocation.quantity - sold.getOrDefault(allocation.ticketType, 0))
+            .takeIf { it > 0 }?.let { allocation.copy(quantity = it) }
+    }
+}
+
+private inline fun startEditing(
+    index: Int,
+    payments: List<StoredPayment>,
+    update: (String, Int) -> Unit
 ) {
-    Text(stringResource(R.string.split_payment), style = MaterialTheme.typography.titleMedium)
-    PaymentMethodDropdown(
-        selected = firstMethod,
-        excludedMethod = secondMethod,
-        onSelected = onFirstMethodSelected,
-        options = paymentMethods
-    )
-    PaymentAmountField(value = firstAmount, onValueChange = onFirstAmountChange)
-    PaymentMethodDropdown(
-        selected = secondMethod,
-        excludedMethod = firstMethod,
-        onSelected = onSecondMethodSelected,
-        options = paymentMethods
-    )
-    PaymentAmountField(value = secondAmount, onValueChange = onSecondAmountChange)
-    if (!isPaymentValid) {
-        Text(
-            text = stringResource(R.string.payment_total_mismatch),
-            color = MaterialTheme.colorScheme.error
-        )
-    }
-    TextButton(onClick = onUseSinglePayment) {
-        Text(stringResource(R.string.single_payment))
+    payments.getOrNull(index)?.takeUnless(StoredPayment::zettleSuccessful)?.let {
+        update(it.methodName, it.amountCents)
     }
 }
 
-@Composable
-private fun PaymentMethodDropdown(
-    selected: PaymentMethod,
-    excludedMethod: PaymentMethod,
-    onSelected: (PaymentMethod) -> Unit,
-    options: List<PaymentMethod>
+private fun fi.tukkateatteri.data.PaymentAllocation.toStoredPayment() =
+    StoredPayment(method.name, amountCents, zettleSuccessful)
+
+private data class StoredPayment(
+    val methodName: String,
+    val amountCents: Int,
+    val zettleSuccessful: Boolean
 ) {
-    var expanded by rememberSaveable(selected) { mutableStateOf(false) }
-    Box {
-        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(selected.label)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options
-                .filterNot { method ->
-                    method == excludedMethod || !method.allowsSplitPayment
-                }
-                .forEach { method ->
-                    DropdownMenuItem(
-                        text = { Text(method.label) },
-                        onClick = {
-                            onSelected(method)
-                            expanded = false
-                        }
-                    )
-                }
-        }
-    }
+    fun encode() = listOf(methodName, amountCents, zettleSuccessful).joinToString(PAYMENT_STATE_SEPARATOR)
+
+    fun toPending(methods: List<PaymentMethod>): PendingPaymentAllocation? = methods
+        .firstOrNull { it.name == methodName }
+        ?.let { PendingPaymentAllocation(it, amountCents, zettleSuccessful) }
 }
 
-@Composable
-private fun PaymentAmountField(value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.payment_amount)) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        singleLine = true
+private fun String.decodeStoredPayment(): StoredPayment? {
+    val parts = split(PAYMENT_STATE_SEPARATOR)
+    if (parts.size != PAYMENT_STATE_FIELD_COUNT) return null
+    return StoredPayment(
+        methodName = parts[0],
+        amountCents = parts[1].toIntOrNull() ?: return null,
+        zettleSuccessful = parts[2].toBooleanStrictOrNull() ?: return null
     )
 }
+
+private sealed interface PaymentAction {
+    data class Edit(val index: Int) : PaymentAction
+    data class Delete(val index: Int) : PaymentAction
+    data object DeleteSale : PaymentAction
+}
+
+internal fun canChargeWithTerminal(
+    isGatewayAvailable: Boolean,
+    hasCardPayment: Boolean,
+    totalPriceCents: Int,
+    quantity: Int,
+    maximumQuantity: Int,
+    paymentAmountCents: Int
+): Boolean = isGatewayAvailable && hasCardPayment && totalPriceCents > 0 &&
+    quantity in 1..maximumQuantity && paymentAmountCents in 1..totalPriceCents
+
+private const val PAYMENT_STATE_SEPARATOR = "|"
+private const val PAYMENT_STATE_FIELD_COUNT = 3
+private val TERMINAL_ICON_SIZE = 20.dp
+private val TERMINAL_CONTENT_SPACING = 8.dp

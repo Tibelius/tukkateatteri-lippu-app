@@ -29,7 +29,7 @@ data class TicketSale(
     val isPaid: Boolean
         get() = paidAmountCents == totalPriceCents
 
-    val isSplitPayment: Boolean
+    val hasMultiplePayments: Boolean
         get() = payments.size > 1
 
     val singlePaymentMethod: PaymentMethod?
@@ -57,7 +57,8 @@ data class PaymentAllocation(
     val id: Long,
     val ticketSaleId: Long,
     val method: PaymentMethod,
-    val amountCents: Int
+    val amountCents: Int,
+    val zettleSuccessful: Boolean = false
 ) {
     init {
         require(id > 0) { "Payment ID must be positive." }

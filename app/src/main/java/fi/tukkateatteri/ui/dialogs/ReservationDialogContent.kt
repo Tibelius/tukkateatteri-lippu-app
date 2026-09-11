@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -109,7 +110,7 @@ internal fun ReservationEditorDialog(
     }
     val minimumSeatCount = maxOf(
         MINIMUM_SEAT_COUNT,
-        reservation.paidSeatCount,
+        reservation.recordedSaleSeatCount,
         reservation.arrivalCount,
         reservedTicketAllocations.sumOf(ReservedTicketAllocation::quantity)
     )
@@ -280,7 +281,24 @@ private fun DetailSectionTitle(
 
 @Composable
 private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val isComplete = ticketSale.isPaid
+    val containerColor = if (isComplete) {
+        MaterialTheme.colorScheme.tertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = if (isComplete) {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        )
+    ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -293,7 +311,7 @@ private fun TicketSaleRow(ticketSale: TicketSale, onEdit: () -> Unit) {
                 Text(
                     text = ticketSalePaymentText(ticketSale),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = contentColor.copy(alpha = 0.8f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -352,7 +370,7 @@ internal fun ReservationDialogHeader(
     onMenuExpand: () -> Unit,
     onMenuDismiss: () -> Unit,
     onEditReservation: () -> Unit,
-    onDelete: () -> Unit,
+    onDelete: (() -> Unit)?,
     onDismiss: () -> Unit
 ) {
     Row(
@@ -382,26 +400,28 @@ internal fun ReservationDialogHeader(
                         onEditReservation()
                     }
                 )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = stringResource(R.string.delete_reservation_action),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    onClick = {
-                        onMenuDismiss()
-                        onDelete()
-                    }
-                )
+                onDelete?.let { delete ->
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.delete_reservation_action),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            onMenuDismiss()
+                            delete()
+                        }
+                    )
+                }
             }
         }
         IconButton(onClick = onDismiss) {

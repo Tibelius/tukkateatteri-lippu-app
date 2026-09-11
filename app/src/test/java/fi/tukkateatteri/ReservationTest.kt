@@ -18,6 +18,35 @@ import org.junit.Test
 
 class ReservationTest {
     @Test
+    fun partialPaymentReservesItsSaleSeatsButDoesNotCompleteThem() {
+        val partialSale = TicketSale(
+            id = 1,
+            reservationId = 1,
+            ticketType = TicketType.BASIC,
+            quantity = 1,
+            unitPriceCents = 2_200,
+            payments = listOf(
+                PaymentAllocation(1, 1, PaymentMethod.CARD, 2_000, zettleSuccessful = true)
+            )
+        )
+        val reservation = Reservation(
+            id = 1,
+            performanceId = 1,
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            seatCount = 1,
+            ticketSales = listOf(partialSale)
+        )
+
+        assertFalse(partialSale.isPaid)
+        assertTrue(reservation.hasPartialPayment)
+        assertEquals(0, reservation.paidSeatCount)
+        assertEquals(0, reservation.availableTicketSaleSeatCount)
+        assertFalse(reservation.isCompleted)
+    }
+
+    @Test
     fun reservation_paymentProgress_isSeparateFromArrival() {
         val reservation = Reservation(
             id = 1,
@@ -160,7 +189,7 @@ class ReservationTest {
         )
 
         assertTrue(ticketSale.isPaid)
-        assertTrue(ticketSale.isSplitPayment)
+        assertTrue(ticketSale.hasMultiplePayments)
     }
 
     @Test

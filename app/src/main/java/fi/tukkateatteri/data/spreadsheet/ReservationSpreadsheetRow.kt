@@ -36,22 +36,35 @@ data class ReservationSpreadsheetRow(
         require(paymentTicketCounts.values.all { it >= 0 }) { "Payment ticket counts must not be negative." }
     }
 
+    val isDoorSale: Boolean
+        get() = lastName.isDoorSaleSheetLabel() || (
+            lastName.isBlank() && firstName.isBlank() && sheetRowId.isUuid()
+        )
+
+    val isMalformedAppOwnedDoorSaleRow: Boolean
+        get() = lastName.isBlank() &&
+            firstName.isBlank() &&
+            sheetRowId.isUuid() &&
+            applicationMutationMetadataState == ApplicationMutationMetadataState.VALID
+
     companion object {
         fun fromReservations(reservations: List<Reservation>): List<ReservationSpreadsheetRow> {
-            return reservations.map { reservation ->
-                if (reservation.admissionType == AdmissionType.DOOR_SALE) {
-                    fromDoorSale(reservation)
-                } else {
-                    fromReservation(reservation)
-                }
-            }
+            return reservations.map(::fromReservation)
         }
 
         fun fromReservation(reservation: Reservation): ReservationSpreadsheetRow {
+            return if (reservation.admissionType == AdmissionType.DOOR_SALE) {
+                fromDoorSale(reservation)
+            } else {
+                fromAdvanceReservation(reservation)
+            }
+        }
+
+        private fun fromAdvanceReservation(reservation: Reservation): ReservationSpreadsheetRow {
             val reservedTicketCounts = reservation.reservedTicketAllocations.associate { allocation ->
                 allocation.ticketType to allocation.quantity
             }
-            val splitPaymentNotes = reservation.ticketSales.toSplitPaymentNotes()
+            val paymentAllocationNotes = reservation.ticketSales.toPaymentAllocationNotes()
             return ReservationSpreadsheetRow(
                 lastName = reservation.lastName,
                 firstName = reservation.firstName,
@@ -60,14 +73,14 @@ data class ReservationSpreadsheetRow(
                 arrivalCount = reservation.arrivalCount,
                 reservedTicketCounts = reservedTicketCounts,
                 paymentTicketCounts = reservation.ticketSales.paymentTicketCounts(),
-                notes = listOf(reservation.notes, splitPaymentNotes).filter(String::isNotBlank).joinToString("; "),
+                notes = listOf(reservation.notes, paymentAllocationNotes).filter(String::isNotBlank).joinToString("; "),
                 sourceIdentity = reservation.sourceIdentity,
                 sheetRowId = reservation.sheetRowId
             )
         }
 
         private fun fromDoorSale(doorSale: Reservation): ReservationSpreadsheetRow {
-            val splitPaymentNotes = doorSale.ticketSales.toSplitPaymentNotes()
+            val paymentAllocationNotes = doorSale.ticketSales.toPaymentAllocationNotes()
             return ReservationSpreadsheetRow(
                 lastName = DOOR_SALE_SHEET_LABEL,
                 firstName = "",
@@ -76,7 +89,8 @@ data class ReservationSpreadsheetRow(
                 arrivalCount = doorSale.arrivalCount,
                 reservedTicketCounts = doorSale.ticketSales.ticketTypeCounts(),
                 paymentTicketCounts = doorSale.ticketSales.paymentTicketCounts(),
-                notes = splitPaymentNotes,
+                notes = paymentAllocationNotes,
+                sourceIdentity = doorSale.sourceIdentity,
                 sheetRowId = doorSale.sheetRowId
             )
         }
@@ -90,14 +104,18 @@ private fun List<TicketSale>.ticketTypeCounts(): Map<TicketType, Int> =
         .mapValues { (_, sales) -> sales.sumOf(TicketSale::quantity) }
 
 private fun List<TicketSale>.paymentTicketCounts(): Map<PaymentMethod, Int> =
-    mapNotNull { sale -> sale.singlePaymentMethod?.let { method -> method to sale.quantity } }
+    filter(TicketSale::isPaid)
+        .mapNotNull { sale -> sale.singlePaymentMethod?.let { method -> method to sale.quantity } }
         .groupingBy(Pair<PaymentMethod, Int>::first)
         .fold(0) { quantity, (_, saleQuantity) -> quantity + saleQuantity }
 
-private fun List<TicketSale>.toSplitPaymentNotes(): String = filter(TicketSale::isSplitPayment)
+private fun List<TicketSale>.toPaymentAllocationNotes(): String = filter { sale ->
+    sale.hasMultiplePayments || sale.paidAmountCents in 1 until sale.totalPriceCents
+}
     .joinToString(separator = "; ") { ticketSale ->
         val payments = ticketSale.payments.joinToString(separator = ", ") { payment ->
             "${payment.method.name.lowercase()} ${payment.amountCents.toEuroString()}"
         }
-        "Sekamaksu: $payments"
+        val label = if (ticketSale.isPaid) "Useita maksutapoja" else "Osamaksu"
+        "$label: $payments"
     }

@@ -150,10 +150,10 @@ private fun List<TicketSale>.toPaymentMethodStatistics(): List<PaymentMethodStat
                 name = name,
                 label = method.label,
                 ticketCount = salePayments
-                    .filterNot { it.sale.isSplitPayment }
+                    .filterNot { it.sale.hasMultiplePayments }
                     .sumOf { it.sale.quantity },
                 splitPaymentCount = salePayments
-                    .filter { it.sale.isSplitPayment }
+                    .filter { it.sale.hasMultiplePayments }
                     .distinctBy { it.sale.id }
                     .size,
                 amountCents = salePayments.sumOf { it.payment.amountCents },

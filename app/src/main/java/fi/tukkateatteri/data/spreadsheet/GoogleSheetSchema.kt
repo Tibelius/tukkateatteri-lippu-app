@@ -34,57 +34,63 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
     val headerRowIndex = rows.indexOfFirst { row -> row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME } }
     if (headerRowIndex < 0) return emptyList()
     val headerIndexes = rows[headerRowIndex].mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap()
-    return rows.drop(headerRowIndex + 1).takeWhile { row ->
-        row.valueAt(headerIndexes[HEADER_LAST_NAME]).isNotBlank() || row.valueAt(headerIndexes[HEADER_FIRST_NAME]).isNotBlank()
-    }.mapIndexedNotNull { dataRowIndex, row ->
-        val sourceRowNumber = headerRowIndex + dataRowIndex + 2
-        val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
-        val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
-        if (lastName.isBlank() && firstName.isBlank()) return@mapIndexedNotNull null
-        val sheetRowId = rowIdsByRowNumber[sourceRowNumber].orEmpty()
-        val sourceIdentity = if (sheetRowId.isUuid()) {
-            "sheet:$sheetRowId"
-        } else if (lastName.isDoorSaleSheetLabel()) {
-            "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
-        } else {
-            "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}"
+    return rows.drop(headerRowIndex + 1)
+        .withIndex()
+        .takeWhile { (dataRowIndex, row) ->
+            val sourceRowNumber = headerRowIndex + dataRowIndex + 2
+            row.valueAt(headerIndexes[HEADER_LAST_NAME]).isNotBlank() ||
+                row.valueAt(headerIndexes[HEADER_FIRST_NAME]).isNotBlank() ||
+                rowIdsByRowNumber[sourceRowNumber].orEmpty().isUuid()
         }
-        val parsedRow = ReservationSpreadsheetRow(
-            lastName = lastName,
-            firstName = firstName,
-            contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trimSpreadsheetWhitespace(),
-            reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT])
-                .toTicketCount()
-                .coerceAtLeast(MINIMUM_SEAT_COUNT),
-            arrivalCount = row.valueAt(headerIndexes[HEADER_ARRIVAL_COUNT]).toTicketCount(),
-            reservedTicketCounts = schema.ticketHeaders.mapNotNull { (ticketType, header) ->
-                row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
-            }.toMap(),
-            paymentTicketCounts = schema.paymentHeaders.mapNotNull { (paymentMethod, header) ->
-                row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { paymentMethod to it }
-            }.toMap(),
-            notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
-            sourceIdentity = sourceIdentity,
-            sheetRowId = sheetRowId,
-            sourceRowNumber = sourceRowNumber
-        )
-        val appState = applicationRowStates[sheetRowId]
-        val metadataState = when {
-            appState == null -> ApplicationMutationMetadataState.NONE
-            !appState.isValid || appState.contentHash != parsedRow.sheetContentHash() -> {
-                ApplicationMutationMetadataState.INVALID
+        .mapNotNull { (dataRowIndex, row) ->
+            val sourceRowNumber = headerRowIndex + dataRowIndex + 2
+            val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
+            val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
+            val sheetRowId = rowIdsByRowNumber[sourceRowNumber].orEmpty()
+            if (lastName.isBlank() && firstName.isBlank() && !sheetRowId.isUuid()) return@mapNotNull null
+            val sourceIdentity = if (sheetRowId.isUuid()) {
+                "sheet:$sheetRowId"
+            } else if (lastName.isDoorSaleSheetLabel()) {
+                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
+            } else {
+                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}"
             }
-            else -> ApplicationMutationMetadataState.VALID
+            val parsedRow = ReservationSpreadsheetRow(
+                lastName = lastName,
+                firstName = firstName,
+                contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trimSpreadsheetWhitespace(),
+                reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT])
+                    .toTicketCount()
+                    .coerceAtLeast(MINIMUM_SEAT_COUNT),
+                arrivalCount = row.valueAt(headerIndexes[HEADER_ARRIVAL_COUNT]).toTicketCount(),
+                reservedTicketCounts = schema.ticketHeaders.mapNotNull { (ticketType, header) ->
+                    row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
+                }.toMap(),
+                paymentTicketCounts = schema.paymentHeaders.mapNotNull { (paymentMethod, header) ->
+                    row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { paymentMethod to it }
+                }.toMap(),
+                notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
+                sourceIdentity = sourceIdentity,
+                sheetRowId = sheetRowId,
+                sourceRowNumber = sourceRowNumber
+            )
+            val appState = applicationRowStates[sheetRowId]
+            val metadataState = when {
+                appState == null -> ApplicationMutationMetadataState.NONE
+                !appState.isValid || appState.contentHash != parsedRow.sheetContentHash() -> {
+                    ApplicationMutationMetadataState.INVALID
+                }
+                else -> ApplicationMutationMetadataState.VALID
+            }
+            if (
+                metadataState == ApplicationMutationMetadataState.VALID &&
+                appState?.operation?.normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
+            ) {
+                null
+            } else {
+                parsedRow.copy(applicationMutationMetadataState = metadataState)
+            }
         }
-        if (
-            metadataState == ApplicationMutationMetadataState.VALID &&
-            appState?.operation?.normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
-        ) {
-            null
-        } else {
-            parsedRow.copy(applicationMutationMetadataState = metadataState)
-        }
-    }
 }
 
 internal fun String.isUuid(): Boolean = runCatching { UUID.fromString(this) }.isSuccess

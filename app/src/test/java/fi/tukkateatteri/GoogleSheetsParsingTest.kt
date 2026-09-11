@@ -79,6 +79,36 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
+    fun importRowsRetainsAppOwnedBlankRowForDoorSaleRecovery() {
+        val rowId = "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe"
+        val tabWithoutState = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                headers,
+                dataRow(3 to "1", 4 to "1", 5 to "1", 13 to "1"),
+                emptyRow(),
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            ),
+            sheetId = 42,
+            rowIdsByRowNumber = mapOf(2 to rowId)
+        )
+        val candidate = requireNotNull(tabWithoutState.toImportCandidateOrNull())
+        val original = tabWithoutState.toReservationSpreadsheetRows(candidate).single()
+        val tab = tabWithoutState.copy(
+            applicationRowStates = mapOf(
+                rowId to validState(rowId, original.sheetContentHash(), "Lisäys")
+            )
+        )
+
+        val recovered = tab.toReservationSpreadsheetRows(candidate).single()
+
+        assertTrue(recovered.isDoorSale)
+        assertTrue(recovered.isMalformedAppOwnedDoorSaleRow)
+        assertEquals(ApplicationMutationMetadataState.VALID, recovered.applicationMutationMetadataState)
+    }
+
+    @Test
     fun importRows_acceptsCountMarkersUsedInSpreadsheets() {
         val tab = GoogleSheetTab(
             title = "24.10",

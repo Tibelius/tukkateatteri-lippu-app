@@ -60,7 +60,7 @@ interface ReservationRepository {
     )
 }
 
-data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: Int)
+data class PendingPaymentAllocation(val method: PaymentMethod, val amountCents: Int, val zettleSuccessful: Boolean = false)
 
 data class GoogleSheetImportResult(
     val performanceCount: Int,

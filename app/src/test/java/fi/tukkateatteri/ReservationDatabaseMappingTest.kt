@@ -78,7 +78,7 @@ class ReservationDatabaseMappingTest {
         assertTrue(reservation.isFullyRedeemed)
         assertFalse(reservation.isCompleted)
         assertFalse(reservation.hasTicketValueMismatch)
-        assertTrue(reservation.ticketSales.first().isSplitPayment)
+        assertTrue(reservation.ticketSales.first().hasMultiplePayments)
         assertEquals(TicketSaleOrigin.IMPORTED, reservation.ticketSales.last().origin)
         assertFalse(reservation.ticketSales.last().countsAsArrival)
     }

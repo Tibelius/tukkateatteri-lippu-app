@@ -79,6 +79,10 @@ interface ReservationDao {
     @Query("SELECT * FROM ticket_sales WHERE id = :ticketSaleId")
     suspend fun getTicketSaleById(ticketSaleId: Long): TicketSaleEntity?
 
+    @Transaction
+    @Query("SELECT * FROM ticket_sales WHERE id = :ticketSaleId")
+    suspend fun getTicketSaleWithPaymentsById(ticketSaleId: Long): TicketSaleWithPayments?
+
     @Query("DELETE FROM ticket_sales WHERE reservation_id = :reservationId")
     suspend fun deleteAllTicketSalesForReservation(reservationId: Long)
 
