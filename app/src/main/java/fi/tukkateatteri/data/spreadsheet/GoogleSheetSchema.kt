@@ -175,17 +175,39 @@ internal data class LockRow(
     val performanceKey: String,
     val rowNumber: Int,
     val lockId: String,
+    val lockedAt: Instant?,
     val expiresAt: Instant?,
     val deviceId: String
-)
+) {
+    fun isActiveAt(now: Instant): Boolean =
+        lockId.isNotBlank() &&
+            deviceId.isNotBlank() &&
+            lockedAt != null &&
+            expiresAt != null &&
+            expiresAt.isAfter(now) &&
+            expiresAt.isAfter(lockedAt)
+
+    fun isOwnedBy(lockId: String, deviceId: String): Boolean =
+        this.lockId == lockId && this.deviceId == deviceId
+}
 
 internal data class LockTable(
     val headers: Map<String, Int>,
     val rows: List<LockRow>,
-    val rowsByPerformanceKey: Map<String, LockRow>
+    val firstDataRowNumber: Int
 ) {
     fun activeLockFor(performanceKey: String, now: Instant): LockRow? = rows.lastOrNull { lock ->
-        lock.performanceKey == performanceKey && lock.expiresAt?.isAfter(now) == true
+        lock.performanceKey == performanceKey && lock.isActiveAt(now)
+    }
+
+    fun ownedLock(performanceKey: String, lockId: String, deviceId: String): LockRow? =
+        rows.lastOrNull { lock ->
+            lock.performanceKey == performanceKey && lock.isOwnedBy(lockId, deviceId)
+        }
+
+    fun firstAvailableRowNumber(): Int {
+        val occupiedRows = rows.mapTo(mutableSetOf(), LockRow::rowNumber)
+        return generateSequence(firstDataRowNumber) { it + 1 }.first { it !in occupiedRows }
     }
 
     fun valuesFor(
@@ -200,23 +222,6 @@ internal data class LockTable(
             headers[header]?.let { columnIndex ->
                 add(SheetCellValue(sheetCellRange(LOCK_SHEET_TITLE, columnIndex, rowNumber), value))
             }
-        }
-        set(LOCK_HEADER_PERFORMANCE_ID, performanceKey)
-        set(LOCK_HEADER_UUID, lockId)
-        set(LOCK_HEADER_LOCKED_AT, lockedAt)
-        set(LOCK_HEADER_EXPIRES_AT, expiresAt)
-        set(LOCK_HEADER_DEVICE_LABEL, deviceId)
-    }
-
-    fun rowValuesFor(
-        performanceKey: String,
-        lockId: String,
-        lockedAt: String,
-        expiresAt: String,
-        deviceId: String
-    ): List<String> = MutableList((headers.values.maxOrNull() ?: -1) + 1) { "" }.apply {
-        fun set(header: String, value: String) {
-            headers[header]?.let { columnIndex -> this@apply[columnIndex] = value }
         }
         set(LOCK_HEADER_PERFORMANCE_ID, performanceKey)
         set(LOCK_HEADER_UUID, lockId)
@@ -246,6 +251,9 @@ internal fun List<List<String>>.toLockTable(): LockTable {
                 performanceKey = performanceKey,
                 rowNumber = headerRowIndex + index + 2,
                 lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trimSpreadsheetWhitespace(),
+                lockedAt = runCatching {
+                    Instant.parse(row.valueAt(headers[LOCK_HEADER_LOCKED_AT]).trimSpreadsheetWhitespace())
+                }.getOrNull(),
                 expiresAt = runCatching {
                     Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trimSpreadsheetWhitespace())
                 }.getOrNull(),
@@ -256,7 +264,7 @@ internal fun List<List<String>>.toLockTable(): LockTable {
     return LockTable(
         headers = headers,
         rows = rows,
-        rowsByPerformanceKey = rows.associateBy(LockRow::performanceKey)
+        firstDataRowNumber = headerRowIndex + 2
     )
 }
 

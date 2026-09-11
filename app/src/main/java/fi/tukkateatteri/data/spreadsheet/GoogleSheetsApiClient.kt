@@ -257,25 +257,6 @@ internal class GoogleSheetsApiClient {
         sendJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchUpdate", HTTP_POST, request, accessToken)
     }
 
-    fun appendPerformanceLock(
-        spreadsheetId: String,
-        accessToken: String,
-        rowValues: List<String>
-    ) {
-        AppLog.verbose(LOG_COMPONENT) { "Appending performance lock row" }
-        val range = URLEncoder.encode(valuesRange(LOCK_SHEET_TITLE), Charsets.UTF_8.name())
-        val request = JSONObject()
-            .put("majorDimension", SHEET_DIMENSION_ROWS)
-            .put("values", JSONArray().put(JSONArray(rowValues)))
-        sendJson(
-            "$API_BASE/spreadsheets/$spreadsheetId/values/$range:append" +
-                "?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
-            HTTP_POST,
-            request,
-            accessToken
-        )
-    }
-
     fun strikeThroughRow(
         spreadsheetId: String,
         sheetTitle: String,

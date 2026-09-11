@@ -168,12 +168,13 @@ internal class GoogleSheetsClient(
         val expiresAt = now.plusSeconds(LOCK_DURATION_SECONDS)
         if (existingLock == null) {
             AppLog.debug(LOG_COMPONENT) {
-                "Appending remote lock; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
+                "Writing remote lock to an explicit row; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
             }
-            api.appendPerformanceLock(
+            api.updateCells(
                 spreadsheetId = spreadsheetId,
                 accessToken = accessToken,
-                rowValues = lockTable.rowValuesFor(
+                values = lockTable.valuesFor(
+                    rowNumber = lockTable.firstAvailableRowNumber(),
                     performanceKey = performanceKey,
                     lockId = lockId,
                     lockedAt = now.toString(),
@@ -200,7 +201,7 @@ internal class GoogleSheetsClient(
         }
         val confirmedLock = api.loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken)
             .toLockTable()
-            .rowsByPerformanceKey[performanceKey]
+            .activeLockFor(performanceKey, Instant.now())
         if (confirmedLock?.lockId != lockId || confirmedLock.deviceId != deviceId) {
             AppLog.warning(LOG_COMPONENT) {
                 "Remote lock acquisition could not be confirmed; tab=$sheetTitle, " +
@@ -521,7 +522,7 @@ internal class GoogleSheetsClient(
         accessToken: String
     ): Boolean {
         val expiredLocks = lockTable.rows.filter { lock ->
-            lock.lockId.isBlank() || lock.expiresAt?.let { !it.isAfter(now) } == true
+            !lock.isActiveAt(now)
         }
         if (expiredLocks.isEmpty()) return false
         AppLog.info(LOG_COMPONENT) { "Removing ${expiredLocks.size} expired or invalid remote locks" }
@@ -540,11 +541,10 @@ internal class GoogleSheetsClient(
         accessToken: String
     ) {
         val lockTable = api.loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
-        val existingLock = lockTable.rowsByPerformanceKey[performanceKey] ?: return
-        if (existingLock.lockId != lockId) {
+        val existingLock = lockTable.ownedLock(performanceKey, lockId, deviceId) ?: run {
             AppLog.warning(LOG_COMPONENT) {
-                "Skipped remote lock release because ownership changed; expected=${lockId.toAbbreviatedId()}, " +
-                    "actual=${existingLock.lockId.toAbbreviatedId()}"
+                "Skipped remote lock release because the owned lock row no longer exists; " +
+                    "expected=${lockId.toAbbreviatedId()}"
             }
             return
         }
@@ -563,15 +563,15 @@ internal class GoogleSheetsClient(
         accessToken: String
     ) {
         val lockTable = api.loadValues(spreadsheetId, LOCK_SHEET_TITLE, accessToken).toLockTable()
-        val existingLock = lockTable.rowsByPerformanceKey[performanceKey]
-        if (existingLock?.lockId != lockId || existingLock.deviceId != deviceId) {
+        val existingLock = lockTable.ownedLock(performanceKey, lockId, deviceId)
+        if (existingLock == null) {
             AppLog.warning(LOG_COMPONENT) {
                 "Remote lock renewal lost ownership; tab=$sheetTitle, lockId=${lockId.toAbbreviatedId()}"
             }
             throw GoogleSheetLockedException(
                 failure = GoogleSheetLockFailure.RENEWAL_LOST,
                 sheetTitle = sheetTitle,
-                holderDeviceId = existingLock?.deviceId
+                holderDeviceId = lockTable.activeLockFor(performanceKey, Instant.now())?.deviceId
             )
         }
         val now = Instant.now()
