@@ -87,4 +87,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.lifecycle.process)
+    debugImplementation(libs.zettle.core)
+    debugImplementation(libs.zettle.card.reader.ui)
 }

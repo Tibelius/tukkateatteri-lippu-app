@@ -19,6 +19,23 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            name = "ZettleGitHubPackages"
+            url = uri("https://maven.pkg.github.com/iZettle/sdk-android")
+            credentials {
+                username = providers.gradleProperty("gpr.user")
+                    .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+                    .orNull
+                    .orEmpty()
+                password = providers.gradleProperty("gpr.key")
+                    .orElse(providers.environmentVariable("GITHUB_TOKEN"))
+                    .orNull
+                    .orEmpty()
+            }
+            content {
+                includeGroupByRegex("com\\.zettle(\\..*)?")
+            }
+        }
     }
 }
 

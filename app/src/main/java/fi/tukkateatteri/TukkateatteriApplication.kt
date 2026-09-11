@@ -7,9 +7,15 @@ import fi.tukkateatteri.data.RoomReservationRepository
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
 import fi.tukkateatteri.logging.AppLog
+import fi.tukkateatteri.payment.configureCardPaymentSdk
 import java.util.UUID
 
 class TukkateatteriApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        configureCardPaymentSdk(this)
+    }
+
     val reservationRepository: ReservationRepository by lazy {
         AppLog.info(LOG_COMPONENT) { "Initializing reservation repository and Room database" }
         ReservationDatabase.create(this).let { database ->

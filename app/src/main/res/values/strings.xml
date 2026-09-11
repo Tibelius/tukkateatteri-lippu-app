@@ -102,7 +102,6 @@
     <string name="statistics_quantity_and_money">%1$d kpl · %2$s</string>
     <string name="statistics_money">· %1$s</string>
     <string name="statistics_performance_row">%1$d/%2$d lunastettu · %3$s</string>
-
     <string name="delete_reservation_title">Poistetaanko varaus?</string>
     <string name="delete_reservation_message">%1$s poistetaan sovelluksesta. Google Sheetsissä se merkitään poistetuksi.</string>
     <string name="delete_reservation_action">Poista varaus</string>
@@ -164,6 +163,11 @@
     <string name="add_ticket_sale">Kirjaa lunastus</string>
     <string name="edit_ticket_sale">Korjaa lunastus</string>
     <string name="delete_ticket_sale">Poista lunastus</string>
+    <string name="charge_card_terminal">Rahasta maksupäätteellä</string>
+    <string name="charge_card_terminal_confirm">Aloita maksu</string>
+    <string name="confirm_card_terminal_payment_title">Vahvista korttimaksu</string>
+    <string name="confirm_card_terminal_payment_message">Veloita %1$d × %2$s, yhteensä %3$s. Maksu kirjataan vasta maksupäätteen hyväksynnän jälkeen.</string>
+    <string name="card_terminal_payment_failed">Maksupäätemaksu epäonnistui. Lunastusta ei kirjattu.</string>
     <string name="imported_payment">Tuotu taulukosta</string>
     <string name="change_google_account">Vaihda tili</string>
     <string name="google_account_disconnected">Google-tili irrotettu. Valitse tili seuraavassa tuonnissa tai viennissä.</string>
