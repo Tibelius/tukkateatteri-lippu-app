@@ -163,6 +163,7 @@
     <string name="add_ticket_sale">Kirjaa lunastus</string>
     <string name="edit_ticket_sale">Korjaa lunastus</string>
     <string name="delete_ticket_sale">Poista lunastus</string>
+    <string name="zettle_payment_method">%1$s (Zettle)</string>
     <string name="charge_card_terminal">Rahasta maksupäätteellä</string>
     <string name="charge_card_terminal_confirm">Aloita maksu</string>
     <string name="confirm_card_terminal_payment_title">Vahvista korttimaksu</string>

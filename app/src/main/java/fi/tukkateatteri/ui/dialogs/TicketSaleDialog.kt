@@ -118,7 +118,7 @@ fun TicketSaleDialog(
     val isPartialDraft = draftAmount != null && draftAmount < remainingBeforeDraft
     val validDraft = selectedMethod != null && draftAmount != null &&
         draftAmount in 1..remainingBeforeDraft &&
-        !(isPartialDraft && !selectedMethod.allowsPartialPayment)
+        !(!selectedMethod.allowsPartialPayment && (isPartialDraft || basePayments.isNotEmpty()))
     val draft = if (validDraft) StoredPayment(selectedMethod.name, draftAmount, false) else null
     val finalStoredPayments = basePayments + listOfNotNull(draft)
     val finalPayments = finalStoredPayments.mapNotNull { it.toPending(methodOptions) }
@@ -244,8 +244,10 @@ fun TicketSaleDialog(
             PaymentEntry(
                 selectedMethod = selectedMethod,
                 methods = if (
-                    customAmountEnabled &&
-                    (customAmount.toEuroCentsOrNull() ?: 0) < remainingBeforeDraft
+                    basePayments.isNotEmpty() || (
+                        customAmountEnabled &&
+                            (customAmount.toEuroCentsOrNull() ?: 0) < remainingBeforeDraft
+                        )
                 ) {
                     methodOptions.filter(PaymentMethod::allowsPartialPayment)
                 } else methodOptions,
@@ -387,6 +389,12 @@ private fun PaymentAllocationList(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         payments.forEachIndexed { index, payment ->
             val method = methods.firstOrNull { it.name == payment.methodName }
+            val methodLabel = method?.label ?: payment.methodName
+            val displayedMethodLabel = if (payment.zettleSuccessful) {
+                stringResource(R.string.zettle_payment_method, methodLabel)
+            } else {
+                methodLabel
+            }
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (payment.zettleSuccessful) {
@@ -402,17 +410,23 @@ private fun PaymentAllocationList(
                         Text(
                             stringResource(
                                 R.string.payment_allocation,
-                                method?.label ?: payment.methodName,
+                                displayedMethodLabel,
                                 payment.amountCents.toEuroString()
                             ),
                             fontWeight = FontWeight.SemiBold
                         )
                         if (payment.zettleSuccessful) {
-                            Text(stringResource(R.string.terminal_payment_confirmed), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                stringResource(R.string.terminal_payment_confirmed),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                     if (payment.zettleSuccessful) {
-                        Icon(Icons.Filled.Lock, stringResource(R.string.terminal_payment_locked))
+                        Icon(
+                            Icons.Filled.Lock,
+                            stringResource(R.string.terminal_payment_locked)
+                        )
                     } else if (editingIndex != index) {
                         IconButton(onClick = { onEdit(index) }) {
                             Icon(Icons.Filled.Edit, stringResource(R.string.edit_payment))
@@ -450,10 +464,30 @@ private fun TerminalPaymentConfirmation(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.confirm_card_terminal_payment_title)) },
         text = {
-            Text(stringResource(R.string.confirm_card_terminal_payment_message_ticket, quantity, ticketType.displayLabel))
-            Text(stringResource(R.string.confirm_card_terminal_payment_message_total, amount.toEuroString()))
-            Text(stringResource(R.string.confirm_card_terminal_payment_message_info))
-
+            Column(verticalArrangement = Arrangement.spacedBy(TERMINAL_CONFIRMATION_CONTENT_SPACING)) {
+                Text(
+                    text = stringResource(
+                        R.string.confirm_card_terminal_payment_message_ticket,
+                        quantity,
+                        ticketType.displayLabel
+                    ),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = stringResource(
+                        R.string.confirm_card_terminal_payment_message_total,
+                        amount.toEuroString()
+                    ),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = stringResource(R.string.confirm_card_terminal_payment_message_info),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
         confirmButton = { Button(onClick = onConfirm) { Text(stringResource(R.string.charge_card_terminal_confirm)) } }
@@ -562,3 +596,4 @@ private const val PAYMENT_STATE_SEPARATOR = "|"
 private const val PAYMENT_STATE_FIELD_COUNT = 3
 private val TERMINAL_ICON_SIZE = 20.dp
 private val TERMINAL_CONTENT_SPACING = 8.dp
+private val TERMINAL_CONFIRMATION_CONTENT_SPACING = 12.dp
