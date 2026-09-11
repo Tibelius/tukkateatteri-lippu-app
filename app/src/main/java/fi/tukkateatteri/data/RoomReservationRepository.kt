@@ -344,13 +344,13 @@ internal class RoomReservationRepository(
                     val protectedPayments = reservationWithSales.ticketSales
                         .first { sale -> sale.ticketSale.id == ticketSaleId }
                         .payments
-                        .filter(PaymentAllocationEntity::zettleSuccessful)
+                        .filter(PaymentAllocationEntity::isLocked)
                     if (protectedPayments.isNotEmpty()) {
                         require(ticketType == existingTicketSale.ticketType && quantity == existingTicketSale.quantity) {
                             "A ticket sale with a completed terminal payment cannot change ticket type or quantity."
                         }
-                        require(payments.retainProtectedZettlePayments(protectedPayments)) {
-                            "A completed terminal payment cannot be changed or removed."
+                        require(payments.retainProtectedPayments(protectedPayments)) {
+                            "A confirmed external payment cannot be changed or removed."
                         }
                     }
                     val otherRecordedSeatCount = reservationWithSales.ticketSales
@@ -404,8 +404,8 @@ internal class RoomReservationRepository(
                         reservationDao.getTicketSaleWithPaymentsById(ticketSaleId)
                             ?.payments
                             .orEmpty()
-                            .none(PaymentAllocationEntity::zettleSuccessful)
-                    ) { "A ticket sale with a completed terminal payment cannot be deleted." }
+                            .none(PaymentAllocationEntity::isLocked)
+                    ) { "A ticket sale with a confirmed external payment cannot be deleted." }
                     reservationDao.deleteTicketSaleById(ticketSaleId)
                     if (ticketSale.countsAsArrival) {
                         reservationDao.getById(ticketSale.reservationId)?.let { reservation ->
@@ -432,8 +432,8 @@ internal class RoomReservationRepository(
     override suspend fun deleteReservation(reservationId: Long, accessToken: String?) {
         require(
             reservationDao.getWithTicketSalesById(reservationId)
-                ?.hasProtectedZettlePayment() != true
-        ) { "A reservation with a completed terminal payment cannot be deleted." }
+                ?.hasLockedPayment() != true
+        ) { "A reservation with a confirmed external payment cannot be deleted." }
         val target = activeCloudTarget()
         if (target == null) {
             AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Deleting reservation locally; reservationId=$reservationId" }
@@ -456,8 +456,8 @@ internal class RoomReservationRepository(
         if (target == null) {
             performanceDao.getActive()?.let { performance ->
                 val reservations = reservationDao.getByPerformanceWithTicketSales(performance.id)
-                require(reservations.none { it.hasProtectedZettlePayment() }) {
-                    "Reservations with completed terminal payments cannot be deleted."
+                require(reservations.none { it.hasLockedPayment() }) {
+                    "Reservations with confirmed external payments cannot be deleted."
                 }
                 AppLog.info(REPOSITORY_LOG_COMPONENT) {
                     "Deleting all local reservations; performanceId=${performance.id}"
@@ -467,8 +467,8 @@ internal class RoomReservationRepository(
             return
         }
         val reservations = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
-        require(reservations.none { it.hasProtectedZettlePayment() }) {
-            "Reservations with completed terminal payments cannot be deleted."
+        require(reservations.none { it.hasLockedPayment() }) {
+            "Reservations with confirmed external payments cannot be deleted."
         }
         val baseRows = reservations.associate { reservation ->
             reservation.reservation.id to ReservationSpreadsheetRow.fromReservation(
@@ -592,18 +592,27 @@ internal class RoomReservationRepository(
 
 }
 
-private fun List<PendingPaymentAllocation>.retainProtectedZettlePayments(
+private fun List<PendingPaymentAllocation>.retainProtectedPayments(
     protectedPayments: List<PaymentAllocationEntity>
-): Boolean = protectedPayments.all { protected ->
-    count { pending ->
-        pending.zettleSuccessful &&
+): Boolean {
+    val unmatchedPayments = toMutableList()
+    return protectedPayments.all { protected ->
+        val matchIndex = unmatchedPayments.indexOfFirst { pending ->
             pending.method == protected.paymentMethod &&
-            pending.amountCents == protected.amountCents
-    } >= protectedPayments.count { candidate ->
-        candidate.paymentMethod == protected.paymentMethod &&
-            candidate.amountCents == protected.amountCents
+                pending.amountCents == protected.amountCents &&
+                (!protected.zettleSuccessful || pending.zettleSuccessful)
+        }
+        if (matchIndex < 0) {
+            false
+        } else {
+            unmatchedPayments.removeAt(matchIndex)
+            true
+        }
     }
 }
 
-private fun ReservationWithTicketSales.hasProtectedZettlePayment(): Boolean =
-    ticketSales.any { sale -> sale.payments.any(PaymentAllocationEntity::zettleSuccessful) }
+private val PaymentAllocationEntity.isLocked: Boolean
+    get() = paymentMethod.isExternallyConfirmed
+
+private fun ReservationWithTicketSales.hasLockedPayment(): Boolean =
+    ticketSales.any { sale -> sale.payments.any(PaymentAllocationEntity::isLocked) }

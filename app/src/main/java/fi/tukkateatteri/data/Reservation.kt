@@ -152,6 +152,9 @@ data class PaymentMethod(
     }
 }
 
+val PaymentMethod.isExternallyConfirmed: Boolean
+    get() = this == PaymentMethod.CARD || this == PaymentMethod.LIPPUAGENTTI
+
 private data class PaymentMethodDefinition(
     val name: String,
     val label: String,

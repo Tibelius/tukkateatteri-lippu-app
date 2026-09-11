@@ -80,7 +80,7 @@ fun ReservationDialog(
                 onUpdateTicketSale(ticketSale.id, ticketType, quantity, payments)
                 ticketSaleToEditId = null
             },
-            onDelete = if (ticketSale.payments.any { it.zettleSuccessful }) {
+            onDelete = if (ticketSale.payments.any { it.isLocked }) {
                 null
             } else {
                 {
@@ -125,7 +125,7 @@ fun ReservationDialog(
             onMenuDismiss = { isMenuExpanded = false },
             onEditReservation = { showReservationEditor = true },
             onDelete = onDelete.takeUnless {
-                reservation.ticketSales.any { sale -> sale.payments.any { it.zettleSuccessful } }
+                reservation.ticketSales.any { sale -> sale.payments.any { it.isLocked } }
             },
             onDismiss = onDismiss
         )

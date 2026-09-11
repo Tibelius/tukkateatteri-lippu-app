@@ -65,6 +65,9 @@ data class PaymentAllocation(
         require(ticketSaleId > 0) { "Ticket sale ID must be positive." }
         require(amountCents >= 0) { "Payment amount must not be negative." }
     }
+
+    val isLocked: Boolean
+        get() = method.isExternallyConfirmed
 }
 
 data class TicketType(

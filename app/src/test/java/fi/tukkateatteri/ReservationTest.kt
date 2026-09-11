@@ -18,6 +18,14 @@ import org.junit.Test
 
 class ReservationTest {
     @Test
+    fun externallyConfirmedPaymentMethodsAreLockedAfterSaving() {
+        assertTrue(PaymentAllocation(1, 1, PaymentMethod.CARD, 2_200).isLocked)
+        assertTrue(PaymentAllocation(2, 1, PaymentMethod.LIPPUAGENTTI, 2_200).isLocked)
+        assertFalse(PaymentAllocation(3, 1, PaymentMethod.CASH, 2_200).isLocked)
+        assertFalse(PaymentAllocation(4, 1, PaymentMethod.EPASSI, 2_200).isLocked)
+    }
+
+    @Test
     fun partialPaymentReservesItsSaleSeatsButDoesNotCompleteThem() {
         val partialSale = TicketSale(
             id = 1,

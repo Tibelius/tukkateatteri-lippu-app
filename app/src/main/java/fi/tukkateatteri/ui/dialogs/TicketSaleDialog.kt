@@ -50,6 +50,7 @@ import fi.tukkateatteri.data.PendingPaymentAllocation
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.isExternallyConfirmed
 import fi.tukkateatteri.data.toDecimalInput
 import fi.tukkateatteri.data.toEuroCentsOrNull
 import fi.tukkateatteri.data.toEuroString
@@ -77,7 +78,6 @@ fun TicketSaleDialog(
 ) {
     val context = LocalContext.current
     val gateway = remember { createCardPaymentGateway() }
-    val terminalProtected = ticketSale?.payments?.any { it.zettleSuccessful } == true
     var quantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(ticketSale?.quantity ?: 1) }
     var typeMenuOpen by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
     var typeName by rememberSaveable(ticketSale?.id) {
@@ -106,6 +106,7 @@ fun TicketSaleDialog(
         .distinctBy(PaymentMethod::name)
         .ifEmpty { PaymentMethod.entries }
     val storedPayments = storedPaymentValues.mapNotNull(String::decodeStoredPayment)
+    val hasLockedPayment = storedPayments.any { it.isLocked(methodOptions) }
     val basePayments = storedPayments.filterIndexed { index, _ -> index != editingIndex }
     val total = ticketType.defaultPriceCents * quantity
     val remainingBeforeDraft = (total - basePayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
@@ -161,7 +162,7 @@ fun TicketSaleDialog(
     ScrollableAppDialog(
         onDismissRequest = onDismiss,
         actions = {
-            if (!terminalProtected) {
+            if (!hasLockedPayment) {
                 onDelete?.let { delete ->
                     TextButton(
                         onClick = {
@@ -197,7 +198,7 @@ fun TicketSaleDialog(
             selected = ticketType,
             options = typeOptions,
             expanded = typeMenuOpen,
-            enabled = !terminalProtected,
+            enabled = !hasLockedPayment,
             onExpand = { typeMenuOpen = true },
             onDismiss = { typeMenuOpen = false },
             onSelect = {
@@ -207,7 +208,7 @@ fun TicketSaleDialog(
         )
         SeatCountSelector(
             seatCount = quantity,
-            minimumSeatCount = if (terminalProtected) quantity else 1,
+            minimumSeatCount = if (hasLockedPayment) quantity else 1,
             maximumSeatCount = maximumQuantity,
             onDecrease = { quantity-- },
             onIncrease = { if (quantity < maximumQuantity) quantity++ }
@@ -390,14 +391,14 @@ private fun PaymentAllocationList(
         payments.forEachIndexed { index, payment ->
             val method = methods.firstOrNull { it.name == payment.methodName }
             val methodLabel = method?.label ?: payment.methodName
-            val displayedMethodLabel = if (payment.zettleSuccessful) {
+            val displayedMethodLabel = if (method == PaymentMethod.CARD) {
                 stringResource(R.string.zettle_payment_method, methodLabel)
             } else {
                 methodLabel
             }
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = if (payment.zettleSuccessful) {
+                    containerColor = if (payment.isLocked(methods)) {
                         MaterialTheme.colorScheme.tertiaryContainer
                     } else MaterialTheme.colorScheme.surfaceVariant
                 )
@@ -415,14 +416,8 @@ private fun PaymentAllocationList(
                             ),
                             fontWeight = FontWeight.SemiBold
                         )
-                        if (payment.zettleSuccessful) {
-                            Text(
-                                stringResource(R.string.terminal_payment_confirmed),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
                     }
-                    if (payment.zettleSuccessful) {
+                    if (payment.isLocked(methods)) {
                         Icon(
                             Icons.Filled.Lock,
                             stringResource(R.string.terminal_payment_locked)
@@ -546,7 +541,7 @@ private inline fun startEditing(
     payments: List<StoredPayment>,
     update: (String, Int) -> Unit
 ) {
-    payments.getOrNull(index)?.takeUnless(StoredPayment::zettleSuccessful)?.let {
+    payments.getOrNull(index)?.takeUnless { it.isLocked(PaymentMethod.entries) }?.let {
         update(it.methodName, it.amountCents)
     }
 }
@@ -564,6 +559,10 @@ private data class StoredPayment(
     fun toPending(methods: List<PaymentMethod>): PendingPaymentAllocation? = methods
         .firstOrNull { it.name == methodName }
         ?.let { PendingPaymentAllocation(it, amountCents, zettleSuccessful) }
+
+    fun isLocked(methods: List<PaymentMethod>): Boolean = methods
+        .firstOrNull { it.name == methodName }
+        ?.isExternallyConfirmed == true
 }
 
 private fun String.decodeStoredPayment(): StoredPayment? {

@@ -183,8 +183,7 @@
     <string name="use_partial_payment">Maksa osissa</string>
     <string name="use_remaining_payment_amount">Käytä koko jäljellä oleva summa</string>
     <string name="payment_complete">Lunastus on maksettu kokonaan</string>
-    <string name="terminal_payment_confirmed">Maksupääte on vahvistanut maksun</string>
-    <string name="terminal_payment_locked">Vahvistettua maksupäätemaksua ei voi muuttaa</string>
+    <string name="terminal_payment_locked">Vahvistettua maksua ei voi muuttaa</string>
     <string name="edit_payment">Muokkaa maksua</string>
     <string name="delete_payment">Poista maksu</string>
     <string name="change_completed_payment_title">Muuta valmista lunastusta?</string>
