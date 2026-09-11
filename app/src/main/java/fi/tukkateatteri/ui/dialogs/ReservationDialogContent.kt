@@ -69,6 +69,7 @@ internal fun ArrivalCountDialog(
             SeatCountSelector(
                 seatCount = arrivalCount,
                 minimumSeatCount = 0,
+                maximumSeatCount = maximumArrivalCount,
                 labelResId = R.string.arrival_count,
                 onDecrease = { arrivalCount-- },
                 onIncrease = { if (arrivalCount < maximumArrivalCount) arrivalCount++ }

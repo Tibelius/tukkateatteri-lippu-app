@@ -169,6 +169,7 @@ fun TicketSaleDialog(
         )
         SeatCountSelector(
             seatCount = quantity,
+            maximumSeatCount = maximumQuantity,
             onDecrease = { quantity-- },
             onIncrease = { if (quantity < maximumQuantity) quantity++ }
         )

@@ -8,28 +8,44 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonColors
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
+import fi.tukkateatteri.ui.theme.LocalQuantityButtonColors
 
 @Composable
 fun SeatCountSelector(
     seatCount: Int,
     minimumSeatCount: Int = MINIMUM_SEAT_COUNT,
+    maximumSeatCount: Int = Int.MAX_VALUE,
     @StringRes labelResId: Int = R.string.seat_count,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit
 ) {
+    val decreaseEnabled = seatCount > minimumSeatCount
+    val increaseEnabled = seatCount < maximumSeatCount
+
+    val appColors = LocalQuantityButtonColors.current
+    val buttonColors = IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = appColors.container,
+        contentColor = appColors.content,
+        disabledContainerColor = appColors.disabledContainer,
+        disabledContentColor = appColors.disabledContent
+    )
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -41,15 +57,13 @@ fun SeatCountSelector(
         )
         Spacer(modifier = Modifier.weight(1f))
 
-        IconButton(
-            enabled = seatCount > minimumSeatCount,
+        QuantityIconButton(
+            imageVector = Icons.Filled.Remove,
+            contentDescription = stringResource(R.string.decrease_seat_count),
+            enabled = decreaseEnabled,
+            colors = buttonColors,
             onClick = onDecrease
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Remove,
-                contentDescription = stringResource(R.string.decrease_seat_count)
-            )
-        }
+        )
         Text(
             text = seatCount.toString(),
             modifier = Modifier.widthIn(min = 40.dp),
@@ -57,11 +71,31 @@ fun SeatCountSelector(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
-        IconButton(onClick = onIncrease) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = stringResource(R.string.increase_seat_count)
-            )
-        }
+        QuantityIconButton(
+            imageVector = Icons.Filled.Add,
+            contentDescription = stringResource(R.string.increase_seat_count),
+            enabled = increaseEnabled,
+            colors = buttonColors,
+            onClick = onIncrease
+        )
+    }
+}
+
+@Composable
+fun QuantityIconButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    enabled: Boolean = true,
+    colors: IconButtonColors = IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant
+    ),
+    onClick: () -> Unit
+) {
+    FilledTonalIconButton(
+        enabled = enabled,
+        colors = colors,
+        onClick = onClick
+    ) {
+        Icon(imageVector = imageVector, contentDescription = contentDescription)
     }
 }

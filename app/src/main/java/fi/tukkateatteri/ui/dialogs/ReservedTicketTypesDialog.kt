@@ -13,7 +13,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +31,7 @@ import fi.tukkateatteri.R
 import fi.tukkateatteri.data.ReservedTicketAllocation
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.ui.components.CancelSaveActions
+import fi.tukkateatteri.ui.components.QuantityIconButton
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 
 internal val reservedTicketAllocationsSaver = listSaver<List<ReservedTicketAllocation>, String>(
@@ -175,13 +175,18 @@ private fun ReservedTicketTypeRow(
             modifier = Modifier.weight(1f),
             fontWeight = FontWeight.Medium
         )
-        IconButton(onClick = onDecrease) {
-            Icon(Icons.Filled.Remove, contentDescription = stringResource(R.string.decrease_seat_count))
-        }
+        QuantityIconButton(
+            imageVector = Icons.Filled.Remove,
+            contentDescription = stringResource(R.string.decrease_seat_count),
+            onClick = onDecrease
+        )
         Text(quantity.toString(), style = MaterialTheme.typography.titleMedium)
-        IconButton(onClick = onIncrease, enabled = canIncrease) {
-            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.increase_seat_count))
-        }
+        QuantityIconButton(
+            imageVector = Icons.Filled.Add,
+            contentDescription = stringResource(R.string.increase_seat_count),
+            enabled = canIncrease,
+            onClick = onIncrease
+        )
     }
 }
 
