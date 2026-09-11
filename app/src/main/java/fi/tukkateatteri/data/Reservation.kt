@@ -103,13 +103,45 @@ data class PaymentMethod(
     override fun toString(): String = name
 
     companion object {
-        val CARD = PaymentMethod("CARD", "Kortti", sortOrder = 0)
-        val CASH = PaymentMethod("CASH", "Käteinen", sortOrder = 1)
-        val EPASSI = PaymentMethod("EPASSI", "ePassi", sortOrder = 2)
-        val LIPPUAGENTTI = PaymentMethod("LIPPUAGENTTI", "Lippuagentti", allowsSplitPayment = false, sortOrder = 3)
-        val entries = listOf(CARD, CASH, EPASSI, LIPPUAGENTTI)
+        private const val CARD_ID = "CARD"
+        private const val CASH_ID = "CASH"
+        private const val EPASSI_ID = "EPASSI"
+        private const val LIPPUAGENTTI_ID = "LIPPUAGENTTI"
 
-        fun valueOf(name: String): PaymentMethod = entries.firstOrNull { it.name == name }
+        private val defaultDefinitions = listOf(
+            PaymentMethodDefinition(CARD_ID, "Kortti"),
+            PaymentMethodDefinition(CASH_ID, "Käteinen"),
+            PaymentMethodDefinition(EPASSI_ID, "ePassi"),
+            PaymentMethodDefinition(LIPPUAGENTTI_ID, "Lippuagentti", allowsSplitPayment = false)
+        )
+        val entries = defaultDefinitions.mapIndexed { index, definition ->
+            PaymentMethod(
+                name = definition.name,
+                label = definition.label,
+                allowsSplitPayment = definition.allowsSplitPayment,
+                sortOrder = index
+            )
+        }
+        private val entriesByName = entries.associateBy(PaymentMethod::name)
+
+        val CARD = entriesByName.getValue(CARD_ID)
+        val CASH = entriesByName.getValue(CASH_ID)
+        val EPASSI = entriesByName.getValue(EPASSI_ID)
+        val LIPPUAGENTTI = entriesByName.getValue(LIPPUAGENTTI_ID)
+
+        fun valueOf(name: String): PaymentMethod = entriesByName[name]
             ?: throw IllegalArgumentException("Unknown payment method: $name")
+
+        fun displaySortOrder(method: PaymentMethod): Int {
+            val builtInIndex = entries.indexOfFirst { it.name == method.name }
+            if (builtInIndex >= 0) return builtInIndex
+            return method.sortOrder.coerceAtMost(Int.MAX_VALUE - entries.size) + entries.size
+        }
     }
 }
+
+private data class PaymentMethodDefinition(
+    val name: String,
+    val label: String,
+    val allowsSplitPayment: Boolean = true
+)

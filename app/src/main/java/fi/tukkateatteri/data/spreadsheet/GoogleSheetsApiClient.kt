@@ -7,6 +7,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
+import java.time.Instant
+import java.util.UUID
 
 internal class GoogleSheetsApiClient {
     private val initializedSpreadsheets = mutableSetOf<String>()
@@ -22,18 +24,37 @@ internal class GoogleSheetsApiClient {
         if (spreadsheetId in initializedSpreadsheets) return
         try {
             val metadata = loadSpreadsheetMetadata(spreadsheetId, accessToken)
-            val sheets = metadata.getJSONArray("sheets")
-            val exists = (0 until sheets.length()).any { index ->
-                sheets.getJSONObject(index).getJSONObject("properties").getString("title") == APPLICATION_SHEET_TITLE
-            }
-            if (!exists) {
+            val applicationSheet = metadata.toSpreadsheetStructure().sheetsByTitle[APPLICATION_SHEET_TITLE]
+            if (applicationSheet == null) {
                 AppLog.info(LOG_COMPONENT) { "Creating app-managed spreadsheet tab '$APPLICATION_SHEET_TITLE'" }
                 val request = JSONObject().put(
                     "requests",
                     JSONArray().put(
                         JSONObject().put(
                             "addSheet",
-                            JSONObject().put("properties", JSONObject().put("title", APPLICATION_SHEET_TITLE))
+                            JSONObject().put(
+                                "properties",
+                                JSONObject()
+                                    .put("title", APPLICATION_SHEET_TITLE)
+                                    .put("hidden", true)
+                            )
+                        )
+                    )
+                )
+                sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
+            } else if (!applicationSheet.hidden) {
+                AppLog.info(LOG_COMPONENT) { "Hiding app-managed spreadsheet tab '$APPLICATION_SHEET_TITLE'" }
+                val request = JSONObject().put(
+                    "requests",
+                    JSONArray().put(
+                        JSONObject().put(
+                            "updateSheetProperties",
+                            JSONObject()
+                                .put(
+                                    "properties",
+                                    JSONObject().put("sheetId", applicationSheet.id).put("hidden", true)
+                                )
+                                .put("fields", "hidden")
                         )
                     )
                 )
@@ -43,6 +64,8 @@ internal class GoogleSheetsApiClient {
                 SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, index, 1), header)
             } + REQUIRED_LOCK_HEADERS.mapIndexed { index, header ->
                 SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, LOCK_TABLE_START_COLUMN + index, 1), header)
+            } + REQUIRED_ROW_STATE_HEADERS.mapIndexed { index, header ->
+                SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, ROW_STATE_TABLE_START_COLUMN + index, 1), header)
             }
             updateCells(spreadsheetId, accessToken, headers)
             initializedSpreadsheets += spreadsheetId
@@ -121,47 +144,39 @@ internal class GoogleSheetsApiClient {
         }
     }
 
-    fun ensureApplicationHeaders(
+    fun attachRowIdentity(
         spreadsheetId: String,
-        sheetTitle: String,
-        rows: List<List<String>>,
-        headerRowIndex: Int,
+        sheetId: Int,
+        rowNumber: Int,
+        rowId: String,
         accessToken: String
-    ): Map<String, Int> {
-        val headers = rows[headerRowIndex].mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap().toMutableMap()
-        if (HEADER_SHEET_ROW_ID !in headers) {
-            val columnIndex = (headers.values.maxOrNull() ?: -1) + 1
-            AppLog.info(LOG_COMPONENT) {
-                "Adding missing Sovellus-ID header; tab=$sheetTitle, column=${columnIndex + 1}"
-            }
-            updateCells(
-                spreadsheetId,
-                accessToken,
-                listOf(
-                    SheetCellValue(
-                        sheetCellRange(sheetTitle, columnIndex, headerRowIndex + 1),
-                        "Sovellus-ID"
-                    )
+    ) {
+        AppLog.debug(LOG_COMPONENT) { "Attaching invisible row identity; sheetId=$sheetId, row=$rowNumber" }
+        val metadata = JSONObject()
+            .put("metadataKey", ROW_ID_METADATA_KEY)
+            .put("metadataValue", rowId)
+            .put("visibility", "PROJECT")
+            .put(
+                "location",
+                JSONObject().put(
+                    "dimensionRange",
+                    JSONObject()
+                        .put("sheetId", sheetId)
+                        .put("dimension", SHEET_DIMENSION_ROWS)
+                        .put("startIndex", rowNumber - 1)
+                        .put("endIndex", rowNumber)
                 )
             )
-            headers[HEADER_SHEET_ROW_ID] = columnIndex
-        }
-        return headers
-    }
-
-    fun requireApplicationHeaders(headers: Map<String, Int>) {
-        val missingHeaders = listOf(
-            HEADER_SHEET_ROW_ID,
-            HEADER_APP_OPERATION,
-            HEADER_APP_MODIFIED_AT,
-            HEADER_APP_MUTATION_ID
-        ).filterNot(headers::containsKey)
-        if (missingHeaders.isNotEmpty()) {
-            AppLog.warning(LOG_COMPONENT) { "Required app columns are missing: ${missingHeaders.joinToString()}" }
-        }
-        require(missingHeaders.isEmpty()) {
-            "Välilehdeltä puuttuvat sovellussarakkeet: ${missingHeaders.joinToString()}."
-        }
+        val request = JSONObject().put(
+            "requests",
+            JSONArray().put(
+                JSONObject().put(
+                    "createDeveloperMetadata",
+                    JSONObject().put("developerMetadata", metadata)
+                )
+            )
+        )
+        sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
     fun firstAvailableReservationRow(rows: List<List<String>>, headerRowIndex: Int): Int {
@@ -255,6 +270,42 @@ internal class GoogleSheetsApiClient {
                 }
             )
         sendJson("$API_BASE/spreadsheets/$spreadsheetId/values:batchUpdate", HTTP_POST, request, accessToken)
+    }
+
+    fun appendApplicationRowState(
+        spreadsheetId: String,
+        sheetId: Int,
+        rowId: String,
+        contentHash: String,
+        operation: String,
+        accessToken: String
+    ) {
+        val range = URLEncoder.encode(
+            "${APPLICATION_SHEET_TITLE.toQuotedSheetName()}!" +
+                "${ROW_STATE_TABLE_START_COLUMN.toColumnName()}:" +
+                (ROW_STATE_TABLE_START_COLUMN + REQUIRED_ROW_STATE_HEADERS.lastIndex).toColumnName(),
+            Charsets.UTF_8.name()
+        )
+        val request = JSONObject().put(
+            "values",
+            JSONArray().put(
+                JSONArray()
+                    .put(sheetId)
+                    .put(rowId)
+                    .put(contentHash)
+                    .put(Instant.now().toString())
+                    .put(operation)
+                    .put(UUID.randomUUID().toString())
+            )
+        )
+        AppLog.debug(LOG_COMPONENT) { "Appending centralized row state; sheetId=$sheetId" }
+        sendJson(
+            "$API_BASE/spreadsheets/$spreadsheetId/values/$range:append" +
+                "?valueInputOption=RAW&insertDataOption=OVERWRITE",
+            HTTP_POST,
+            request,
+            accessToken
+        )
     }
 
     fun strikeThroughRow(
@@ -406,7 +457,6 @@ internal class GoogleSheetsApiClient {
         const val READ_TIMEOUT_MILLIS = 30_000
         const val HTTP_GET = "GET"
         const val HTTP_POST = "POST"
-        const val SHEET_DIMENSION_ROWS = "ROWS"
         val HTTP_SUCCESS_CODES = 200..299
     }
 }

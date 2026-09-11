@@ -82,6 +82,60 @@ class SalesStatisticsTest {
         assertFalse(statistics.canCompareReservationRevenue)
     }
 
+    @Test
+    fun calculateSalesStatistics_usesCanonicalPaymentOrderAndCountsTickets() {
+        val importedCard = PaymentMethod("CARD", "Kortti", sortOrder = 99)
+        val importedCash = PaymentMethod("CASH", "Käteinen", sortOrder = 0)
+        val statistics = calculateSalesStatistics(
+            listOf(
+                reservation(
+                    id = 5,
+                    seatCount = 2,
+                    sales = listOf(sale(5, 5, TicketType.BASIC, importedCard, quantity = 2))
+                ),
+                reservation(
+                    id = 6,
+                    seatCount = 3,
+                    sales = listOf(sale(6, 6, TicketType.BASIC, importedCash, quantity = 3))
+                )
+            )
+        )
+
+        assertEquals(listOf("CARD", "CASH"), statistics.paymentMethods.map { it.name })
+        assertEquals(listOf(2, 3), statistics.paymentMethods.map { it.ticketCount })
+        assertEquals(
+            listOf("CARD", "CASH"),
+            statistics.ticketTypes.single().paymentMethods.map { it.name }
+        )
+        assertEquals(
+            listOf(2, 3),
+            statistics.ticketTypes.single().paymentMethods.map { it.ticketCount }
+        )
+    }
+
+    @Test
+    fun calculateSalesStatistics_reportsSplitPaymentsWithoutDoubleCountingTickets() {
+        val splitSale = TicketSale(
+            id = 7,
+            reservationId = 7,
+            ticketType = TicketType.BASIC,
+            quantity = 2,
+            unitPriceCents = TicketType.BASIC.defaultPriceCents,
+            payments = listOf(
+                PaymentAllocation(7, 7, PaymentMethod.CASH, 1_000),
+                PaymentAllocation(8, 7, PaymentMethod.CARD, 3_400)
+            )
+        )
+
+        val methods = calculateSalesStatistics(
+            listOf(reservation(id = 7, seatCount = 2, sales = listOf(splitSale)))
+        ).paymentMethods
+
+        assertEquals(listOf("CARD", "CASH"), methods.map { it.name })
+        assertTrue(methods.all { it.ticketCount == 0 })
+        assertTrue(methods.all { it.splitPaymentCount == 1 })
+    }
+
     private fun reservation(
         id: Long,
         seatCount: Int = 1,
@@ -108,15 +162,16 @@ class SalesStatisticsTest {
         id: Long,
         reservationId: Long,
         ticketType: TicketType,
-        paymentMethod: PaymentMethod
+        paymentMethod: PaymentMethod,
+        quantity: Int = 1
     ) = TicketSale(
         id = id,
         reservationId = reservationId,
         ticketType = ticketType,
-        quantity = 1,
+        quantity = quantity,
         unitPriceCents = ticketType.defaultPriceCents,
         payments = listOf(
-            PaymentAllocation(id, id, paymentMethod, ticketType.defaultPriceCents)
+            PaymentAllocation(id, id, paymentMethod, ticketType.defaultPriceCents * quantity)
         )
     )
 }

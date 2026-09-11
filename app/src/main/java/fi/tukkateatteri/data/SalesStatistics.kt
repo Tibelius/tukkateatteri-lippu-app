@@ -39,13 +39,15 @@ data class TicketTypeStatistics(
     val label: String,
     val quantity: Int,
     val revenueCents: Int,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val paymentMethods: List<PaymentMethodStatistics>
 )
 
 data class PaymentMethodStatistics(
     val name: String,
     val label: String,
-    val transactionCount: Int,
+    val ticketCount: Int,
+    val splitPaymentCount: Int,
     val amountCents: Int,
     val sortOrder: Int
 )
@@ -77,31 +79,24 @@ fun calculateSalesStatistics(reservations: List<Reservation>): SalesStatistics {
     val ticketTypes = paidSales
         .groupBy { (_, sale) -> sale.ticketType.name }
         .map { (name, entries) ->
-            val sample = entries.first().second.ticketType
+            val ticketType = entries.first().second.ticketType
+
             TicketTypeStatistics(
                 name = name,
-                label = sample.label,
+                label = ticketType.label,
                 quantity = entries.sumOf { (_, sale) -> sale.quantity },
                 revenueCents = entries.sumOf { (_, sale) -> sale.paidAmountCents },
-                sortOrder = sample.sortOrder
+                sortOrder = ticketType.sortOrder,
+                paymentMethods = entries
+                    .map { (_, sale) -> sale }
+                    .toPaymentMethodStatistics()
             )
         }
         .sortedWith(compareBy(TicketTypeStatistics::sortOrder, TicketTypeStatistics::label))
 
     val paymentMethods = paidSales
-        .flatMap { (_, sale) -> sale.payments }
-        .groupBy { payment -> payment.method.name }
-        .map { (name, payments) ->
-            val sample = payments.first().method
-            PaymentMethodStatistics(
-                name = name,
-                label = sample.label,
-                transactionCount = payments.size,
-                amountCents = payments.sumOf(PaymentAllocation::amountCents),
-                sortOrder = sample.sortOrder
-            )
-        }
-        .sortedWith(compareBy(PaymentMethodStatistics::sortOrder, PaymentMethodStatistics::label))
+        .map { (_, sale) -> sale }
+        .toPaymentMethodStatistics()
 
     return SalesStatistics(
         reservationCount = reservationAdmissions.size,
@@ -140,3 +135,36 @@ fun calculateSalesStatistics(reservations: List<Reservation>): SalesStatistics {
 
 private fun ratio(numerator: Int, denominator: Int): Float =
     if (denominator == 0) 0f else numerator.toFloat() / denominator
+
+private fun List<TicketSale>.toPaymentMethodStatistics(): List<PaymentMethodStatistics> =
+    flatMap { sale -> sale.payments.map { payment -> SalePayment(sale, payment) } }
+        .groupBy { it.payment.method.name }
+        .map { (name, salePayments) ->
+            val method = PaymentMethod.entries.firstOrNull { it.name == name }
+                ?: salePayments.minWith(
+                    compareBy<SalePayment> { it.payment.method.sortOrder }
+                        .thenBy { it.payment.method.label }
+                ).payment.method
+
+            PaymentMethodStatistics(
+                name = name,
+                label = method.label,
+                ticketCount = salePayments
+                    .filterNot { it.sale.isSplitPayment }
+                    .sumOf { it.sale.quantity },
+                splitPaymentCount = salePayments
+                    .filter { it.sale.isSplitPayment }
+                    .distinctBy { it.sale.id }
+                    .size,
+                amountCents = salePayments.sumOf { it.payment.amountCents },
+                sortOrder = PaymentMethod.displaySortOrder(method)
+            )
+        }
+        .sortedWith(
+            compareBy(PaymentMethodStatistics::sortOrder, PaymentMethodStatistics::label)
+        )
+
+private data class SalePayment(
+    val sale: TicketSale,
+    val payment: PaymentAllocation
+)

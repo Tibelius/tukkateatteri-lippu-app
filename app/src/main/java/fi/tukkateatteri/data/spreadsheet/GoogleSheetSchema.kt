@@ -37,17 +37,11 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
     return rows.drop(headerRowIndex + 1).takeWhile { row ->
         row.valueAt(headerIndexes[HEADER_LAST_NAME]).isNotBlank() || row.valueAt(headerIndexes[HEADER_FIRST_NAME]).isNotBlank()
     }.mapIndexedNotNull { dataRowIndex, row ->
-        val metadataState = row.applicationMutationMetadataState(headerIndexes)
-        if (
-            metadataState == ApplicationMutationMetadataState.VALID &&
-            row.valueAt(headerIndexes[HEADER_APP_OPERATION]).normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
-        ) {
-            return@mapIndexedNotNull null
-        }
+        val sourceRowNumber = headerRowIndex + dataRowIndex + 2
         val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
         val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
         if (lastName.isBlank() && firstName.isBlank()) return@mapIndexedNotNull null
-        val sheetRowId = row.valueAt(headerIndexes[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
+        val sheetRowId = rowIdsByRowNumber[sourceRowNumber].orEmpty()
         val sourceIdentity = if (sheetRowId.isUuid()) {
             "sheet:$sheetRowId"
         } else if (lastName.isDoorSaleSheetLabel()) {
@@ -55,7 +49,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
         } else {
             "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}"
         }
-        ReservationSpreadsheetRow(
+        val parsedRow = ReservationSpreadsheetRow(
             lastName = lastName,
             firstName = firstName,
             contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trimSpreadsheetWhitespace(),
@@ -72,28 +66,24 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
             notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
             sourceIdentity = sourceIdentity,
             sheetRowId = sheetRowId,
-            sourceRowNumber = headerRowIndex + dataRowIndex + 2,
-            applicationMutationMetadataState = metadataState
+            sourceRowNumber = sourceRowNumber
         )
-    }
-}
-
-internal fun List<String>.applicationMutationMetadataState(headers: Map<String, Int>): ApplicationMutationMetadataState {
-    val sheetRowId = valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
-    val operation = valueAt(headers[HEADER_APP_OPERATION]).normalizedHeader()
-    val modifiedAt = valueAt(headers[HEADER_APP_MODIFIED_AT]).trimSpreadsheetWhitespace()
-    val mutationId = valueAt(headers[HEADER_APP_MUTATION_ID]).trimSpreadsheetWhitespace()
-    val values = listOf(sheetRowId, operation, modifiedAt, mutationId)
-    if (values.all(String::isBlank)) return ApplicationMutationMetadataState.NONE
-
-    val validOperation = operation.isBlank() || operation in VALID_APPLICATION_OPERATIONS
-    val validTimestamp = runCatching { Instant.parse(modifiedAt) }.isSuccess
-    val validSheetRowId = sheetRowId.isUuid()
-    val validMutationId = mutationId.isUuid()
-    return if (validOperation && validTimestamp && validSheetRowId && validMutationId) {
-        ApplicationMutationMetadataState.VALID
-    } else {
-        ApplicationMutationMetadataState.INVALID
+        val appState = applicationRowStates[sheetRowId]
+        val metadataState = when {
+            appState == null -> ApplicationMutationMetadataState.NONE
+            !appState.isValid || appState.contentHash != parsedRow.sheetContentHash() -> {
+                ApplicationMutationMetadataState.INVALID
+            }
+            else -> ApplicationMutationMetadataState.VALID
+        }
+        if (
+            metadataState == ApplicationMutationMetadataState.VALID &&
+            appState?.operation?.normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
+        ) {
+            null
+        } else {
+            parsedRow.copy(applicationMutationMetadataState = metadataState)
+        }
     }
 }
 
@@ -114,9 +104,7 @@ internal fun String.isDoorSaleSheetLabel(): Boolean = normalizedIdentity() in se
 internal fun ReservationSpreadsheetRow.toSheetCellValues(
     sheetTitle: String,
     rowNumber: Int,
-    headers: Map<String, Int>,
-    sheetRowId: String,
-    operation: String?
+    headers: Map<String, Int>
 ): List<SheetCellValue> = buildList {
     val schema = SheetColumnSchema.fromHeaders(headers)
     fun set(header: String, value: Any) {
@@ -138,31 +126,6 @@ internal fun ReservationSpreadsheetRow.toSheetCellValues(
         set(header, quantity ?: "")
     }
     set(HEADER_NOTES, notes)
-    set(HEADER_SHEET_ROW_ID, sheetRowId)
-    operation?.let { set(HEADER_APP_OPERATION, it) }
-    set(HEADER_APP_MODIFIED_AT, Instant.now().toString())
-    set(HEADER_APP_MUTATION_ID, UUID.randomUUID().toString())
-}
-
-internal fun deletedRowCellValues(
-    sheetTitle: String,
-    rowNumber: Int,
-    headers: Map<String, Int>,
-    mutationId: String
-): List<SheetCellValue> = buildList {
-    val schema = SheetColumnSchema.fromHeaders(headers)
-    fun set(header: String, value: Any) {
-        headers[header]?.let { columnIndex ->
-            add(SheetCellValue(sheetCellRange(sheetTitle, columnIndex, rowNumber), value))
-        }
-    }
-    set(HEADER_RESERVED_COUNT, 0)
-    set(HEADER_ARRIVAL_COUNT, 0)
-    schema.ticketHeaders.values.forEach { set(it, 0) }
-    schema.paymentHeaders.values.forEach { set(it, 0) }
-    set(HEADER_APP_OPERATION, APP_OPERATION_DELETE)
-    set(HEADER_APP_MODIFIED_AT, Instant.now().toString())
-    set(HEADER_APP_MUTATION_ID, mutationId)
 }
 
 internal data class SheetCellValue(val range: String, val value: Any) {
@@ -362,24 +325,9 @@ internal const val HEADER_CONTACT = "yhteystiedot"
 internal const val HEADER_RESERVED_COUNT = "varatut liput kpl"
 internal const val HEADER_ARRIVAL_COUNT = "saapunut esitykseen eli lunastettujen lippujen lukumäärä"
 internal const val HEADER_NOTES = "huom! (merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
-internal const val HEADER_SHEET_ROW_ID = "sovellus-id"
-internal const val HEADER_APP_OPERATION = "sovellus-toiminto"
-internal const val HEADER_APP_MODIFIED_AT = "sovellus-muokattu"
-internal const val HEADER_APP_MUTATION_ID = "sovellus-muokkaus-id"
 internal const val HEADER_PERFORMANCE = "esitys:"
 internal const val HEADER_DATE = "pvm:"
 internal const val HEADER_RESERVATION_TOTAL = "varaukset yhteensä"
-internal const val APP_OPERATION_ADD = "Lisäys"
-internal const val APP_OPERATION_DELETE = "Poisto"
-internal val VALID_APPLICATION_OPERATIONS = setOf(
-    APP_OPERATION_ADD.normalizedHeader(),
-    APP_OPERATION_DELETE.normalizedHeader()
-)
-internal val APPLICATION_MUTATION_METADATA_HEADERS = listOf(
-    HEADER_APP_OPERATION,
-    HEADER_APP_MODIFIED_AT,
-    HEADER_APP_MUTATION_ID
-)
 internal const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
 internal const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
 internal const val LOCK_HEADER_UUID = "lock_uuid"
@@ -416,8 +364,7 @@ data class SheetColumnSchema(
             val normalized = headers.map(String::canonicalDataHeader)
             val arrivalIndex = normalized.indexOf(HEADER_ARRIVAL_COUNT)
             val notesIndex = normalized.indexOf(HEADER_NOTES).takeIf { it >= 0 } ?: normalized.size
-            val appIndex = normalized.indexOf(HEADER_SHEET_ROW_ID).takeIf { it >= 0 } ?: normalized.size
-            val dataEnd = minOf(notesIndex, appIndex)
+            val dataEnd = notesIndex
             val paymentStart = normalized.withIndex()
                 .firstOrNull { (index, header) ->
                     index > arrivalIndex && (header in KNOWN_PAYMENT_ALIASES || storedAliases[header]?.kind == "PAYMENT")

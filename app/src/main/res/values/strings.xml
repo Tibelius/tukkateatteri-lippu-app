@@ -100,7 +100,7 @@
     <string name="statistics_ticket_types">Myydyt lipputyypit</string>
     <string name="statistics_payment_methods">Maksutavat</string>
     <string name="statistics_quantity_and_money">%1$d kpl · %2$s</string>
-    <string name="statistics_transactions_and_money">%1$d tapahtumaa · %2$s</string>
+    <string name="statistics_money">· %1$s</string>
     <string name="statistics_performance_row">%1$d/%2$d lunastettu · %3$s</string>
 
     <string name="delete_reservation_title">Poistetaanko varaus?</string>

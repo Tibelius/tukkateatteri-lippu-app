@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -27,11 +29,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 import fi.tukkateatteri.data.PerformanceStatistics
+import fi.tukkateatteri.data.PaymentMethodStatistics
 import fi.tukkateatteri.data.SalesStatistics
 import fi.tukkateatteri.data.StatisticsReport
 import fi.tukkateatteri.data.toEuroString
@@ -105,6 +109,16 @@ internal fun StatisticsScreen(
                                     ticketType.revenueCents.toEuroString()
                                 )
                             )
+                            ticketType.paymentMethods.forEachIndexed { index, paymentMethod ->
+                                StatisticsValueRow(
+                                    label = paymentMethod.label,
+                                    subRow = true,
+                                    value = stringResource(
+                                        R.string.statistics_money,
+                                        paymentMethod.amountCents.toEuroString()
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -118,8 +132,8 @@ internal fun StatisticsScreen(
                             StatisticsValueRow(
                                 label = paymentMethod.label,
                                 value = stringResource(
-                                    R.string.statistics_transactions_and_money,
-                                    paymentMethod.transactionCount,
+                                    R.string.statistics_quantity_and_money,
+                                    paymentMethod.ticketCount,
                                     paymentMethod.amountCents.toEuroString()
                                 )
                             )
@@ -284,13 +298,17 @@ private fun StatisticsValueRow(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    emphasized: Boolean = false
+    emphasized: Boolean = false,
+    subRow: Boolean = false
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (subRow) {
+            Spacer(Modifier.requiredWidth(20.dp))
+        }
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Text(
             value,

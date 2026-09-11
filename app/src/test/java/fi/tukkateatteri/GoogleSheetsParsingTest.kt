@@ -2,8 +2,10 @@ package fi.tukkateatteri
 
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
+import fi.tukkateatteri.data.spreadsheet.ApplicationRowState
 import fi.tukkateatteri.data.spreadsheet.ApplicationMutationMetadataState
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetTab
+import fi.tukkateatteri.data.spreadsheet.sheetContentHash
 import fi.tukkateatteri.data.spreadsheet.toImportCandidateOrNull
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRows
 import org.junit.Assert.assertEquals
@@ -11,6 +13,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 
 class GoogleSheetsParsingTest {
@@ -197,32 +200,29 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
-    fun importRows_usesAppRowIdAndSkipsSoftDeletedRows() {
-        val tab = GoogleSheetTab(
+    fun importRows_usesInvisibleRowIdAndSkipsSoftDeletedRows() {
+        val activeId = "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe"
+        val deletedId = "4975807c-18a8-40af-b217-e5e856e65bf4"
+        val tabWithoutStates = GoogleSheetTab(
             title = "24.10",
             rows = listOf(
                 headers,
-                dataRow(
-                    0 to "Kippari",
-                    1 to "Kalle",
-                    3 to "1",
-                    18 to "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe",
-                    19 to "Lisäys",
-                    20 to "2026-09-09T12:00:00Z",
-                    21 to "4e97744e-ef31-4d40-84d7-28e821af23a9"
-                ),
-                dataRow(
-                    0 to "Poistettu",
-                    1 to "Paavo",
-                    3 to "0",
-                    18 to "4975807c-18a8-40af-b217-e5e856e65bf4",
-                    19 to "Poisto",
-                    20 to "2026-09-09T12:00:00Z",
-                    21 to "be4193d3-26a5-478e-ac9e-7d0ec2085b49"
-                ),
+                dataRow(0 to "Kippari", 1 to "Kalle", 3 to "1"),
+                dataRow(0 to "Poistettu", 1 to "Paavo", 3 to "1"),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
                 listOf("Pvm:", "24.10.2026")
+            ),
+            sheetId = 42,
+            rowIdsByRowNumber = mapOf(2 to activeId, 3 to deletedId)
+        )
+        val parsed = tabWithoutStates.toReservationSpreadsheetRows(
+            requireNotNull(tabWithoutStates.toImportCandidateOrNull())
+        )
+        val tab = tabWithoutStates.copy(
+            applicationRowStates = mapOf(
+                activeId to validState(activeId, parsed[0].sheetContentHash(), "Muutos"),
+                deletedId to validState(deletedId, parsed[1].sheetContentHash(), "Poisto")
             )
         )
 
@@ -235,23 +235,20 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
-    fun importRows_treatsPartialOrInvalidApplicationMetadataAsManualEdits() {
+    fun importRows_treatsInvalidCentralStateAsAManualEdit() {
+        val rowId = "e0d9f1c9-464f-4bc8-b4aa-c784957ca3fe"
         val tab = GoogleSheetTab(
             title = "24.10",
             rows = listOf(
                 headers,
-                dataRow(
-                    0 to "Korjattu",
-                    1 to "Kaisa",
-                    3 to "1",
-                    18 to "ei-kelpaa",
-                    19 to "Poisto",
-                    21 to "not-a-uuid"
-                ),
+                dataRow(0 to "Korjattu", 1 to "Kaisa", 3 to "1"),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
                 listOf("Pvm:", "24.10.2026")
-            )
+            ),
+            sheetId = 42,
+            rowIdsByRowNumber = mapOf(2 to rowId),
+            applicationRowStates = mapOf(rowId to validState(rowId, "0".repeat(64), "Muutos"))
         )
 
         val row = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull())).single()
@@ -259,10 +256,20 @@ class GoogleSheetsParsingTest {
         assertEquals("Korjattu", row.lastName)
         assertEquals(ApplicationMutationMetadataState.INVALID, row.applicationMutationMetadataState)
         assertEquals(
-            "yön vuodenaika|24.10.2026|korjattu|kaisa",
+            "sheet:$rowId",
             row.sourceIdentity
         )
     }
+
+    private fun validState(rowId: String, contentHash: String, operation: String) = ApplicationRowState(
+        sheetId = 42,
+        rowId = rowId,
+        contentHash = contentHash,
+        modifiedAt = Instant.parse("2026-09-09T12:00:00Z"),
+        operation = operation,
+        mutationId = "4e97744e-ef31-4d40-84d7-28e821af23a9",
+        rowNumber = 2
+    )
 
     private fun testTab(
         includePerformance: Boolean = true,
@@ -320,11 +327,7 @@ class GoogleSheetsParsingTest {
             "KÄTEINEN",
             "EPASSI",
             "LIPPUAGENTTI",
-            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)",
-            "Sovellus-ID",
-            "Sovellus-toiminto",
-            "Sovellus-muokattu",
-            "Sovellus-muokkaus-ID"
+            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
         )
     }
 }

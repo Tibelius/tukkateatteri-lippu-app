@@ -8,7 +8,7 @@ import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 
-/** Describes whether the app-maintained mutation fields still form a trustworthy record. */
+/** Describes whether the centralized app state matches the current visible Sheet row. */
 enum class ApplicationMutationMetadataState {
     NONE,
     VALID,

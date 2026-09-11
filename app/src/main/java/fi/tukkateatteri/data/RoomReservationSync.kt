@@ -4,7 +4,6 @@ import androidx.room.withTransaction
 import fi.tukkateatteri.data.local.PendingSheetChangeEntity
 import fi.tukkateatteri.data.local.PendingSheetChangeStatus
 import fi.tukkateatteri.data.local.PendingSheetOperation
-import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.ApplicationMutationMetadataState
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
@@ -171,7 +170,7 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
             "Received ${importData.rows.size} remote rows from tab=${target.sheetTitle}"
         }
         val manuallyManagedRows = importData.rows.filter {
-            it.applicationMutationMetadataState != ApplicationMutationMetadataState.VALID
+            it.applicationMutationMetadataState == ApplicationMutationMetadataState.INVALID
         }
         googleSheetsClient.clearManualRowStrikethrough(
             spreadsheetUrl = target.spreadsheetUrl,
@@ -198,33 +197,12 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
                     sourceIdentity = row.sourceIdentity
                 )
             }
-        val localRowsBeforeImport = reservationDao.getByPerformanceWithTicketSales(target.performanceId)
-            .map(ReservationWithTicketSales::toReservation)
         val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId)
         val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
         val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
         AppLog.debug(REPOSITORY_LOG_COMPONENT) {
-            "Loaded local sync state; localRows=${localRowsBeforeImport.size}, " +
-                "pending=${pendingChanges.size}, conflicts=${allChanges.size - pendingChanges.size}"
-        }
-
-        val directlyEditedRows = localRowsBeforeImport
-            .filter { it.id !in pendingReservationIds && it.syncState == ReservationSyncState.SYNCED }
-            .mapNotNull { localReservation ->
-                val remoteRow = importData.rows.find { row -> row.matches(localReservation) }
-                    ?: return@mapNotNull null
-                val localRow = ReservationSpreadsheetRow.fromReservation(localReservation)
-                remoteRow.takeUnless { it.hasSameSheetContentAs(localRow) }
-            }
-        directlyEditedRows.forEach { row ->
-            AppLog.info(REPOSITORY_LOG_COMPONENT) { "Detected authoritative manual Sheet edit; ${row.toLogSummary()}" }
-            googleSheetsClient.clearApplicationMetadata(
-                spreadsheetUrl = target.spreadsheetUrl,
-                sheetTitle = target.sheetTitle,
-                accessToken = token,
-                sheetRowId = row.sheetRowId,
-                sourceIdentity = row.sourceIdentity
-            )
+            "Loaded local sync state; pending=${pendingChanges.size}, " +
+                "conflicts=${allChanges.size - pendingChanges.size}"
         }
 
         database.withTransaction {
@@ -313,8 +291,7 @@ internal suspend fun RoomReservationRepository.replayPendingChange(
                         spreadsheetUrl = target.spreadsheetUrl,
                         sheetTitle = target.sheetTitle,
                         accessToken = accessToken,
-                        sheetRowId = remoteRow.sheetRowId,
-                        sourceIdentity = remoteRow.sourceIdentity
+                        row = remoteRow
                     )
                     markPendingDeletionSynced(change)
                 }

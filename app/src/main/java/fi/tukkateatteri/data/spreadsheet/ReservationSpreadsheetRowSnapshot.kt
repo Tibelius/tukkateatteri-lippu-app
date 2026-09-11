@@ -36,8 +36,8 @@ fun String.toReservationSpreadsheetRowSnapshot(): ReservationSpreadsheetRow {
 }
 
 /**
- * Identity is deliberately excluded: legacy rows may gain a Sovellus-ID during export without
- * changing the actual reservation. All operational values must still match exactly.
+ * Identity is deliberately excluded: a row may gain invisible developer metadata during export
+ * without changing the actual reservation. All operational values must still match exactly.
  */
 fun ReservationSpreadsheetRow.hasSameSheetContentAs(other: ReservationSpreadsheetRow): Boolean =
     lastName == other.lastName &&

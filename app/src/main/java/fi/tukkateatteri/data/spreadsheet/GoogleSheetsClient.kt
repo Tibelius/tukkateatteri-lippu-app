@@ -11,70 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.IOException
 import java.time.Instant
-import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-
-data class GoogleSheetTab(
-    val title: String,
-    val rows: List<List<String>>
-)
-
-data class GoogleSheetImportCandidate(
-    val sheetTitle: String,
-    val performanceName: String,
-    val date: String,
-    val sortDate: LocalDate?
-)
-
-data class GoogleSheetImportData(
-    val candidate: GoogleSheetImportCandidate,
-    val rows: List<ReservationSpreadsheetRow>,
-    val schema: SheetColumnSchema
-)
-
-enum class GoogleSheetLockFailure {
-    HELD_BY_ANOTHER_DEVICE,
-    ACQUISITION_LOST,
-    RENEWAL_LOST
-}
-
-class GoogleSheetLockedException(
-    val failure: GoogleSheetLockFailure,
-    sheetTitle: String,
-    holderDeviceId: String? = null
-) : IllegalStateException(
-    buildString {
-        append("Google Sheets lock failed for tab '")
-        append(sheetTitle)
-        append("': ")
-        append(failure.name)
-        holderDeviceId?.takeIf(String::isNotBlank)?.let { append(" (holder: $it)") }
-    }
-)
-
-class GoogleSheetsRequestException(
-    method: String,
-    operation: String,
-    statusCode: Int? = null,
-    cause: Throwable? = null
-) : IOException(
-    buildString {
-        append("Google Sheets ")
-        append(operation)
-        append(" request failed")
-        statusCode?.let { append(" with HTTP status $it") }
-        append(" ($method).")
-    },
-    cause
-)
-
-data class ExportedSpreadsheetRow(
-    val sourceIdentity: String,
-    val sheetRowId: String
-)
 
 internal class GoogleSheetsClient(
     private val deviceId: String = "Android"
@@ -83,32 +22,7 @@ internal class GoogleSheetsClient(
     internal val aliasRegistryLocks = KeyedMutex()
     internal val cachedRemoteAliases = ConcurrentHashMap<String, MutableSet<String>>()
     internal val api = GoogleSheetsApiClient()
-
-    private suspend fun loadTabs(
-        spreadsheetUrl: String,
-        accessToken: String
-    ): List<GoogleSheetTab> = withContext(Dispatchers.IO) {
-        val startedAt = System.nanoTime()
-        AppLog.debug(LOG_COMPONENT) { "Starting spreadsheet tab discovery" }
-        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        val metadata = api.loadSpreadsheetMetadata(spreadsheetId, accessToken)
-        val titles = buildList {
-            val sheets = metadata.getJSONArray("sheets")
-            for (index in 0 until sheets.length()) {
-                add(sheets.getJSONObject(index).getJSONObject("properties").getString("title"))
-            }
-        }
-        val rowsByTitle = api.loadValuesForTabs(spreadsheetId, titles, accessToken)
-        return@withContext titles.map { title -> GoogleSheetTab(title, rowsByTitle.getValue(title)) }
-            .also { tabs ->
-                AppLog.info(LOG_COMPONENT) {
-                    "Loaded ${tabs.size} spreadsheet tabs in ${AppLog.elapsedMillis(startedAt)} ms"
-                }
-                AppLog.debug(LOG_COMPONENT) {
-                    "Received tab values: ${tabs.joinToString { tab -> "${tab.title}=${tab.rows.size} rows" }}"
-                }
-            }
-    }
+    private val importer = GoogleSheetImporter(api)
 
     suspend fun <T> withPerformanceLock(
         spreadsheetUrl: String,
@@ -262,27 +176,43 @@ internal class GoogleSheetsClient(
         val startedAt = System.nanoTime()
         AppLog.info(LOG_COMPONENT) { "Starting row export; tab=$sheetTitle, rows=${rows.size}" }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        val existingRows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val structure = api.loadSpreadsheetMetadata(spreadsheetId, accessToken).toSpreadsheetStructure()
+        val sheet = requireNotNull(structure.sheetsByTitle[sheetTitle]) {
+            "Välilehteä '$sheetTitle' ei enää ole."
+        }
+        val values = api.loadValuesForTabs(
+            spreadsheetId,
+            listOf(sheetTitle, APPLICATION_SHEET_TITLE),
+            accessToken
+        )
+        val existingRows = values.getValue(sheetTitle)
         val headerRowIndex = existingRows.indexOfFirst { row -> row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
-        val headers = api.ensureApplicationHeaders(spreadsheetId, sheetTitle, existingRows, headerRowIndex, accessToken)
-        api.requireApplicationHeaders(headers)
-        val existingById = existingRows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace()
-                .takeIf(String::isNotBlank)
-                ?.let { it to headerRowIndex + index + 2 }
-        }.toMap()
+        val headers = existingRows[headerRowIndex]
+            .mapIndexed { index, header -> header.canonicalDataHeader() to index }
+            .toMap()
+        val rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty()
+        val existingById = rowIdsByRowNumber.entries.associate { (rowNumber, rowId) -> rowId to rowNumber }
         val existingByName = existingRows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
             val key = row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
             key.takeIf { it.first.isNotBlank() || it.second.isNotBlank() }?.let { it to headerRowIndex + index + 2 }
         }.toMap()
+        val stateTable = values.getValue(APPLICATION_SHEET_TITLE).toApplicationRowStateTable()
+        val stateRowsById = stateTable.rows
+            .filter { state -> state.sheetId == sheet.id }
+            .associateBy(ApplicationRowState::rowId)
         val exportedRows = mutableListOf<ExportedSpreadsheetRow>()
         var nextAvailableRow = api.firstAvailableReservationRow(existingRows, headerRowIndex)
         rows.forEach { row ->
-            val sheetRowId = row.sheetRowId.ifBlank { UUID.randomUUID().toString() }
-            val rowNumber = existingById[sheetRowId]
-                ?: row.sourceIdentity.toNameKeyOrNull()?.let(existingByName::get)
+            val idMatchedRowNumber = row.sheetRowId.takeIf(String::isNotBlank)?.let(existingById::get)
+            val nameMatchedRowNumber = row.sourceIdentity.toNameKeyOrNull()?.let(existingByName::get)
+            val rowNumber = idMatchedRowNumber
+                ?: nameMatchedRowNumber
                 ?: nextAvailableRow.also { nextAvailableRow += 1 }
+            val sheetRowId = rowIdsByRowNumber[rowNumber]
+                ?: row.sheetRowId.takeIf(String::isNotBlank)
+                ?: UUID.randomUUID().toString()
             val isAddition = rowNumber !in existingById.values && rowNumber !in existingByName.values
             val shouldInsertRow = isAddition && (
                 rowNumber > existingRows.size ||
@@ -294,16 +224,50 @@ internal class GoogleSheetsClient(
                 AppLog.debug(LOG_COMPONENT) { "Inserting reservation row before summary; tab=$sheetTitle, row=$rowNumber" }
                 api.insertReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
             }
+            if (rowNumber !in rowIdsByRowNumber) {
+                api.attachRowIdentity(spreadsheetId, sheet.id, rowNumber, sheetRowId, accessToken)
+            }
+            val exportedRow = row.copy(sheetRowId = sheetRowId)
+            val contentHash = exportedRow.sheetContentHash()
+            val operation = if (isAddition) APP_OPERATION_ADD else APP_OPERATION_UPDATE
             api.updateCells(
                 spreadsheetId = spreadsheetId,
                 accessToken = accessToken,
-                values = row.toSheetCellValues(
+                values = exportedRow.toSheetCellValues(
                     sheetTitle = sheetTitle,
                     rowNumber = rowNumber,
-                    headers = headers,
-                    sheetRowId = sheetRowId,
-                    operation = if (isAddition) APP_OPERATION_ADD else null
+                    headers = headers
                 )
+            )
+            val existingState = stateRowsById[sheetRowId]
+            if (existingState == null) {
+                api.appendApplicationRowState(
+                    spreadsheetId = spreadsheetId,
+                    sheetId = sheet.id,
+                    rowId = sheetRowId,
+                    contentHash = contentHash,
+                    operation = operation,
+                    accessToken = accessToken
+                )
+            } else {
+                api.updateCells(
+                    spreadsheetId,
+                    accessToken,
+                    stateTable.valuesFor(
+                        rowNumber = existingState.rowNumber,
+                        sheetId = sheet.id,
+                        rowId = sheetRowId,
+                        contentHash = contentHash,
+                        operation = operation
+                    )
+                )
+            }
+            api.clearStrikeThroughRow(
+                spreadsheetId,
+                sheetTitle,
+                rowNumber,
+                headers.values.maxOrNull() ?: 0,
+                accessToken
             )
             AppLog.debug(LOG_COMPONENT) {
                 "Exported ${row.toLogSummary()}, targetRow=$rowNumber, addition=$isAddition, " +
@@ -322,41 +286,76 @@ internal class GoogleSheetsClient(
         spreadsheetUrl: String,
         sheetTitle: String,
         accessToken: String,
-        sheetRowId: String,
-        sourceIdentity: String
+        row: ReservationSpreadsheetRow
     ) = withContext(Dispatchers.IO) {
         AppLog.info(LOG_COMPONENT) {
-            "Starting soft deletion; tab=$sheetTitle, sheetRowId=${sheetRowId.toAbbreviatedId()}"
+            "Starting soft deletion; tab=$sheetTitle, sheetRowId=${row.sheetRowId.toAbbreviatedId()}"
         }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        val rows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val structure = api.loadSpreadsheetMetadata(spreadsheetId, accessToken).toSpreadsheetStructure()
+        val sheet = requireNotNull(structure.sheetsByTitle[sheetTitle]) {
+            "Välilehteä '$sheetTitle' ei enää ole."
+        }
+        val values = api.loadValuesForTabs(
+            spreadsheetId,
+            listOf(sheetTitle, APPLICATION_SHEET_TITLE),
+            accessToken
+        )
+        val rows = values.getValue(sheetTitle)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = rows[headerRowIndex]
             .mapIndexed { index, header -> header.canonicalDataHeader() to index }
             .toMap()
-        api.requireApplicationHeaders(headers)
-        val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            val matchesId = sheetRowId.isNotBlank() &&
-                row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace() == sheetRowId
-            val matchesSourceIdentity = sourceIdentity.toNameKeyOrNull() == (
-                row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
-                    row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
+        val rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty()
+        val idMatchedRow = row.sheetRowId.takeIf(String::isNotBlank)?.let { rowId ->
+            rowIdsByRowNumber.entries.firstOrNull { (_, remoteId) -> remoteId == rowId }?.key
+        }
+        val rowNumber = idMatchedRow ?: rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, cells ->
+            val matchesSourceIdentity = row.sourceIdentity.toNameKeyOrNull() == (
+                cells.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
+                    cells.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
                 )
-            (matchesId || matchesSourceIdentity).takeIf { it }?.let { headerRowIndex + index + 2 }
-        }.firstOrNull() ?: sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
+            matchesSourceIdentity.takeIf { it }?.let { headerRowIndex + index + 2 }
+        }.firstOrNull() ?: row.sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
             ?.let { headerRowIndex + it + 2 }
             ?: return@withContext
         if (HARD_DELETE_FROM_SHEET) {
             api.deleteReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
             return@withContext
         }
-        val mutationId = UUID.randomUUID().toString()
-        api.updateCells(
-            spreadsheetId,
-            accessToken,
-            deletedRowCellValues(sheetTitle, rowNumber, headers, mutationId)
-        )
+        val sheetRowId = rowIdsByRowNumber[rowNumber]
+            ?: row.sheetRowId.takeIf(String::isNotBlank)
+            ?: UUID.randomUUID().toString()
+        if (rowNumber !in rowIdsByRowNumber) {
+            api.attachRowIdentity(spreadsheetId, sheet.id, rowNumber, sheetRowId, accessToken)
+        }
+        val stateTable = values.getValue(APPLICATION_SHEET_TITLE).toApplicationRowStateTable()
+        val existingState = stateTable.stateFor(sheet.id, sheetRowId)
+        val contentHash = row.copy(sheetRowId = sheetRowId).sheetContentHash()
+        if (existingState == null) {
+            api.appendApplicationRowState(
+                spreadsheetId = spreadsheetId,
+                sheetId = sheet.id,
+                rowId = sheetRowId,
+                contentHash = contentHash,
+                operation = APP_OPERATION_DELETE,
+                accessToken = accessToken
+            )
+        } else {
+            api.updateCells(
+                spreadsheetId,
+                accessToken,
+                stateTable.valuesFor(
+                    rowNumber = existingState.rowNumber,
+                    sheetId = sheet.id,
+                    rowId = sheetRowId,
+                    contentHash = contentHash,
+                    operation = APP_OPERATION_DELETE
+                )
+            )
+        }
         api.strikeThroughRow(spreadsheetId, sheetTitle, rowNumber, headers.values.maxOrNull() ?: 0, accessToken)
         AppLog.info(LOG_COMPONENT) { "Soft-deleted spreadsheet row; tab=$sheetTitle, row=$rowNumber" }
     }
@@ -373,28 +372,37 @@ internal class GoogleSheetsClient(
             "Clearing app mutation metadata; tab=$sheetTitle, sheetRowId=${sheetRowId.toAbbreviatedId()}"
         }
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        val rows = api.loadValues(spreadsheetId, sheetTitle, accessToken)
+        api.ensureApplicationSheet(spreadsheetId, accessToken)
+        val structure = api.loadSpreadsheetMetadata(spreadsheetId, accessToken).toSpreadsheetStructure()
+        val sheet = requireNotNull(structure.sheetsByTitle[sheetTitle]) {
+            "Välilehteä '$sheetTitle' ei enää ole."
+        }
+        val values = api.loadValuesForTabs(
+            spreadsheetId,
+            listOf(sheetTitle, APPLICATION_SHEET_TITLE),
+            accessToken
+        )
+        val rows = values.getValue(sheetTitle)
         val headerRowIndex = rows.indexOfFirst { row -> row.any { it.canonicalDataHeader() == HEADER_LAST_NAME } }
         require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
         val headers = rows[headerRowIndex]
             .mapIndexed { index, header -> header.canonicalDataHeader() to index }
             .toMap()
-        val rowNumber = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            val matchesId = sheetRowId.isNotBlank() &&
-                row.valueAt(headers[HEADER_SHEET_ROW_ID]).trimSpreadsheetWhitespace() == sheetRowId
+        val rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty()
+        val idMatchedRow = sheetRowId.takeIf(String::isNotBlank)?.let { rowId ->
+            rowIdsByRowNumber.entries.firstOrNull { (_, remoteId) -> remoteId == rowId }?.key
+        }
+        val rowNumber = idMatchedRow ?: rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
             val matchesSourceIdentity = sourceIdentity.toNameKeyOrNull() == (
                 row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
                     row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
                 )
-            (matchesId || matchesSourceIdentity).takeIf { it }?.let { headerRowIndex + index + 2 }
+            matchesSourceIdentity.takeIf { it }?.let { headerRowIndex + index + 2 }
         }.firstOrNull() ?: return@withContext
-        val metadataCells = APPLICATION_MUTATION_METADATA_HEADERS.mapNotNull { header ->
-            headers[header]?.let { columnIndex ->
-                SheetCellValue(sheetCellRange(sheetTitle, columnIndex, rowNumber), "")
-            }
-        }
-        if (metadataCells.isNotEmpty()) {
-            api.updateCells(spreadsheetId, accessToken, metadataCells)
+        val effectiveRowId = rowIdsByRowNumber[rowNumber].orEmpty()
+        val stateTable = values.getValue(APPLICATION_SHEET_TITLE).toApplicationRowStateTable()
+        stateTable.stateFor(sheet.id, effectiveRowId)?.let { state ->
+            api.updateCells(spreadsheetId, accessToken, stateTable.clearValuesFor(state.rowNumber))
         }
         api.clearStrikeThroughRow(
             spreadsheetId,
@@ -435,85 +443,14 @@ internal class GoogleSheetsClient(
         spreadsheetUrl: String,
         accessToken: String,
         localAliases: Map<String, StoredSheetAlias> = emptyMap()
-    ): List<GoogleSheetImportData> = withContext(Dispatchers.IO) {
-        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        api.ensureApplicationSheet(spreadsheetId, accessToken)
-        val tabs = loadTabs(spreadsheetUrl, accessToken)
-        val storedAliases = tabs.firstOrNull { it.title == APPLICATION_SHEET_TITLE }
-            ?.storedAliases().orEmpty() + localAliases
-        return@withContext tabs
-            .mapNotNull { tab ->
-                tab.toImportCandidateOrNull()?.let { candidate ->
-                    parseImportData(tab, candidate, storedAliases)
-                }
-            }
-            .sortedWith(
-                compareBy<GoogleSheetImportData> { it.candidate.sortDate ?: LocalDate.MAX }
-                    .thenBy { it.candidate.date }
-            )
-            .also { imported ->
-                AppLog.info(LOG_COMPONENT) {
-                    "Parsed importable spreadsheet data; performances=${imported.size}, rows=${imported.sumOf { it.rows.size }}"
-                }
-            }
-    }
+    ): List<GoogleSheetImportData> = importer.loadAll(spreadsheetUrl, accessToken, localAliases)
 
     suspend fun loadImportDataForTab(
         spreadsheetUrl: String,
         accessToken: String,
         sheetTitle: String,
         localAliases: Map<String, StoredSheetAlias> = emptyMap()
-    ): GoogleSheetImportData = withContext(Dispatchers.IO) {
-        val startedAt = System.nanoTime()
-        AppLog.debug(LOG_COMPONENT) { "Loading import data for tab=$sheetTitle" }
-        val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
-        api.ensureApplicationSheet(spreadsheetId, accessToken)
-        val values = api.loadValuesForTabs(
-            spreadsheetId,
-            listOf(sheetTitle, APPLICATION_SHEET_TITLE),
-            accessToken
-        )
-        val tab = GoogleSheetTab(
-            title = sheetTitle,
-            rows = values.getValue(sheetTitle)
-        )
-        val storedAliases = GoogleSheetTab(
-            title = APPLICATION_SHEET_TITLE,
-            rows = values.getValue(APPLICATION_SHEET_TITLE)
-        ).storedAliases() + localAliases
-        val candidate = requireNotNull(tab.toImportCandidateOrNull()) {
-            "Välilehdeltä puuttuu Esitys: tai Pvm: -tieto."
-        }
-        parseImportData(tab, candidate, storedAliases).also { data ->
-            AppLog.info(LOG_COMPONENT) {
-                "Loaded import data; tab=$sheetTitle, rows=${data.rows.size}, " +
-                    "durationMs=${AppLog.elapsedMillis(startedAt)}"
-            }
-        }
-    }
-
-    private fun parseImportData(
-        tab: GoogleSheetTab,
-        candidate: GoogleSheetImportCandidate,
-        storedAliases: Map<String, StoredSheetAlias>
-    ): GoogleSheetImportData {
-        val schema = tab.toColumnSchema(storedAliases)
-        val rows = tab.toReservationSpreadsheetRows(candidate, schema)
-        val invalidMetadataCount = rows.count {
-            it.applicationMutationMetadataState == ApplicationMutationMetadataState.INVALID
-        }
-        AppLog.debug(LOG_COMPONENT) {
-            "Parsed performance tab=${tab.title}; rows=${rows.size}, invalidMetadata=$invalidMetadataCount, " +
-                "tickets=${schema.ticketTypes.joinToString { it.displayLabel }}, " +
-                "payments=${schema.paymentMethods.joinToString { it.label }}"
-        }
-        if (invalidMetadataCount > 0) {
-            AppLog.warning(LOG_COMPONENT) {
-                "Found $invalidMetadataCount rows with incomplete or invalid app metadata; tab=${tab.title}"
-            }
-        }
-        return GoogleSheetImportData(candidate, rows, schema)
-    }
+    ): GoogleSheetImportData = importer.loadOne(spreadsheetUrl, accessToken, sheetTitle, localAliases)
 
     private fun removeExpiredLocks(
         spreadsheetId: String,
