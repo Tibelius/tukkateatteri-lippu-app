@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Sync
@@ -81,7 +81,14 @@ internal fun PerformanceDrawerContent(
                 ListItem(
                     headlineContent = { Text(actName) },
                     leadingContent = {
-                        Icon(Icons.Filled.Assessment, contentDescription = null)
+                        Icon(
+                            imageVector = if (isExpanded) {
+                                Icons.Filled.ExpandLess
+                            } else {
+                                Icons.Filled.ExpandMore
+                            },
+                            contentDescription = null
+                        )
                     },
                     supportingContent = {
                         Text(
@@ -92,11 +99,21 @@ internal fun PerformanceDrawerContent(
                             )
                         )
                     },
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        onOpenActStatistics(actName)
-                    },
+                    modifier = Modifier.fillMaxWidth().clickable(
+                        onClickLabel = stringResource(R.string.toggle_performance_dates),
+                        onClick = {
+                            hasExplicitExpansionSelection = true
+                            expandedActName = if (isExpanded) null else actName
+                        }
+                    ),
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { onOpenActStatistics(actName) }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Assessment,
+                                    contentDescription = stringResource(R.string.open_statistics)
+                                )
+                            }
                             sourcesByAct[actName]?.let { source ->
                                 val importablePerformances = actPerformances.filter(Performance::canSyncFromGoogleSheets)
                                 if (importablePerformances.isNotEmpty()) {
@@ -113,21 +130,6 @@ internal fun PerformanceDrawerContent(
                                     Icons.Filled.Delete,
                                     stringResource(R.string.delete_act_action),
                                     tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    hasExplicitExpansionSelection = true
-                                    expandedActName = if (isExpanded) null else actName
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (isExpanded) {
-                                        Icons.Filled.ExpandLess
-                                    } else {
-                                        Icons.Filled.ExpandMore
-                                    },
-                                    contentDescription = stringResource(R.string.toggle_performance_dates)
                                 )
                             }
                         }
