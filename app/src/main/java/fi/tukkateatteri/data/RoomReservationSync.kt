@@ -198,7 +198,7 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
                 )
             }
         val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId).map { change ->
-            repairMalformedDoorSaleConflict(change, importData.rows)
+            repairRecoverableConflict(change, importData.rows)
         }
         val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
         val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
@@ -232,28 +232,27 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(target: Cloud
     }
 }
 
-private suspend fun RoomReservationRepository.repairMalformedDoorSaleConflict(
+private suspend fun RoomReservationRepository.repairRecoverableConflict(
     change: PendingSheetChangeEntity,
     remoteRows: List<ReservationSpreadsheetRow>
 ): PendingSheetChangeEntity {
     if (change.status != PendingSheetChangeStatus.CONFLICT) return change
-    val reservation = reservationDao.getWithTicketSalesById(change.reservationId)
-        ?.toReservation()
-        ?.takeIf { it.admissionType == AdmissionType.DOOR_SALE }
-        ?: return change
+    val reservation = reservationDao.getWithTicketSalesById(change.reservationId)?.toReservation() ?: return change
     val desiredRow = ReservationSpreadsheetRow.fromReservation(reservation)
-    val malformedRemoteRow = remoteRows.firstOrNull { remoteRow ->
-        remoteRow.sheetRowId == desiredRow.sheetRowId && remoteRow.isMalformedAppOwnedDoorSaleRow
-    } ?: return change
+    val baseRow = change.baseRowJson?.toReservationSpreadsheetRowSnapshot()
+    val remoteRow = remoteRows.firstOrNull { it.matches(baseRow ?: desiredRow) } ?: return change
+    val canRetry = baseRow?.let(remoteRow::hasSameSheetContentAs) == true ||
+        (desiredRow.isDoorSale && remoteRow.isMalformedAppOwnedDoorSaleRow)
+    if (!canRetry) return change
     return change.copy(
-        baseRowJson = malformedRemoteRow.toSnapshotJson(),
+        baseRowJson = remoteRow.toSnapshotJson(),
         desiredRowJson = desiredRow.toSnapshotJson(),
         status = PendingSheetChangeStatus.PENDING,
         lastError = ""
     ).also { repairedChange ->
         pendingSheetChangeDao.upsert(repairedChange)
         AppLog.warning(REPOSITORY_LOG_COMPONENT) {
-            "Restaged malformed door-sale conflict for automatic repair; " +
+            "Restaged a recoverable synchronization conflict; " +
                 "reservationId=${change.reservationId}"
         }
     }

@@ -9,12 +9,34 @@ import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketSaleOrigin
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import fi.tukkateatteri.data.spreadsheet.toPhysicalSheetRows
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReservationSpreadsheetRowTest {
+    @Test
+    fun physicalRowsRepresentExactlyOneSeatEach() {
+        val row = ReservationSpreadsheetRow.fromReservation(
+            reservation(
+                seatCount = 3,
+                reservedTicketAllocations = listOf(
+                    ReservedTicketAllocation(TicketType.BASIC, 1),
+                    ReservedTicketAllocation(TicketType.DISCOUNT, 1)
+                )
+            )
+        )
+
+        val physicalRows = row.toPhysicalSheetRows()
+
+        assertEquals(3, physicalRows.size)
+        assertTrue(physicalRows.all { it.reservedSeatCount == 1 })
+        assertEquals(1, physicalRows[0].reservedTicketCounts.values.single())
+        assertEquals(1, physicalRows[1].reservedTicketCounts.values.single())
+        assertTrue(physicalRows[2].reservedTicketCounts.isEmpty())
+    }
+
     @Test
     fun exportRows_keepsReservationsSeparateAndPreservesAllTicketCategories() {
         val rows = ReservationSpreadsheetRow.fromReservations(
@@ -43,9 +65,9 @@ class ReservationSpreadsheetRowTest {
         assertEquals(2, rows.size)
         assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
         assertEquals(1, rows[0].reservedTicketCounts[TicketType.FREE_TICKET])
-        assertEquals(1, rows[0].paymentTicketCounts[PaymentMethod.CARD])
+        assertEquals(PaymentMethod.CARD, rows[0].realizedTickets[0].payments.single().method)
         assertEquals(2, rows[1].reservedTicketCounts[TicketType.KAIKUKORTTI])
-        assertTrue(rows[1].paymentTicketCounts.isEmpty())
+        assertEquals(2, rows[1].realizedTickets.size)
     }
 
     @Test
@@ -65,9 +87,11 @@ class ReservationSpreadsheetRowTest {
         val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(splitSale)))
 
         assertTrue(row.paymentTicketCounts.isEmpty())
-        assertTrue(row.notes.contains("Useita maksutapoja"))
-        assertTrue(row.notes.contains("cash 10,00 €"))
-        assertTrue(row.notes.contains("card 12,00 €"))
+        val realized = row.realizedTickets.single()
+        assertEquals(listOf(1_000, 1_200), realized.payments.map { it.amountCents })
+        val physicalRow = row.toPhysicalSheetRows().first { it.notes.contains("Osamaksu") }
+        assertEquals(1, physicalRow.paymentTicketCounts[PaymentMethod.CARD])
+        assertTrue(physicalRow.notes.contains("Kortti 12,00 €; Käteinen 10,00 €"))
     }
 
     @Test
@@ -86,8 +110,8 @@ class ReservationSpreadsheetRowTest {
         val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(partialSale)))
 
         assertTrue(row.paymentTicketCounts.isEmpty())
-        assertTrue(row.notes.contains("Osamaksu"))
-        assertTrue(row.notes.contains("card 20,00 €"))
+        assertEquals(2_000, row.realizedTickets.single().paidAmountCents)
+        assertTrue(row.toPhysicalSheetRows().any { it.notes.contains("Osamaksu") })
     }
 
     @Test
@@ -105,7 +129,8 @@ class ReservationSpreadsheetRowTest {
 
         val row = ReservationSpreadsheetRow.fromReservation(reservation(seatCount = 2, ticketSales = listOf(importedSale)))
 
-        assertEquals(2, row.paymentTicketCounts[PaymentMethod.LIPPUAGENTTI])
+        assertEquals(2, row.realizedTickets.size)
+        assertTrue(row.realizedTickets.all { it.payments.single().method == PaymentMethod.LIPPUAGENTTI })
         assertEquals(0, row.arrivalCount)
     }
 
@@ -133,11 +158,12 @@ class ReservationSpreadsheetRowTest {
         )
 
         assertEquals(2, rows.size)
-        assertTrue(rows.all { row -> row.lastName == "Ovimyynti" && row.reservedSeatCount == 1 })
-        assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
-        assertEquals(1, rows[0].paymentTicketCounts[PaymentMethod.CASH])
-        assertEquals(1, rows[1].reservedTicketCounts[TicketType.DISCOUNT])
-        assertEquals(1, rows[1].paymentTicketCounts[PaymentMethod.EPASSI])
+        val physicalRows = rows.map { it.toPhysicalSheetRows().single() }
+        assertTrue(physicalRows.all { row -> row.lastName == "- Ovimyynti" && row.reservedSeatCount == 1 })
+        assertEquals(1, physicalRows[0].reservedTicketCounts[TicketType.BASIC])
+        assertEquals(1, physicalRows[0].paymentTicketCounts[PaymentMethod.CASH])
+        assertEquals(1, physicalRows[1].reservedTicketCounts[TicketType.DISCOUNT])
+        assertEquals(1, physicalRows[1].paymentTicketCounts[PaymentMethod.EPASSI])
     }
 
     @Test
@@ -155,11 +181,11 @@ class ReservationSpreadsheetRowTest {
 
         val row = ReservationSpreadsheetRow.fromReservation(reservation)
 
-        assertEquals("Ovimyynti", row.lastName)
+        assertEquals("- Ovimyynti", row.lastName)
         assertEquals("local-door-sale-1", row.sourceIdentity)
         assertEquals(reservation.sheetRowId, row.sheetRowId)
-        assertEquals(1, row.reservedTicketCounts[TicketType.BASIC])
-        assertEquals(1, row.paymentTicketCounts[PaymentMethod.CARD])
+        assertEquals(TicketType.BASIC, row.realizedTickets.single().ticketType)
+        assertEquals(PaymentMethod.CARD, row.realizedTickets.single().payments.single().method)
         assertTrue(row.isDoorSale)
     }
 

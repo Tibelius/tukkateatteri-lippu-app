@@ -8,6 +8,7 @@ import fi.tukkateatteri.data.spreadsheet.GoogleSheetTab
 import fi.tukkateatteri.data.spreadsheet.sheetContentHash
 import fi.tukkateatteri.data.spreadsheet.toImportCandidateOrNull
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRows
+import fi.tukkateatteri.data.spreadsheet.toSheetCellValues
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,6 +18,36 @@ import java.time.Instant
 import java.time.LocalDate
 
 class GoogleSheetsParsingTest {
+    @Test
+    fun checkboxLayoutWithoutReservedCountImportsAndExportsBooleanMarkers() {
+        val checkboxHeaders = headers.filterNot { it.startsWith("Varatut liput") }
+        val tab = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                checkboxHeaders,
+                MutableList(checkboxHeaders.size) { "" }.apply {
+                    this[0] = "Testaaja"
+                    this[1] = "Tiina"
+                    this[3] = "TRUE"
+                    this[4] = "TRUE"
+                    this[12] = "TRUE"
+                },
+                List(checkboxHeaders.size) { "" },
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            )
+        )
+
+        val row = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull())).single()
+        val indexes = checkboxHeaders.mapIndexed { index, header -> header.lowercase() to index }.toMap()
+        val exported = row.toSheetCellValues("24.10", 2, indexes)
+
+        assertEquals(1, row.reservedSeatCount)
+        assertEquals(1, row.arrivalCount)
+        assertEquals(TicketType.BASIC, row.realizedTickets.single().ticketType)
+        assertTrue(exported.any { it.value == true })
+    }
+
     @Test
     fun importCandidate_readsPerformanceAndDateFromMetadataBelowTheTable() {
         val candidate = testTab().toImportCandidateOrNull()
@@ -47,19 +78,19 @@ class GoogleSheetsParsingTest {
         assertEquals("kippari@gmail.com", rows[0].contact)
         assertEquals(1, rows[0].reservedSeatCount)
         assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
-        assertEquals(1, rows[0].paymentTicketCounts[PaymentMethod.LIPPUAGENTTI])
+        assertEquals(PaymentMethod.LIPPUAGENTTI, rows[0].realizedTickets.single().payments.single().method)
         assertEquals("Ennakkoon ostettu", rows[0].notes)
         assertEquals(2, rows[0].sourceRowNumber)
         assertEquals(ApplicationMutationMetadataState.NONE, rows[0].applicationMutationMetadataState)
 
-        assertEquals(4, rows[1].reservedSeatCount)
-        assertEquals(4, rows[1].arrivalCount)
-        assertEquals(4, rows[1].reservedTicketCounts[TicketType.DISCOUNT])
-        assertEquals(4, rows[1].paymentTicketCounts[PaymentMethod.CARD])
+        assertEquals(1, rows[1].reservedSeatCount)
+        assertEquals(1, rows[1].arrivalCount)
+        assertEquals(1, rows[1].reservedTicketCounts[TicketType.DISCOUNT])
+        assertEquals(PaymentMethod.CARD, rows[1].realizedTickets.single().payments.single().method)
 
-        assertEquals(2, rows[2].reservedSeatCount)
-        assertEquals(2, rows[2].reservedTicketCounts[TicketType.THEATRE_INDUSTRY])
-        assertEquals(2, rows[2].paymentTicketCounts[PaymentMethod.CASH])
+        assertEquals(1, rows[2].reservedSeatCount)
+        assertEquals(1, rows[2].reservedTicketCounts[TicketType.THEATRE_INDUSTRY])
+        assertEquals(PaymentMethod.CASH, rows[2].realizedTickets.single().payments.single().method)
     }
 
     @Test
@@ -85,7 +116,7 @@ class GoogleSheetsParsingTest {
             title = "24.10",
             rows = listOf(
                 headers,
-                dataRow(3 to "1", 4 to "1", 5 to "1", 13 to "1"),
+                dataRow(0 to "Ovimyynti", 3 to "1", 4 to "1", 5 to "1", 13 to "1"),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
                 listOf("Pvm:", "24.10.2026")
@@ -104,7 +135,7 @@ class GoogleSheetsParsingTest {
         val recovered = tab.toReservationSpreadsheetRows(candidate).single()
 
         assertTrue(recovered.isDoorSale)
-        assertTrue(recovered.isMalformedAppOwnedDoorSaleRow)
+        assertFalse(recovered.isMalformedAppOwnedDoorSaleRow)
         assertEquals(ApplicationMutationMetadataState.VALID, recovered.applicationMutationMetadataState)
     }
 
@@ -182,7 +213,7 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
-    fun importRows_usesOneSeatWhenTheReservedCountIsMissing() {
+    fun importRows_doesNotTreatARealizedChildRowAsAReservation() {
         val tab = GoogleSheetTab(
             title = "24.10",
             rows = listOf(
@@ -214,7 +245,7 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
-    fun sourceIdentity_isStableAcrossContactAndNoteChanges() {
+    fun sourceIdentity_usesContactToDisambiguatePeopleWithTheSameName() {
         val original = testTab()
         val modified = testTab(
             firstRowOverrides = mapOf(2 to "uusi@example.com", 17 to "uusi huomautus")
@@ -225,7 +256,7 @@ class GoogleSheetsParsingTest {
         val originalRow = original.toReservationSpreadsheetRows(originalCandidate).first()
         val modifiedRow = modified.toReservationSpreadsheetRows(modifiedCandidate).first()
 
-        assertEquals(originalRow.sourceIdentity, modifiedRow.sourceIdentity)
+        assertFalse(originalRow.sourceIdentity == modifiedRow.sourceIdentity)
         assertFalse(originalRow.contact == modifiedRow.contact)
     }
 
@@ -289,6 +320,37 @@ class GoogleSheetsParsingTest {
             "sheet:$rowId",
             row.sourceIdentity
         )
+    }
+
+    @Test
+    fun importRows_groupsRealizedSeatRowsAndParsesFinnishPartialPayments() {
+        val tab = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                headers,
+                dataRow(0 to "Virtanen", 1 to "Maija", 2 to "maija@example.fi", 3 to "2", 5 to "2"),
+                dataRow(
+                    0 to "Virtanen",
+                    1 to "Maija",
+                    2 to "maija@example.fi",
+                    4 to "1",
+                    5 to "1",
+                    17 to "Osamaksu: Kortti 12,00 €; Käteinen 10,00 €"
+                ),
+                dataRow(0 to "Virtanen", 1 to "Maija", 2 to "maija@example.fi", 4 to "1", 5 to "1", 13 to "1"),
+                emptyRow(),
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            )
+        )
+
+        val reservation = tab.toReservationSpreadsheetRows(
+            requireNotNull(tab.toImportCandidateOrNull())
+        ).single()
+
+        assertEquals(2, reservation.realizedTickets.size)
+        assertEquals(listOf(1_200, 1_000), reservation.realizedTickets.first().payments.map { it.amountCents })
+        assertEquals(PaymentMethod.CARD, reservation.realizedTickets.last().payments.single().method)
     }
 
     private fun validState(rowId: String, contentHash: String, operation: String) = ApplicationRowState(

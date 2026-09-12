@@ -52,8 +52,8 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                 localReservation.ticketSales.any { sale ->
                     sale.origin == TicketSaleOrigin.MANUAL && sale.ticketType != TicketType.UNSPECIFIED
                 } &&
-                    ReservationSpreadsheetRow.fromReservation(localReservation).paymentTicketCounts ==
-                    row.paymentTicketCounts
+                    ReservationSpreadsheetRow.fromReservation(localReservation).realizedTickets ==
+                    row.realizedTickets
             } != null
         val reservationId = existingReservation?.id ?: reservationDao.insert(
             ReservationEntity(
@@ -103,10 +103,31 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
         )
         if (!preserveDetailedSales) {
             reservationDao.deleteAllTicketSalesForReservation(reservationId)
-            val inferredSales = inferImportedTicketSales(
-                reservedTicketCounts = row.reservedTicketCounts,
-                paymentTicketCounts = row.paymentTicketCounts
-            )
+            if (row.realizedTickets.isNotEmpty()) {
+                row.realizedTickets.forEach { ticket ->
+                    val ticketSaleId = reservationDao.insertTicketSale(
+                        TicketSaleEntity(
+                            reservationId = reservationId,
+                            ticketType = ticket.ticketType,
+                            quantity = 1,
+                            unitPriceCents = ticket.ticketType.defaultPriceCents,
+                            origin = TicketSaleOrigin.IMPORTED,
+                            countsAsArrival = ticket.arrived
+                        )
+                    )
+                    reservationDao.insertPaymentAllocations(
+                        ticket.payments.map { payment ->
+                            PaymentAllocationEntity(
+                                ticketSaleId = ticketSaleId,
+                                paymentMethod = payment.method,
+                                amountCents = payment.amountCents
+                            )
+                        }
+                    )
+                }
+                return@forEach
+            }
+            val inferredSales = inferImportedTicketSales(row.reservedTicketCounts, row.paymentTicketCounts)
             if (inferredSales == null && row.paymentTicketCounts.isNotEmpty()) {
                 AppLog.warning(REPOSITORY_LOG_COMPONENT) {
                     "Could not pair imported ticket types with payment methods unambiguously; " +

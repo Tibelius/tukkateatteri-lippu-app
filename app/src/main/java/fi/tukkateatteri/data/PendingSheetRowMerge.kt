@@ -6,22 +6,20 @@ internal fun ReservationSpreadsheetRow.matches(reservation: Reservation?): Boole
     reservation ?: return false
     return (sheetRowId.isNotBlank() && sheetRowId == reservation.sheetRowId) ||
         (sourceIdentity.isNotBlank() && sourceIdentity == reservation.sourceIdentity) ||
-        (
-            sheetRowId.isBlank() && reservation.sheetRowId.isBlank() &&
-                lastName.equals(reservation.lastName, ignoreCase = true) &&
-                firstName.equals(reservation.firstName, ignoreCase = true)
-            )
+        (!isDoorSale && reservation.admissionType != AdmissionType.DOOR_SALE &&
+            lastName.equals(reservation.lastName, ignoreCase = true) &&
+            firstName.equals(reservation.firstName, ignoreCase = true) &&
+            contact.equals(reservation.contact, ignoreCase = true))
 }
 
 internal fun ReservationSpreadsheetRow.matches(other: ReservationSpreadsheetRow?): Boolean {
     other ?: return false
     return (sheetRowId.isNotBlank() && sheetRowId == other.sheetRowId) ||
         (sourceIdentity.isNotBlank() && sourceIdentity == other.sourceIdentity) ||
-        (
-            sheetRowId.isBlank() && other.sheetRowId.isBlank() &&
-                lastName.equals(other.lastName, ignoreCase = true) &&
-                firstName.equals(other.firstName, ignoreCase = true)
-            )
+        (!isDoorSale && !other.isDoorSale &&
+            lastName.equals(other.lastName, ignoreCase = true) &&
+            firstName.equals(other.firstName, ignoreCase = true) &&
+            contact.equals(other.contact, ignoreCase = true))
 }
 
 internal data class PendingSheetRowMerge(
@@ -68,6 +66,11 @@ internal fun mergePendingSheetRow(
                 desired.paymentTicketCounts,
                 remote.paymentTicketCounts
             ),
+            realizedTickets = merged(
+                base.realizedTickets,
+                desired.realizedTickets,
+                remote.realizedTickets
+            ),
             notes = merged(base.notes, desired.notes, remote.notes),
             sourceIdentity = desired.sourceIdentity.ifBlank { remote.sourceIdentity },
             sheetRowId = desired.sheetRowId.ifBlank { remote.sheetRowId }
@@ -75,4 +78,3 @@ internal fun mergePendingSheetRow(
         hasConflict = hasConflict
     )
 }
-

@@ -248,9 +248,9 @@ class ReservationTest {
         val rows = ReservationSpreadsheetRow.fromReservations(doorSales)
 
         assertEquals(2, rows.size)
-        assertTrue(rows.all { row -> row.lastName == "Ovimyynti" && row.arrivalCount == 1 })
-        assertEquals(1, rows[0].reservedTicketCounts[TicketType.BASIC])
-        assertEquals(1, rows[1].paymentTicketCounts[PaymentMethod.CARD])
+        assertTrue(rows.all { row -> row.lastName == "- Ovimyynti" && row.arrivalCount == 1 })
+        assertEquals(TicketType.BASIC, rows[0].realizedTickets.single().ticketType)
+        assertEquals(PaymentMethod.CARD, rows[1].realizedTickets.single().payments.single().method)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -259,7 +259,7 @@ class ReservationTest {
             lastName = "Virtanen",
             firstName = "Maija",
             contact = "",
-            reservedSeatCount = 0,
+            reservedSeatCount = -1,
             arrivalCount = 0,
             reservedTicketCounts = emptyMap(),
             paymentTicketCounts = emptyMap(),

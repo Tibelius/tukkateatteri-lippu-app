@@ -123,8 +123,8 @@ data class PaymentMethod(
         private val defaultDefinitions = listOf(
             PaymentMethodDefinition(CARD_ID, "Kortti"),
             PaymentMethodDefinition(CASH_ID, "Käteinen"),
-            PaymentMethodDefinition(EPASSI_ID, "ePassi"),
-            PaymentMethodDefinition(LIPPUAGENTTI_ID, "Lippuagentti", allowsSplitPayment = false)
+            PaymentMethodDefinition(LIPPUAGENTTI_ID, "Lippuagentti", allowsSplitPayment = false),
+            PaymentMethodDefinition(EPASSI_ID, "ePassi")
         )
         val entries = defaultDefinitions.mapIndexed { index, definition ->
             PaymentMethod(

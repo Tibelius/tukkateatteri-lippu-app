@@ -15,7 +15,8 @@ fun ReservationSpreadsheetRow.toSnapshotJson(): String = listOf(
     paymentTicketCounts.encodedPaymentMethodCounts(),
     notes.encoded(),
     sourceIdentity.encoded(),
-    sheetRowId.encoded()
+    sheetRowId.encoded(),
+    realizedTickets.encodedRealizedTickets()
 ).joinToString(SNAPSHOT_FIELD_SEPARATOR)
 
 fun String.toReservationSpreadsheetRowSnapshot(): ReservationSpreadsheetRow {
@@ -31,7 +32,8 @@ fun String.toReservationSpreadsheetRowSnapshot(): ReservationSpreadsheetRow {
         paymentTicketCounts = values[6].toPaymentMethodCounts(),
         notes = values[7].decoded(),
         sourceIdentity = values[8].decoded(),
-        sheetRowId = values[9].decoded()
+        sheetRowId = values[9].decoded(),
+        realizedTickets = values[10].toRealizedTickets()
     )
 }
 
@@ -47,7 +49,8 @@ fun ReservationSpreadsheetRow.hasSameSheetContentAs(other: ReservationSpreadshee
         arrivalCount == other.arrivalCount &&
         reservedTicketCounts == other.reservedTicketCounts &&
         paymentTicketCounts == other.paymentTicketCounts &&
-        notes == other.notes
+        notes == other.notes &&
+        realizedTickets == other.realizedTickets
 
 private fun String.encoded(): String = Base64.getUrlEncoder().withoutPadding()
     .encodeToString(toByteArray(Charsets.UTF_8))
@@ -82,6 +85,46 @@ private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = configCoun
     PaymentMethod(values[0], values[1], values[2].toBoolean(), values[3].toInt()) to quantity
 }.toMap()
 
+private fun List<RealizedTicketSpreadsheetRow>.encodedRealizedTickets(): String = joinToString(
+    SNAPSHOT_COUNT_SEPARATOR
+) { ticket ->
+    listOf(
+        ticket.ticketType.name,
+        ticket.ticketType.label,
+        ticket.ticketType.defaultPriceCents,
+        ticket.ticketType.sortOrder,
+        ticket.arrived,
+        ticket.payments.joinToString(SNAPSHOT_PAYMENT_SEPARATOR) { payment ->
+            listOf(
+                payment.method.name,
+                payment.method.label,
+                payment.method.allowsSplitPayment,
+                payment.method.sortOrder,
+                payment.amountCents
+            ).joinToString(SNAPSHOT_CONFIG_SEPARATOR).encoded()
+        }
+    ).joinToString(SNAPSHOT_CONFIG_SEPARATOR).encoded()
+}
+
+private fun String.toRealizedTickets(): List<RealizedTicketSpreadsheetRow> = takeIf(String::isNotBlank)
+    ?.split(SNAPSHOT_COUNT_SEPARATOR)
+    ?.mapNotNull { encodedTicket ->
+        val values = encodedTicket.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+        if (values.size != 6) return@mapNotNull null
+        val ticketType = TicketType(values[0], values[1], values[2].toInt(), values[3].toInt())
+        val payments = values[5].takeIf(String::isNotBlank)
+            ?.split(SNAPSHOT_PAYMENT_SEPARATOR)
+            ?.mapNotNull { encodedPayment ->
+                val payment = encodedPayment.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+                if (payment.size != 5) return@mapNotNull null
+                SpreadsheetPaymentAllocation(
+                    method = PaymentMethod(payment[0], payment[1], payment[2].toBoolean(), payment[3].toInt()),
+                    amountCents = payment[4].toInt()
+                )
+            }.orEmpty()
+        RealizedTicketSpreadsheetRow(ticketType, payments, values[4].toBoolean())
+    }.orEmpty()
+
 private fun String.configCountPairs(): List<Pair<String, Int>> = takeIf(String::isNotBlank)
     ?.split(SNAPSHOT_COUNT_SEPARATOR)
     ?.map { entry ->
@@ -93,4 +136,5 @@ private fun String.configCountPairs(): List<Pair<String, Int>> = takeIf(String::
 private const val SNAPSHOT_FIELD_SEPARATOR = "|"
 private const val SNAPSHOT_COUNT_SEPARATOR = ","
 private const val SNAPSHOT_CONFIG_SEPARATOR = "\u001F"
-private const val SNAPSHOT_FIELD_COUNT = 10
+private const val SNAPSHOT_PAYMENT_SEPARATOR = ";"
+private const val SNAPSHOT_FIELD_COUNT = 11

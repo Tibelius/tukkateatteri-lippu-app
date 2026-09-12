@@ -193,20 +193,43 @@ internal class GoogleSheetsClient(
             .mapIndexed { index, header -> header.canonicalDataHeader() to index }
             .toMap()
         val rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty()
-        val existingById = rowIdsByRowNumber.entries.associate { (rowNumber, rowId) -> rowId to rowNumber }
+        val existingById = rowIdsByRowNumber.entries
+            .groupBy({ it.value }, { it.key })
+            .mapValues { (_, rowNumbers) -> rowNumbers.min() }
         val existingByName = existingRows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-            val key = row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
-            key.takeIf { it.first.isNotBlank() || it.second.isNotBlank() }?.let { it to headerRowIndex + index + 2 }
-        }.toMap()
+            val key = Triple(
+                row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity(),
+                row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity(),
+                row.valueAt(headers[HEADER_CONTACT]).normalizedIdentity()
+            )
+            key.takeIf {
+                it.first.isNotBlank() || it.second.isNotBlank()
+            }?.let { it to headerRowIndex + index + 2 }
+        }.groupBy({ it.first }, { it.second })
+            .mapValues { (_, rowNumbers) -> rowNumbers.min() }
         val stateTable = values.getValue(APPLICATION_SHEET_TITLE).toApplicationRowStateTable()
         val stateRowsById = stateTable.rows
             .filter { state -> state.sheetId == sheet.id }
             .associateBy(ApplicationRowState::rowId)
         val exportedRows = mutableListOf<ExportedSpreadsheetRow>()
+        val obsoleteChildRows = mutableSetOf<Int>()
+        val summaryRowNumber = existingRows.indexOfFirst { cells ->
+            cells.any(String::isReservationSummaryLabel)
+        }.takeIf { it >= 0 }?.plus(1)
         var nextAvailableRow = api.firstAvailableReservationRow(existingRows, headerRowIndex)
         rows.forEach { row ->
+            val physicalRows = row.toPhysicalSheetRows()
+            val primaryRow = physicalRows.first()
             val idMatchedRowNumber = row.sheetRowId.takeIf(String::isNotBlank)?.let(existingById::get)
-            val nameMatchedRowNumber = row.sourceIdentity.toNameKeyOrNull()?.let(existingByName::get)
+            val nameMatchedRowNumber = if (row.isDoorSale) {
+                null
+            } else {
+                Triple(
+                    row.lastName.normalizedIdentity(),
+                    row.firstName.normalizedIdentity(),
+                    row.contact.normalizedIdentity()
+                ).takeIf { it.first.isNotBlank() || it.second.isNotBlank() }?.let(existingByName::get)
+            }
             val rowNumber = idMatchedRowNumber
                 ?: nameMatchedRowNumber
                 ?: nextAvailableRow.also { nextAvailableRow += 1 }
@@ -216,9 +239,7 @@ internal class GoogleSheetsClient(
             val isAddition = rowNumber !in existingById.values && rowNumber !in existingByName.values
             val shouldInsertRow = isAddition && (
                 rowNumber > existingRows.size ||
-                    existingRows.getOrNull(rowNumber - 1)?.any { cell ->
-                        cell.normalizedHeader().startsWith(HEADER_RESERVATION_TOTAL)
-                    } == true
+                    summaryRowNumber?.let { rowNumber >= it } == true
                 )
             if (shouldInsertRow) {
                 AppLog.debug(LOG_COMPONENT) { "Inserting reservation row before summary; tab=$sheetTitle, row=$rowNumber" }
@@ -233,7 +254,7 @@ internal class GoogleSheetsClient(
             api.updateCells(
                 spreadsheetId = spreadsheetId,
                 accessToken = accessToken,
-                values = exportedRow.toSheetCellValues(
+                values = primaryRow.copy(sheetRowId = sheetRowId).toSheetCellValues(
                     sheetTitle = sheetTitle,
                     rowNumber = rowNumber,
                     headers = headers
@@ -269,11 +290,60 @@ internal class GoogleSheetsClient(
                 headers.values.maxOrNull() ?: 0,
                 accessToken
             )
+            run {
+                val customerKey = listOf(row.lastName, row.firstName, row.contact)
+                    .map(String::normalizedIdentity)
+                val existingChildRows = existingRows.drop(headerRowIndex + 1)
+                    .mapIndexedNotNull { index, cells ->
+                        val candidateRowNumber = headerRowIndex + index + 2
+                        val rowKey = listOf(
+                            cells.valueAt(headers[HEADER_LAST_NAME]),
+                            cells.valueAt(headers[HEADER_FIRST_NAME]),
+                            cells.valueAt(headers[HEADER_CONTACT])
+                        ).map(String::normalizedIdentity)
+                        candidateRowNumber.takeIf {
+                            candidateRowNumber != rowNumber &&
+                                (rowIdsByRowNumber[candidateRowNumber] == sheetRowId ||
+                                    (!row.isDoorSale && rowKey == customerKey))
+                        }
+                    }
+                physicalRows.drop(1).forEachIndexed { index, child ->
+                    val childRowNumber = existingChildRows.getOrNull(index)
+                        ?: nextAvailableRow.also { availableRow ->
+                            if (
+                                availableRow > existingRows.size ||
+                                summaryRowNumber?.let { availableRow >= it } == true
+                            ) {
+                                api.insertReservationRow(spreadsheetId, sheetTitle, availableRow, accessToken)
+                            }
+                            nextAvailableRow += 1
+                        }
+                    api.updateCells(
+                        spreadsheetId,
+                        accessToken,
+                        child.toSheetCellValues(sheetTitle, childRowNumber, headers)
+                    )
+                    if (rowIdsByRowNumber[childRowNumber] != sheetRowId) {
+                        api.attachRowIdentity(spreadsheetId, sheet.id, childRowNumber, sheetRowId, accessToken)
+                    }
+                    api.clearStrikeThroughRow(
+                        spreadsheetId,
+                        sheetTitle,
+                        childRowNumber,
+                        headers.values.maxOrNull() ?: 0,
+                        accessToken
+                    )
+                }
+                obsoleteChildRows += existingChildRows.drop(physicalRows.size - 1)
+            }
             AppLog.debug(LOG_COMPONENT) {
                 "Exported ${row.toLogSummary()}, targetRow=$rowNumber, addition=$isAddition, " +
                     "sheetRowId=${sheetRowId.toAbbreviatedId()}"
             }
             exportedRows += ExportedSpreadsheetRow(row.sourceIdentity, sheetRowId)
+        }
+        obsoleteChildRows.sortedDescending().forEach { rowNumber ->
+            api.deleteReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
         }
         exportedRows.also {
             AppLog.info(LOG_COMPONENT) {
@@ -312,17 +382,38 @@ internal class GoogleSheetsClient(
         val idMatchedRow = row.sheetRowId.takeIf(String::isNotBlank)?.let { rowId ->
             rowIdsByRowNumber.entries.firstOrNull { (_, remoteId) -> remoteId == rowId }?.key
         }
+        val desiredCustomerKey = listOf(row.lastName, row.firstName, row.contact).map(String::normalizedIdentity)
         val rowNumber = idMatchedRow ?: rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, cells ->
-            val matchesSourceIdentity = row.sourceIdentity.toNameKeyOrNull() == (
-                cells.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity() to
-                    cells.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity()
-                )
+            val matchesSourceIdentity = !row.isDoorSale && desiredCustomerKey == listOf(
+                cells.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity(),
+                cells.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity(),
+                cells.valueAt(headers[HEADER_CONTACT]).normalizedIdentity()
+            )
             matchesSourceIdentity.takeIf { it }?.let { headerRowIndex + index + 2 }
         }.firstOrNull() ?: row.sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
             ?.let { headerRowIndex + it + 2 }
             ?: return@withContext
+        val customerKey = desiredCustomerKey
+        val relatedChildRows = rows.drop(headerRowIndex + 1).mapIndexedNotNull { index, cells ->
+            val candidateRowNumber = headerRowIndex + index + 2
+            if (candidateRowNumber == rowNumber) return@mapIndexedNotNull null
+            val candidateKey = listOf(
+                cells.valueAt(headers[HEADER_LAST_NAME]),
+                cells.valueAt(headers[HEADER_FIRST_NAME]),
+                cells.valueAt(headers[HEADER_CONTACT])
+            ).map(String::normalizedIdentity)
+            candidateRowNumber.takeIf {
+                if (row.isDoorSale) {
+                    row.sheetRowId.isNotBlank() && rowIdsByRowNumber[candidateRowNumber] == row.sheetRowId
+                } else {
+                    rowIdsByRowNumber[candidateRowNumber] == row.sheetRowId || candidateKey == customerKey
+                }
+            }
+        }
         if (HARD_DELETE_FROM_SHEET) {
-            api.deleteReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
+            (relatedChildRows + rowNumber).sortedDescending().forEach { targetRow ->
+                api.deleteReservationRow(spreadsheetId, sheetTitle, targetRow, accessToken)
+            }
             return@withContext
         }
         val sheetRowId = rowIdsByRowNumber[rowNumber]
@@ -357,6 +448,9 @@ internal class GoogleSheetsClient(
             )
         }
         api.strikeThroughRow(spreadsheetId, sheetTitle, rowNumber, headers.values.maxOrNull() ?: 0, accessToken)
+        relatedChildRows.sortedDescending().forEach { childRowNumber ->
+            api.deleteReservationRow(spreadsheetId, sheetTitle, childRowNumber, accessToken)
+        }
         AppLog.info(LOG_COMPONENT) { "Soft-deleted spreadsheet row; tab=$sheetTitle, row=$rowNumber" }
     }
 

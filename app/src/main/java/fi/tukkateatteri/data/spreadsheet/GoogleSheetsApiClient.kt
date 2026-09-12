@@ -182,7 +182,7 @@ internal class GoogleSheetsApiClient {
     fun firstAvailableReservationRow(rows: List<List<String>>, headerRowIndex: Int): Int {
         val firstDataRowIndex = headerRowIndex + 1
         val summaryRowIndex = rows.indexOfFirst { row ->
-            row.any { cell -> cell.normalizedHeader().startsWith(HEADER_RESERVATION_TOTAL) }
+            row.any(String::isReservationSummaryLabel)
         }.takeIf { it >= firstDataRowIndex } ?: rows.size
         val blankRowIndex = (firstDataRowIndex until summaryRowIndex).firstOrNull { rowIndex ->
             rows[rowIndex].valueAt(0).isBlank() && rows[rowIndex].valueAt(1).isBlank()

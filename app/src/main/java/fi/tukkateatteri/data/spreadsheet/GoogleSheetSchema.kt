@@ -1,9 +1,9 @@
 package fi.tukkateatteri.data.spreadsheet
 
-import fi.tukkateatteri.data.MINIMUM_SEAT_COUNT
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toPerformanceDateOrNull
+import fi.tukkateatteri.data.toEuroCentsOrNull
 import java.time.Instant
 import java.util.UUID
 
@@ -34,7 +34,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
     val headerRowIndex = rows.indexOfFirst { row -> row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME } }
     if (headerRowIndex < 0) return emptyList()
     val headerIndexes = rows[headerRowIndex].mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap()
-    return rows.drop(headerRowIndex + 1)
+    val physicalRows = rows.drop(headerRowIndex + 1)
         .withIndex()
         .takeWhile { (dataRowIndex, row) ->
             val sourceRowNumber = headerRowIndex + dataRowIndex + 2
@@ -47,21 +47,21 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
             val lastName = row.valueAt(headerIndexes[HEADER_LAST_NAME]).trimSpreadsheetWhitespace()
             val firstName = row.valueAt(headerIndexes[HEADER_FIRST_NAME]).trimSpreadsheetWhitespace()
             val sheetRowId = rowIdsByRowNumber[sourceRowNumber].orEmpty()
-            if (lastName.isBlank() && firstName.isBlank() && !sheetRowId.isUuid()) return@mapNotNull null
+            if (lastName.isBlank() && firstName.isBlank()) return@mapNotNull null
             val sourceIdentity = if (sheetRowId.isUuid()) {
                 "sheet:$sheetRowId"
             } else if (lastName.isDoorSaleSheetLabel()) {
                 "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
             } else {
-                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}"
+                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|" +
+                    "${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}|" +
+                    row.valueAt(headerIndexes[HEADER_CONTACT]).normalizedIdentity()
             }
             val parsedRow = ReservationSpreadsheetRow(
                 lastName = lastName,
                 firstName = firstName,
                 contact = row.valueAt(headerIndexes[HEADER_CONTACT]).trimSpreadsheetWhitespace(),
-                reservedSeatCount = row.valueAt(headerIndexes[HEADER_RESERVED_COUNT])
-                    .toTicketCount()
-                    .coerceAtLeast(MINIMUM_SEAT_COUNT),
+                reservedSeatCount = 1,
                 arrivalCount = row.valueAt(headerIndexes[HEADER_ARRIVAL_COUNT]).toTicketCount(),
                 reservedTicketCounts = schema.ticketHeaders.mapNotNull { (ticketType, header) ->
                     row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
@@ -74,24 +74,105 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
                 sheetRowId = sheetRowId,
                 sourceRowNumber = sourceRowNumber
             )
-            val appState = applicationRowStates[sheetRowId]
-            val metadataState = when {
-                appState == null -> ApplicationMutationMetadataState.NONE
-                !appState.isValid || appState.contentHash != parsedRow.sheetContentHash() -> {
-                    ApplicationMutationMetadataState.INVALID
-                }
-                else -> ApplicationMutationMetadataState.VALID
-            }
-            if (
-                metadataState == ApplicationMutationMetadataState.VALID &&
-                appState?.operation?.normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
-            ) {
-                null
-            } else {
-                parsedRow.copy(applicationMutationMetadataState = metadataState)
-            }
+            parsedRow
         }
+    val groupedRows = physicalRows.groupBy { row ->
+        row.sheetRowId.takeIf(String::isUuid)
+            ?: if (row.isDoorSale) "door:${row.sourceRowNumber}" else "customer:${row.customerKey()}"
+    }
+    return groupedRows.values.mapNotNull { seatRows ->
+        val parent = seatRows.first()
+        val realizedTickets = seatRows.mapNotNull { it.toRealizedTicket(schema) }
+        val logicalRow = parent.copy(
+            reservedSeatCount = seatRows.sumOf { it.reservedSeatCount.coerceAtLeast(1) },
+            arrivalCount = seatRows.sumOf(ReservationSpreadsheetRow::arrivalCount),
+            reservedTicketCounts = seatRows.flatMap { row ->
+                row.reservedTicketTypeFromNote(schema)?.let { listOf(it) }
+                    ?: row.reservedTicketCounts.entries.flatMap { (type, quantity) -> List(quantity) { type } }
+            }.groupingBy { it }.eachCount(),
+            paymentTicketCounts = if (realizedTickets.isEmpty()) {
+                seatRows.flatMap { it.paymentTicketCounts.entries }
+                    .groupingBy { it.key }
+                    .fold(0) { total, entry -> total + entry.value }
+            } else {
+                emptyMap()
+            },
+            notes = seatRows.map(ReservationSpreadsheetRow::userNotes)
+                .filter(String::isNotBlank)
+                .distinct()
+                .joinToString(SHEET_NOTE_LINE_SEPARATOR),
+            realizedTickets = realizedTickets
+        )
+        val appState = applicationRowStates[logicalRow.sheetRowId]
+        val metadataState = when {
+            appState == null -> ApplicationMutationMetadataState.NONE
+            !appState.isValid || appState.contentHash != logicalRow.sheetContentHash() -> {
+                ApplicationMutationMetadataState.INVALID
+            }
+            else -> ApplicationMutationMetadataState.VALID
+        }
+        if (
+            metadataState == ApplicationMutationMetadataState.VALID &&
+            appState?.operation?.normalizedHeader() == APP_OPERATION_DELETE.normalizedHeader()
+        ) {
+            null
+        } else {
+            logicalRow.copy(applicationMutationMetadataState = metadataState)
+        }
+    }
 }
+
+private fun ReservationSpreadsheetRow.customerKey(): String = listOf(lastName, firstName, contact)
+    .joinToString("|") { it.normalizedIdentity() }
+
+private fun ReservationSpreadsheetRow.toRealizedTicket(
+    schema: SheetColumnSchema
+): RealizedTicketSpreadsheetRow? {
+    val ticketType = reservedTicketCounts.entries.singleOrNull()
+        ?.takeIf { it.value == 1 }
+        ?.key ?: return null
+    val notePayments = notes.toPaymentAllocations(schema.paymentHeaders.keys)
+    val hasRealization = arrivalCount > 0 || notePayments.isNotEmpty() || paymentTicketCounts.isNotEmpty()
+    if (!hasRealization) return null
+    val payments = if (notePayments.isNotEmpty()) {
+        notePayments
+    } else {
+        paymentTicketCounts.entries.singleOrNull()
+            ?.takeIf { it.value == 1 }
+            ?.let { (method, _) ->
+                listOf(SpreadsheetPaymentAllocation(method, ticketType.defaultPriceCents))
+            }.orEmpty()
+    }
+    return RealizedTicketSpreadsheetRow(ticketType, payments, arrivalCount > 0)
+}
+
+private fun String.toPaymentAllocations(methods: Set<PaymentMethod>): List<SpreadsheetPaymentAllocation> {
+    val paymentLine = lineSequence().firstOrNull { it.startsWith("$PARTIAL_PAYMENT_LABEL:", ignoreCase = true) }
+        ?: return emptyList()
+    return paymentLine.substringAfter(':').split(PAYMENT_NOTE_SEPARATOR).mapNotNull { value ->
+        val method = methods.sortedByDescending { it.label.length }
+            .firstOrNull { value.trim().startsWith(it.label, ignoreCase = true) } ?: return@mapNotNull null
+        val amount = value.trim().substring(method.label.length).trim()
+            .removeSuffix("€").trim().toEuroCentsOrNull() ?: return@mapNotNull null
+        SpreadsheetPaymentAllocation(method, amount)
+    }
+}
+
+private fun ReservationSpreadsheetRow.reservedTicketTypeFromNote(schema: SheetColumnSchema): TicketType? {
+    val label = notes.lineSequence()
+        .firstOrNull { it.startsWith("$RESERVED_TICKET_LABEL:", ignoreCase = true) }
+        ?.substringAfter(':')?.trim()
+        ?: return null
+    return schema.ticketHeaders.keys.firstOrNull { it.label.equals(label, ignoreCase = true) }
+}
+
+private fun ReservationSpreadsheetRow.userNotes(): String = notes.lineSequence()
+    .filterNot { line ->
+        line.startsWith("$PARTIAL_PAYMENT_LABEL:", ignoreCase = true) ||
+            line.startsWith("$RESERVED_TICKET_LABEL:", ignoreCase = true)
+    }
+    .joinToString(SHEET_NOTE_LINE_SEPARATOR)
+    .trim()
 
 internal fun String.isUuid(): Boolean = runCatching { UUID.fromString(this) }.isSuccess
 
@@ -104,6 +185,7 @@ internal fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.fir
 
 internal fun String.isDoorSaleSheetLabel(): Boolean = normalizedIdentity() in setOf(
     DOOR_SALE_SHEET_LABEL.normalizedIdentity(),
+    "Ovimyynti".normalizedIdentity(),
     LEGACY_DOOR_SALE_SHEET_LABEL.normalizedIdentity()
 )
 
@@ -121,22 +203,23 @@ internal fun ReservationSpreadsheetRow.toSheetCellValues(
     set(HEADER_LAST_NAME, lastName)
     set(HEADER_FIRST_NAME, firstName)
     set(HEADER_CONTACT, contact)
-    set(HEADER_RESERVED_COUNT, reservedSeatCount)
-    set(HEADER_ARRIVAL_COUNT, arrivalCount)
+    set(HEADER_ARRIVAL_COUNT, arrivalCount > 0)
     schema.ticketHeaders.forEach { (type, header) ->
         val quantity = reservedTicketCounts.entries.firstOrNull { it.key.name == type.name }?.value
-        set(header, quantity ?: "")
+        set(header, quantity != null && quantity > 0)
     }
     schema.paymentHeaders.forEach { (method, header) ->
         val quantity = paymentTicketCounts.entries.firstOrNull { it.key.name == method.name }?.value
-        set(header, quantity ?: "")
+        set(header, quantity != null && quantity > 0)
     }
     set(HEADER_NOTES, notes)
 }
 
 internal data class SheetCellValue(val range: String, val value: Any) {
     init {
-        require(value is String || value is Int) { "Only text and whole numbers can be written to Google Sheets." }
+        require(value is String || value is Int || value is Boolean) {
+            "Only text, booleans and whole numbers can be written to Google Sheets."
+        }
     }
 }
 
@@ -277,7 +360,6 @@ internal fun String.normalizedHeader(): String = trimSpreadsheetWhitespace()
 internal fun String.canonicalDataHeader(): String {
     val normalized = normalizedHeader()
     return when {
-        normalized.startsWith("varatut liput") -> HEADER_RESERVED_COUNT
         normalized.startsWith("saapunut") -> HEADER_ARRIVAL_COUNT
         normalized.startsWith("huom") -> HEADER_NOTES
         normalized == "esitys" -> HEADER_PERFORMANCE
@@ -290,6 +372,11 @@ internal fun String.normalizedIdentity(): String = trimSpreadsheetWhitespace()
     .replace(SPREADSHEET_WHITESPACE_REGEX, " ")
     .lowercase()
 
+internal fun String.isReservationSummaryLabel(): Boolean {
+    val value = normalizedHeader()
+    return value.startsWith("varaukset yhteensä") || value.startsWith("varauksia:")
+}
+
 internal fun String.trimSpreadsheetWhitespace(): String = trim { character ->
     character.isWhitespace() || character == NON_BREAKING_SPACE
 }
@@ -298,12 +385,12 @@ internal fun List<String>.valueAt(index: Int?): String = index?.let { getOrNull(
 
 internal fun String.toTicketCount(): Int {
     val normalizedValue = trimSpreadsheetWhitespace().lowercase()
-    return normalizedValue.toIntOrNull() ?: if (normalizedValue in TICKET_MARKERS) 1 else 0
+    return if (normalizedValue.isBlank() || normalizedValue in UNCHECKED_MARKERS) 0 else 1
 }
 
 internal val SPREADSHEET_ID_REGEX = Regex("/spreadsheets/d/([a-zA-Z0-9_-]+)")
 internal val SPREADSHEET_WHITESPACE_REGEX = Regex("[\\s\\u00A0]+")
-internal val TICKET_MARKERS = setOf("x", "✓", "k")
+internal val UNCHECKED_MARKERS = setOf("false", "0")
 internal const val NON_BREAKING_SPACE = '\u00A0'
 
 internal fun performanceLockKey(spreadsheetId: String, sheetTitle: String): String =
@@ -328,12 +415,10 @@ internal val REQUIRED_ALIAS_HEADERS = listOf(
 internal const val HEADER_LAST_NAME = "sukunimi"
 internal const val HEADER_FIRST_NAME = "etunimi"
 internal const val HEADER_CONTACT = "yhteystiedot"
-internal const val HEADER_RESERVED_COUNT = "varatut liput kpl"
 internal const val HEADER_ARRIVAL_COUNT = "saapunut esitykseen eli lunastettujen lippujen lukumäärä"
 internal const val HEADER_NOTES = "huom! (merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
 internal const val HEADER_PERFORMANCE = "esitys:"
 internal const val HEADER_DATE = "pvm:"
-internal const val HEADER_RESERVATION_TOTAL = "varaukset yhteensä"
 internal const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
 internal const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
 internal const val LOCK_HEADER_UUID = "lock_uuid"
