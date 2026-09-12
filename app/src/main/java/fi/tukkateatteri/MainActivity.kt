@@ -8,6 +8,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
@@ -54,43 +58,48 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TukkateatteriTheme {
-                ReservationApp(
-                    viewModel = reservationViewModel,
-                    onGoogleSheetsTransfer = { spreadsheetUrl ->
-                        authorizeGoogleSheets { accessToken ->
-                            reservationViewModel.prepareGoogleSheetImport(
-                                spreadsheetUrl,
-                                accessToken
-                            )
-                        }
-                    },
-                    onGoogleSheetsSync = { performance, spreadsheetUrl, showFeedback ->
-                        authorizeGoogleSheets { accessToken ->
-                            reservationViewModel.syncGoogleSheetPerformance(
-                                performance.id,
-                                spreadsheetUrl,
-                                accessToken,
-                                showFeedback
-                            )
-                        }
-                    },
-                    onGoogleSheetsSyncAll = { performances, spreadsheetUrl ->
-                        authorizeGoogleSheets { accessToken ->
-                            reservationViewModel.syncGoogleSheetPerformances(
-                                performances,
-                                spreadsheetUrl,
-                                accessToken
-                            )
-                        }
-                    },
-                    onGoogleSheetsMutation = { mutation ->
-                        authorizeGoogleSheets(
-                            onAuthorized = mutation,
-                            onUnavailable = { mutation(null) }
+                Column {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ReservationApp(
+                            viewModel = reservationViewModel,
+                            onGoogleSheetsTransfer = { spreadsheetUrl ->
+                                authorizeGoogleSheets { accessToken ->
+                                    reservationViewModel.prepareGoogleSheetImport(
+                                        spreadsheetUrl,
+                                        accessToken
+                                    )
+                                }
+                            },
+                            onGoogleSheetsSync = { performance, spreadsheetUrl, showFeedback ->
+                                authorizeGoogleSheets { accessToken ->
+                                    reservationViewModel.syncGoogleSheetPerformance(
+                                        performance.id,
+                                        spreadsheetUrl,
+                                        accessToken,
+                                        showFeedback
+                                    )
+                                }
+                            },
+                            onGoogleSheetsSyncAll = { performances, spreadsheetUrl ->
+                                authorizeGoogleSheets { accessToken ->
+                                    reservationViewModel.syncGoogleSheetPerformances(
+                                        performances,
+                                        spreadsheetUrl,
+                                        accessToken
+                                    )
+                                }
+                            },
+                            onGoogleSheetsMutation = { mutation ->
+                                authorizeGoogleSheets(
+                                    onAuthorized = mutation,
+                                    onUnavailable = { mutation(null) }
+                                )
+                            },
+                            onChangeGoogleAccount = ::revokeGoogleSheetsAccess
                         )
-                    },
-                    onChangeGoogleAccount = ::revokeGoogleSheetsAccess
-                )
+                    }
+                    if (IS_DEBUG_BUILD) DebugBuildBanner()
+                }
             }
         }
     }
