@@ -2,19 +2,8 @@ package fi.tukkateatteri.data.spreadsheet
 
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
-import fi.tukkateatteri.data.toPerformanceDateOrNull
 import fi.tukkateatteri.data.toEuroCentsOrNull
-import java.time.Instant
-import java.util.UUID
-
-internal fun String.toApiOperation(): String = when {
-    contains(":batchUpdate") -> "spreadsheet batch update"
-    contains(":append") -> "row append"
-    contains("values:batchGet") -> "value batch read"
-    contains("values:batchUpdate") -> "value batch update"
-    contains("/values/") -> "value read"
-    else -> "spreadsheet metadata read"
-}
+import fi.tukkateatteri.data.toPerformanceDateOrNull
 
 fun GoogleSheetTab.toImportCandidateOrNull(): GoogleSheetImportCandidate? {
     val performanceName = valueRightOfLabel(HEADER_PERFORMANCE) ?: return null
@@ -33,7 +22,9 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
 ): List<ReservationSpreadsheetRow> {
     val headerRowIndex = rows.indexOfFirst { row -> row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME } }
     if (headerRowIndex < 0) return emptyList()
-    val headerIndexes = rows[headerRowIndex].mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap()
+    val headerIndexes = rows[headerRowIndex]
+        .mapIndexed { index, header -> header.canonicalDataHeader() to index }
+        .toMap()
     val physicalRows = rows.drop(headerRowIndex + 1)
         .withIndex()
         .takeWhile { (dataRowIndex, row) ->
@@ -51,11 +42,20 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
             val sourceIdentity = if (sheetRowId.isUuid()) {
                 "sheet:$sheetRowId"
             } else if (lastName.isDoorSaleSheetLabel()) {
-                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|ovelta|$dataRowIndex"
+                listOf(
+                    candidate.performanceName.normalizedIdentity(),
+                    candidate.date.normalizedIdentity(),
+                    DOOR_SALE_SOURCE_KEY,
+                    dataRowIndex.toString()
+                ).joinToString(SOURCE_IDENTITY_SEPARATOR)
             } else {
-                "${candidate.performanceName.normalizedIdentity()}|${candidate.date.normalizedIdentity()}|" +
-                    "${lastName.normalizedIdentity()}|${firstName.normalizedIdentity()}|" +
+                listOf(
+                    candidate.performanceName.normalizedIdentity(),
+                    candidate.date.normalizedIdentity(),
+                    lastName.normalizedIdentity(),
+                    firstName.normalizedIdentity(),
                     row.valueAt(headerIndexes[HEADER_CONTACT]).normalizedIdentity()
+                ).joinToString(SOURCE_IDENTITY_SEPARATOR)
             }
             val parsedRow = ReservationSpreadsheetRow(
                 lastName = lastName,
@@ -123,7 +123,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
 }
 
 private fun ReservationSpreadsheetRow.customerKey(): String = listOf(lastName, firstName, contact)
-    .joinToString("|") { it.normalizedIdentity() }
+    .joinToString(SOURCE_IDENTITY_SEPARATOR) { it.normalizedIdentity() }
 
 private fun ReservationSpreadsheetRow.toRealizedTicket(
     schema: SheetColumnSchema
@@ -174,8 +174,6 @@ private fun ReservationSpreadsheetRow.userNotes(): String = notes.lineSequence()
     .joinToString(SHEET_NOTE_LINE_SEPARATOR)
     .trim()
 
-internal fun String.isUuid(): Boolean = runCatching { UUID.fromString(this) }.isSuccess
-
 internal fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.firstNotNullOfOrNull { row ->
     row.indexOfFirst { value -> value.canonicalDataHeader() == label }
         .takeIf { index -> index >= 0 }
@@ -223,217 +221,6 @@ internal data class SheetCellValue(val range: String, val value: Any) {
     }
 }
 
-internal data class LockRow(
-    val performanceKey: String,
-    val rowNumber: Int,
-    val lockId: String,
-    val lockedAt: Instant?,
-    val expiresAt: Instant?,
-    val deviceId: String
-) {
-    fun isActiveAt(now: Instant): Boolean =
-        lockId.isNotBlank() &&
-            deviceId.isNotBlank() &&
-            lockedAt != null &&
-            expiresAt != null &&
-            expiresAt.isAfter(now) &&
-            expiresAt.isAfter(lockedAt)
-
-    fun isOwnedBy(lockId: String, deviceId: String): Boolean =
-        this.lockId == lockId && this.deviceId == deviceId
-}
-
-internal data class LockTable(
-    val headers: Map<String, Int>,
-    val rows: List<LockRow>,
-    val firstDataRowNumber: Int
-) {
-    fun activeLockFor(performanceKey: String, now: Instant): LockRow? = rows.lastOrNull { lock ->
-        lock.performanceKey == performanceKey && lock.isActiveAt(now)
-    }
-
-    fun ownedLock(performanceKey: String, lockId: String, deviceId: String): LockRow? =
-        rows.lastOrNull { lock ->
-            lock.performanceKey == performanceKey && lock.isOwnedBy(lockId, deviceId)
-        }
-
-    fun firstAvailableRowNumber(): Int {
-        val occupiedRows = rows.mapTo(mutableSetOf(), LockRow::rowNumber)
-        return generateSequence(firstDataRowNumber) { it + 1 }.first { it !in occupiedRows }
-    }
-
-    fun valuesFor(
-        rowNumber: Int,
-        performanceKey: String,
-        lockId: String,
-        lockedAt: String,
-        expiresAt: String,
-        deviceId: String = ""
-    ): List<SheetCellValue> = buildList {
-        fun set(header: String, value: Any) {
-            headers[header]?.let { columnIndex ->
-                add(SheetCellValue(sheetCellRange(LOCK_SHEET_TITLE, columnIndex, rowNumber), value))
-            }
-        }
-        set(LOCK_HEADER_PERFORMANCE_ID, performanceKey)
-        set(LOCK_HEADER_UUID, lockId)
-        set(LOCK_HEADER_LOCKED_AT, lockedAt)
-        set(LOCK_HEADER_EXPIRES_AT, expiresAt)
-        set(LOCK_HEADER_DEVICE_LABEL, deviceId)
-    }
-
-    fun clearValuesFor(rowNumber: Int): List<SheetCellValue> = REQUIRED_LOCK_HEADERS.mapNotNull { header ->
-        headers[header]?.let { columnIndex ->
-            SheetCellValue(sheetCellRange(LOCK_SHEET_TITLE, columnIndex, rowNumber), "")
-        }
-    }
-}
-
-internal fun List<List<String>>.toLockTable(): LockTable {
-    val headerRowIndex = indexOfFirst { row -> row.any { it.normalizedHeader() == LOCK_HEADER_PERFORMANCE_ID } }
-    require(headerRowIndex >= 0) { "Sovellus-välilehdeltä puuttuu performance_id-sarake." }
-    val headers = get(headerRowIndex).mapIndexed { index, header -> header.normalizedHeader() to index }.toMap()
-    require(REQUIRED_LOCK_HEADERS.all(headers::containsKey)) {
-        "Sovellus-välilehden lukitusotsikot eivät vastaa sovittua muotoa."
-    }
-    val rows = drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
-        val performanceKey = row.valueAt(headers[LOCK_HEADER_PERFORMANCE_ID]).trimSpreadsheetWhitespace()
-        performanceKey.takeIf(String::isNotBlank)?.let {
-            LockRow(
-                performanceKey = performanceKey,
-                rowNumber = headerRowIndex + index + 2,
-                lockId = row.valueAt(headers[LOCK_HEADER_UUID]).trimSpreadsheetWhitespace(),
-                lockedAt = runCatching {
-                    Instant.parse(row.valueAt(headers[LOCK_HEADER_LOCKED_AT]).trimSpreadsheetWhitespace())
-                }.getOrNull(),
-                expiresAt = runCatching {
-                    Instant.parse(row.valueAt(headers[LOCK_HEADER_EXPIRES_AT]).trimSpreadsheetWhitespace())
-                }.getOrNull(),
-                deviceId = row.valueAt(headers[LOCK_HEADER_DEVICE_LABEL]).trimSpreadsheetWhitespace()
-            )
-        }
-    }
-    return LockTable(
-        headers = headers,
-        rows = rows,
-        firstDataRowNumber = headerRowIndex + 2
-    )
-}
-
-internal fun String.toNameKeyOrNull(): Pair<String, String>? = split("|")
-    .takeIf { it.size >= 4 }
-    ?.let { parts -> parts[parts.lastIndex - 1] to parts.last() }
-
-internal fun String.toLegacyDoorSaleDataRowIndexOrNull(): Int? = split("|")
-    .takeIf { parts -> parts.size == 4 && parts[2] == "ovelta" }
-    ?.lastOrNull()
-    ?.toIntOrNull()
-
-internal fun sheetCellRange(sheetTitle: String, columnIndex: Int, rowNumber: Int): String =
-    "${sheetTitle.toQuotedSheetName()}!${columnIndex.toColumnName()}$rowNumber"
-
-internal fun String.toQuotedSheetName(): String = "'${replace("'", "''")}'"
-
-internal fun Int.toColumnName(): String {
-    var value = this + 1
-    return buildString {
-        while (value > 0) {
-            value -= 1
-            append(('A'.code + (value % 26)).toChar())
-            value /= 26
-        }
-    }.reversed()
-}
-
-internal fun String.toSpreadsheetId(): String {
-    val match = SPREADSHEET_ID_REGEX.find(this)
-        ?: throw IllegalArgumentException("Google Sheets -osoite ei ole kelvollinen.")
-    return match.groupValues[1]
-}
-
-internal fun String.normalizedHeader(): String = trimSpreadsheetWhitespace()
-    .replace(SPREADSHEET_WHITESPACE_REGEX, " ")
-    .lowercase()
-    .replace("*", "")
-    .trim()
-
-internal fun String.canonicalDataHeader(): String {
-    val normalized = normalizedHeader()
-    return when {
-        normalized.startsWith("saapunut") -> HEADER_ARRIVAL_COUNT
-        normalized.startsWith("huom") -> HEADER_NOTES
-        normalized == "esitys" -> HEADER_PERFORMANCE
-        normalized == "pvm" -> HEADER_DATE
-        else -> normalized
-    }
-}
-
-internal fun String.normalizedIdentity(): String = trimSpreadsheetWhitespace()
-    .replace(SPREADSHEET_WHITESPACE_REGEX, " ")
-    .lowercase()
-
-internal fun String.isReservationSummaryLabel(): Boolean {
-    val value = normalizedHeader()
-    return value.startsWith("varaukset yhteensä") || value.startsWith("varauksia:")
-}
-
-internal fun String.trimSpreadsheetWhitespace(): String = trim { character ->
-    character.isWhitespace() || character == NON_BREAKING_SPACE
-}
-
-internal fun List<String>.valueAt(index: Int?): String = index?.let { getOrNull(it) }.orEmpty()
-
-internal fun String.toTicketCount(): Int {
-    val normalizedValue = trimSpreadsheetWhitespace().lowercase()
-    return if (normalizedValue.isBlank() || normalizedValue in UNCHECKED_MARKERS) 0 else 1
-}
-
-internal val SPREADSHEET_ID_REGEX = Regex("/spreadsheets/d/([a-zA-Z0-9_-]+)")
-internal val SPREADSHEET_WHITESPACE_REGEX = Regex("[\\s\\u00A0]+")
-internal val UNCHECKED_MARKERS = setOf("false", "0")
-internal const val NON_BREAKING_SPACE = '\u00A0'
-
-internal fun performanceLockKey(spreadsheetId: String, sheetTitle: String): String =
-    "$spreadsheetId|${sheetTitle.trimSpreadsheetWhitespace()}"
-
-internal const val APPLICATION_SHEET_TITLE = "Sovellus"
-internal const val LOCK_SHEET_TITLE = APPLICATION_SHEET_TITLE
-internal const val ALIAS_HEADER = "alias"
-internal const val ALIAS_NORMALIZED_HEADER = "normalized_alias"
-internal const val ALIAS_KIND_HEADER = "field_type"
-internal const val ALIAS_LABEL_HEADER = "display_name"
-internal const val ALIAS_PRICE_HEADER = "price_cents"
-internal const val ALIAS_OPTIONS_HEADER = "options"
-internal val REQUIRED_ALIAS_HEADERS = listOf(
-    ALIAS_HEADER,
-    ALIAS_NORMALIZED_HEADER,
-    ALIAS_KIND_HEADER,
-    ALIAS_LABEL_HEADER,
-    ALIAS_PRICE_HEADER,
-    ALIAS_OPTIONS_HEADER
-)
-internal const val HEADER_LAST_NAME = "sukunimi"
-internal const val HEADER_FIRST_NAME = "etunimi"
-internal const val HEADER_CONTACT = "yhteystiedot"
-internal const val HEADER_ARRIVAL_COUNT = "saapunut esitykseen eli lunastettujen lippujen lukumäärä"
-internal const val HEADER_NOTES = "huom! (merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
-internal const val HEADER_PERFORMANCE = "esitys:"
-internal const val HEADER_DATE = "pvm:"
-internal const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
-internal const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
-internal const val LOCK_HEADER_UUID = "lock_uuid"
-internal const val LOCK_HEADER_LOCKED_AT = "locked_at"
-internal const val LOCK_HEADER_EXPIRES_AT = "expires_at"
-internal const val LOCK_HEADER_DEVICE_LABEL = "device_label"
-internal val REQUIRED_LOCK_HEADERS = listOf(
-    LOCK_HEADER_PERFORMANCE_ID,
-    LOCK_HEADER_UUID,
-    LOCK_HEADER_LOCKED_AT,
-    LOCK_HEADER_EXPIRES_AT,
-    LOCK_HEADER_DEVICE_LABEL
-)
-internal const val LOCK_TABLE_START_COLUMN = 7
-
 data class SheetColumnSchema(
     val ticketHeaders: Map<TicketType, String>,
     val paymentHeaders: Map<PaymentMethod, String>
@@ -458,7 +245,10 @@ data class SheetColumnSchema(
             val dataEnd = notesIndex
             val paymentStart = normalized.withIndex()
                 .firstOrNull { (index, header) ->
-                    index > arrivalIndex && (header in KNOWN_PAYMENT_ALIASES || storedAliases[header]?.kind == "PAYMENT")
+                    index > arrivalIndex && (
+                        header in KNOWN_PAYMENT_ALIASES ||
+                            storedAliases[header]?.kind == SheetFieldClassification.PAYMENT
+                    )
                 }
                 ?.index ?: run {
                     val candidates = headers.indices
@@ -486,14 +276,18 @@ data class SheetColumnSchema(
                 ticketHeaders = ticketRange.mapNotNull { index ->
                     headers[index]
                         .takeIf(String::isNotBlank)
-                        ?.takeUnless { storedAliases[normalized[index]]?.kind == "IGNORE" }
+                        ?.takeUnless {
+                            storedAliases[normalized[index]]?.kind == SheetFieldClassification.IGNORE
+                        }
                         ?.toTicketDefinition(index)
                         ?.let { it to normalized[index] }
                 }.toMap(),
                 paymentHeaders = paymentRange.mapNotNull { index ->
                     headers[index]
                         .takeIf(String::isNotBlank)
-                        ?.takeUnless { storedAliases[normalized[index]]?.kind == "IGNORE" }
+                        ?.takeUnless {
+                            storedAliases[normalized[index]]?.kind == SheetFieldClassification.IGNORE
+                        }
                         ?.toPaymentDefinition(index, storedAliases[normalized[index]])
                         ?.let { it to normalized[index] }
                 }.toMap()
@@ -512,13 +306,15 @@ data class SheetFieldMapping(
     val classification: SheetFieldClassification
 )
 
-internal fun GoogleSheetTab.toColumnSchema(storedAliases: Map<String, StoredSheetAlias> = emptyMap()): SheetColumnSchema {
+internal fun GoogleSheetTab.toColumnSchema(
+    storedAliases: Map<String, StoredSheetAlias> = emptyMap()
+): SheetColumnSchema {
     val headerRow = rows.firstOrNull { row -> row.any { it.canonicalDataHeader() == HEADER_LAST_NAME } }.orEmpty()
     return SheetColumnSchema.fromOrderedHeaders(headerRow, storedAliases)
 }
 
 internal data class StoredSheetAlias(
-    val kind: String,
+    val kind: SheetFieldClassification,
     val label: String,
     val priceCents: Int?,
     val allowsSplitPayment: Boolean
@@ -530,15 +326,21 @@ internal fun GoogleSheetTab.storedAliases(): Map<String, StoredSheetAlias> {
     val indexes = rows[headerIndex].mapIndexed { index, value -> value.normalizedHeader() to index }.toMap()
     return rows.drop(headerIndex + 1).mapNotNull { row ->
         val alias = row.valueAt(indexes[ALIAS_NORMALIZED_HEADER]).normalizedHeader()
-        val kind = row.valueAt(indexes[ALIAS_KIND_HEADER]).trimSpreadsheetWhitespace().uppercase()
-        if (alias.isBlank() || kind !in setOf("TICKET", "PAYMENT", "IGNORE")) return@mapNotNull null
+        val kind = row.valueAt(indexes[ALIAS_KIND_HEADER]).toSheetFieldClassificationOrNull()
+        if (alias.isBlank() || kind == null) return@mapNotNull null
         alias to StoredSheetAlias(
             kind = kind,
             label = row.valueAt(indexes[ALIAS_LABEL_HEADER]).trimSpreadsheetWhitespace(),
             priceCents = row.valueAt(indexes[ALIAS_PRICE_HEADER]).toIntOrNull(),
-            allowsSplitPayment = !row.valueAt(indexes[ALIAS_OPTIONS_HEADER]).contains("split=false", ignoreCase = true)
+            allowsSplitPayment = !row.valueAt(indexes[ALIAS_OPTIONS_HEADER])
+                .contains(DISABLE_SPLIT_PAYMENT_OPTION, ignoreCase = true)
         )
     }.toMap()
+}
+
+private fun String.toSheetFieldClassificationOrNull(): SheetFieldClassification? {
+    val storedValue = trimSpreadsheetWhitespace().uppercase()
+    return SheetFieldClassification.entries.firstOrNull { it.name == storedValue }
 }
 
 internal fun String.toTicketDefinition(columnIndex: Int): TicketType {
@@ -603,4 +405,6 @@ private val KNOWN_PAYMENT_DEFINITIONS = mapOf(
     "epassi" to PaymentMethod.EPASSI,
     "lippuagentti" to PaymentMethod.LIPPUAGENTTI
 )
+
+internal const val DISABLE_SPLIT_PAYMENT_OPTION = "split=false"
 private val KNOWN_PAYMENT_ALIASES = KNOWN_PAYMENT_DEFINITIONS.keys

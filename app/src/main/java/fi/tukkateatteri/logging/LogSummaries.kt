@@ -8,9 +8,16 @@ import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 internal fun Reservation.toLogSummary(): String =
     "reservationId=$id, performanceId=$performanceId, admission=$admissionType, " +
         "seats=$seatCount, arrived=$arrivalCount, redeemed=$paidSeatCount, " +
-        "reservedTypes=${reservedTicketAllocations.associate { it.ticketType to it.quantity }.toCountSummary()}, " +
-        "sales=${ticketSales.groupBy { it.ticketType }.mapValues { (_, sales) -> sales.sumOf { it.quantity } }.toCountSummary()}, " +
+        "reservedTypes=${reservedTicketCounts().toCountSummary()}, " +
+        "sales=${ticketSaleCounts().toCountSummary()}, " +
         "syncState=$syncState, sheetRowId=${sheetRowId.toAbbreviatedId()}"
+
+private fun Reservation.reservedTicketCounts() = reservedTicketAllocations
+    .associate { it.ticketType to it.quantity }
+
+private fun Reservation.ticketSaleCounts() = ticketSales
+    .groupBy { it.ticketType }
+    .mapValues { (_, sales) -> sales.sumOf { it.quantity } }
 
 /** Log-safe representation that deliberately excludes customer names, contact data, and notes. */
 internal fun ReservationSpreadsheetRow.toLogSummary(): String =

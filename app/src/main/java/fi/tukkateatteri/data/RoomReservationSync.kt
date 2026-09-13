@@ -150,7 +150,10 @@ internal suspend fun RoomReservationRepository.stagePendingChanges(
  * Reads the selected tab under its lock, imports its current truth, then replays this device's
  * local outbox only when the row has not changed in the meantime.
  */
-internal suspend fun RoomReservationRepository.flushPendingChanges(target: CloudSheetTarget, accessToken: String?): Int {
+internal suspend fun RoomReservationRepository.flushPendingChanges(
+    target: CloudSheetTarget,
+    accessToken: String?
+): Int {
     val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
     val startedAt = System.nanoTime()
     AppLog.info(REPOSITORY_LOG_COMPONENT) {
@@ -377,7 +380,9 @@ internal suspend fun RoomReservationRepository.markPendingDeletionSynced(change:
         pendingSheetChangeDao.deleteByReservationId(change.reservationId)
         reservationDao.deleteById(change.reservationId)
     }
-    AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Marked pending deletion synchronized; reservationId=${change.reservationId}" }
+    AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+        "Marked pending deletion synchronized; reservationId=${change.reservationId}"
+    }
 }
 
 internal suspend fun RoomReservationRepository.markPendingChangeConflict(

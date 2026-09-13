@@ -95,14 +95,23 @@
     <string name="statistics_door_revenue">Ovimyynti</string>
     <string name="statistics_expected_revenue">Varauksista odotettu</string>
     <string name="statistics_revenue_difference">Toteutuneen ja odotetun ero</string>
-    <string name="statistics_incomplete_expectation">Odotettu summa sisältää hintatiedot %1$d/%2$d varatulle paikalle.</string>
-    <string name="statistics_unknown_prices">Hintatieto puuttuu %1$d lunastetulta paikalta.</string>
+    <plurals name="statistics_incomplete_expectation">
+        <item quantity="one">Odotettu summa sisältää hintatiedon %1$d/%2$d varatulle paikalle.</item>
+        <item quantity="other">Odotettu summa sisältää hintatiedot %1$d/%2$d varatulle paikalle.</item>
+    </plurals>
+    <plurals name="statistics_unknown_prices">
+        <item quantity="one">Hintatieto puuttuu %1$d lunastetulta paikalta.</item>
+        <item quantity="other">Hintatieto puuttuu %1$d lunastetulta paikalta.</item>
+    </plurals>
     <string name="statistics_by_performance">Esityspäivät</string>
     <string name="statistics_ticket_types">Myydyt lipputyypit</string>
     <string name="statistics_payment_methods">Maksutavat</string>
     <string name="statistics_quantity_and_money">%1$d kpl · %2$s</string>
     <string name="statistics_money">· %1$s</string>
-    <string name="statistics_performance_row">%1$d/%2$d lunastettu · %3$s</string>
+    <plurals name="statistics_performance_row">
+        <item quantity="one">%1$d/%2$d lunastettu · %3$s</item>
+        <item quantity="other">%1$d/%2$d lunastettu · %3$s</item>
+    </plurals>
     <string name="delete_reservation_title">Poistetaanko varaus?</string>
     <string name="delete_reservation_message">%1$s poistetaan sovelluksesta. Google Sheetsissä se merkitään poistetuksi.</string>
     <string name="delete_reservation_action">Poista varaus</string>
@@ -134,19 +143,7 @@
     <string name="reservation_summary">%1$s · %2$s</string>
     <string name="reservation_overview">%1$s · %2$s</string>
 
-    <string name="payment_method_card">Kortti</string>
-    <string name="payment_method_cash">Käteinen</string>
-    <string name="payment_method_epassi">ePassi</string>
-    <string name="payment_method_lippuagentti">Lippuagentti</string>
-    <string name="ticket_type_basic">Perus 22 €</string>
-    <string name="ticket_type_discount">Alennus 13 €</string>
-    <string name="ticket_type_theatre_industry">Teatteriala 10 €</string>
-    <string name="ticket_type_member">Jäsen 5 €</string>
-    <string name="ticket_type_group_basic">Ryhmä perus 20 €</string>
-    <string name="ticket_type_group_discount">Ryhmä alennus 12 €</string>
-    <string name="ticket_type_kaikukortti">Kaikukortti</string>
     <string name="ticket_type_free_ticket">Vapaalippu</string>
-    <string name="ticket_type_unspecified">Määrittelemätön</string>
     <string name="reserved_ticket_types">Varatut lipputyypit</string>
     <string name="reserved_ticket_types_remaining">Lunastamattomat lipputyypit</string>
     <plurals name="reserved_ticket_types_total">

@@ -41,7 +41,10 @@ internal object ReservationDatabaseMigrations {
                 """.trimIndent()
             )
             db.execSQL(
-                "CREATE INDEX IF NOT EXISTS `index_payment_allocations_ticket_sale_id` ON `payment_allocations` (`ticket_sale_id`)"
+                """
+                CREATE INDEX IF NOT EXISTS `index_payment_allocations_ticket_sale_id`
+                ON `payment_allocations` (`ticket_sale_id`)
+                """.trimIndent()
             )
 
             db.execSQL(
@@ -191,7 +194,12 @@ internal object ReservationDatabaseMigrations {
 
     private val MIGRATION_7_8 = object : Migration(7, 8) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("UPDATE reservations SET arrival_count = seat_count, is_present = 1 WHERE admission_type = 'DOOR_SALE'")
+            db.execSQL(
+                """
+                UPDATE reservations SET arrival_count = seat_count, is_present = 1
+                WHERE admission_type = 'DOOR_SALE'
+                """.trimIndent()
+            )
         }
     }
 

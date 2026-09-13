@@ -384,7 +384,17 @@ class GoogleSheetsParsingTest {
             rows = buildList {
                 add(headers)
                 add(firstRow)
-                add(dataRow(0 to "Meikäläinen", 1 to "Matti", 2 to "040 123 1234", 3 to "4", 4 to "4", 6 to "4", 13 to "4"))
+                add(
+                    dataRow(
+                        0 to "Meikäläinen",
+                        1 to "Matti",
+                        2 to "040 123 1234",
+                        3 to "4",
+                        4 to "4",
+                        6 to "4",
+                        13 to "4"
+                    )
+                )
                 add(dataRow(0 to "Jorma", 1 to "Seppo", 2 to "seppo@seppo.com", 3 to "2", 7 to "2", 14 to "2"))
                 addAll(extraRows)
                 if (extraRows.isEmpty()) add(emptyRow())
@@ -419,7 +429,8 @@ class GoogleSheetsParsingTest {
             "KÄTEINEN",
             "EPASSI",
             "LIPPUAGENTTI",
-            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
+            "HUOM! (Merkitse tähän esim. vapaalipun peruste, joka voi olla työryhmävapaalippu, " +
+                "Kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
         )
     }
 }

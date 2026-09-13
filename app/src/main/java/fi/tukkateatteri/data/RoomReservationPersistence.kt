@@ -5,9 +5,13 @@ import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationEntity
 import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.ReservedTicketAllocationEntity
+import fi.tukkateatteri.data.local.SheetFieldKind
 import fi.tukkateatteri.data.local.TicketSaleEntity
+import fi.tukkateatteri.data.local.toAliasEntities
+import fi.tukkateatteri.data.local.toEntities
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import fi.tukkateatteri.data.spreadsheet.SheetColumnSchema
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
 
@@ -41,7 +45,8 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
         if (existingReservation?.id in preserveReservationIds) {
             skippedCount += 1
             AppLog.verbose(REPOSITORY_LOG_COMPONENT) {
-                "Preserving pending local row instead of importing remote data; reservationId=${existingReservation?.id}"
+                "Preserving pending local row instead of importing remote data; " +
+                    "reservationId=${existingReservation?.id}"
             }
             return@forEach
         }
@@ -182,6 +187,25 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
     }
 }
 
+internal suspend fun RoomReservationRepository.storeSheetSchemas(
+    spreadsheetUrl: String,
+    schemas: List<SheetColumnSchema>
+) {
+    val definitions = schemas.flatMap { it.toEntities(spreadsheetUrl) }
+        .distinctBy { it.normalizedHeader }
+    sheetFieldDefinitionDao.deactivateForSpreadsheet(spreadsheetUrl)
+    sheetFieldDefinitionDao.upsertAll(definitions)
+    sheetFieldAliasDao.insertAll(schemas.flatMap { it.toAliasEntities() })
+    AppLog.info(REPOSITORY_LOG_COMPONENT) {
+        "Stored Sheet-provided field definitions; " +
+            "tickets=${definitions.count { it.kind == SheetFieldKind.TICKET }}, " +
+            "payments=${definitions.count { it.kind == SheetFieldKind.PAYMENT }}"
+    }
+}
+
+internal suspend fun RoomReservationRepository.storedSheetAliases() = sheetFieldAliasDao.getAll()
+    .associate { it.normalizedAlias to it.toStoredAlias() }
+
 private data class ImportedSaleData(
     val ticketType: TicketType,
     val paymentMethod: PaymentMethod,
@@ -209,7 +233,8 @@ internal suspend fun RoomReservationRepository.removeMissingSheetReservations(
     missingReservations.forEach { reservationDao.deleteById(it.id) }
     if (missingReservations.isNotEmpty()) {
         AppLog.info(REPOSITORY_LOG_COMPONENT) {
-            "Removed ${missingReservations.size} local rows missing from authoritative Sheet; performanceId=$performanceId"
+            "Removed ${missingReservations.size} local rows missing from authoritative Sheet; " +
+                "performanceId=$performanceId"
         }
     }
 }

@@ -37,8 +37,8 @@ data class RealizedTicketSpreadsheetRow(
         if (payments.isEmpty() || (isPaid && payments.size == 1)) return ""
         val values = payments.sortedBy { PaymentMethod.displaySortOrder(it.method) }
             .joinToString(PAYMENT_NOTE_SEPARATOR) { payment ->
-            "${payment.method.label} ${payment.amountCents.toEuroString()}"
-        }
+                "${payment.method.label} ${payment.amountCents.toEuroString()}"
+            }
         return "$PARTIAL_PAYMENT_LABEL: $values"
     }
 }

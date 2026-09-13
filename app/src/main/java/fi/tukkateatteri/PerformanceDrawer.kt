@@ -115,7 +115,9 @@ internal fun PerformanceDrawerContent(
                                 )
                             }
                             sourcesByAct[actName]?.let { source ->
-                                val importablePerformances = actPerformances.filter(Performance::canSyncFromGoogleSheets)
+                                val importablePerformances = actPerformances.filter(
+                                    Performance::canSyncFromGoogleSheets
+                                )
                                 if (importablePerformances.isNotEmpty()) {
                                     IconButton(onClick = { onSyncAct(importablePerformances, source) }) {
                                         Icon(

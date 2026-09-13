@@ -223,8 +223,9 @@ private fun RevenueStatisticsCard(statistics: SalesStatistics) {
             )
         } else if (!statistics.hasCompleteRevenueExpectation) {
             WarningRow(
-                stringResource(
-                    R.string.statistics_incomplete_expectation,
+                pluralStringResource(
+                    R.plurals.statistics_incomplete_expectation,
+                    statistics.expectedReservationSeatCount,
                     statistics.expectedReservationSeatCount,
                     statistics.reservationSeatCount
                 )
@@ -232,8 +233,9 @@ private fun RevenueStatisticsCard(statistics: SalesStatistics) {
         }
         if (statistics.unknownRevenueSeatCount > 0) {
             WarningRow(
-                stringResource(
-                    R.string.statistics_unknown_prices,
+                pluralStringResource(
+                    R.plurals.statistics_unknown_prices,
+                    statistics.unknownRevenueSeatCount,
                     statistics.unknownRevenueSeatCount
                 )
             )
@@ -251,8 +253,9 @@ private fun PerformanceStatisticsRow(
     ) {
         StatisticsValueRow(
             label = performance.performance.date,
-            value = stringResource(
-                R.string.statistics_performance_row,
+            value = pluralStringResource(
+                R.plurals.statistics_performance_row,
+                performance.statistics.seatCount,
                 performance.statistics.redeemedSeatCount,
                 performance.statistics.seatCount,
                 performance.statistics.revenueCents.toEuroString()

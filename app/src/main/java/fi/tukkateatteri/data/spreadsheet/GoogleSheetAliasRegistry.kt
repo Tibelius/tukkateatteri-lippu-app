@@ -11,14 +11,14 @@ internal suspend fun GoogleSheetsClient.saveSheetSchemas(
 ) = withContext(Dispatchers.IO) {
     val aliases = schemas.flatMap { schema ->
         schema.ticketHeaders.map { (type, alias) ->
-            AliasRow(alias, "TICKET", type.label, type.defaultPriceCents, "")
+            AliasRow(alias, SheetFieldClassification.TICKET, type.label, type.defaultPriceCents, "")
         } + schema.paymentHeaders.map { (method, alias) ->
             AliasRow(
                 alias = alias,
-                kind = "PAYMENT",
+                kind = SheetFieldClassification.PAYMENT,
                 label = method.label,
                 priceCents = null,
-                options = if (method.allowsSplitPayment) "" else "split=false"
+                options = if (method.allowsSplitPayment) "" else DISABLE_SPLIT_PAYMENT_OPTION
             )
         }
     }
@@ -34,12 +34,18 @@ internal suspend fun GoogleSheetsClient.saveFieldMappings(
         when (mapping.classification) {
             SheetFieldClassification.TICKET -> {
                 val type = mapping.header.toTicketDefinition(Int.MAX_VALUE)
-                AliasRow(mapping.header, "TICKET", type.label, type.defaultPriceCents, "")
+                AliasRow(
+                    mapping.header,
+                    SheetFieldClassification.TICKET,
+                    type.label,
+                    type.defaultPriceCents,
+                    ""
+                )
             }
             SheetFieldClassification.PAYMENT ->
-                AliasRow(mapping.header, "PAYMENT", mapping.header.trim(), null, "")
+                AliasRow(mapping.header, SheetFieldClassification.PAYMENT, mapping.header.trim(), null, "")
             SheetFieldClassification.IGNORE ->
-                AliasRow(mapping.header, "IGNORE", mapping.header.trim(), null, "")
+                AliasRow(mapping.header, SheetFieldClassification.IGNORE, mapping.header.trim(), null, "")
         }
     }
     saveAliasRows(spreadsheetUrl, accessToken, aliases)
@@ -92,7 +98,7 @@ private suspend fun GoogleSheetsClient.saveAliasRows(
 
 private data class AliasRow(
     val alias: String,
-    val kind: String,
+    val kind: SheetFieldClassification,
     val label: String,
     val priceCents: Int?,
     val options: String
@@ -100,7 +106,7 @@ private data class AliasRow(
     val normalizedAlias = alias.normalizedHeader()
 
     fun toCellValues(rowNumber: Int): List<SheetCellValue> =
-        listOf(alias, normalizedAlias, kind, label, priceCents ?: "", options)
+        listOf(alias, normalizedAlias, kind.name, label, priceCents ?: "", options)
             .mapIndexed { columnIndex, value ->
                 SheetCellValue(sheetCellRange(APPLICATION_SHEET_TITLE, columnIndex, rowNumber), value)
             }

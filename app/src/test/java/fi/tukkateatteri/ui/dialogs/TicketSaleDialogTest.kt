@@ -1,6 +1,8 @@
 package fi.tukkateatteri.ui.dialogs
 
 import fi.tukkateatteri.data.PaymentMethod
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,6 +23,29 @@ class TicketSaleDialogTest {
         assertFalse(terminalChargeEligibility(paymentAmountCents = 0))
         assertFalse(terminalChargeEligibility(paymentAmountCents = 2_201))
         assertTrue(terminalChargeEligibility(paymentAmountCents = 2_000))
+    }
+
+    @Test
+    fun externallyConfirmedPaymentCannotBeEdited() {
+        val payment = StoredPayment(
+            methodName = PaymentMethod.CARD.name,
+            amountCents = 2_200,
+            zettleSuccessful = true
+        )
+
+        assertNull(listOf(payment).editablePaymentAt(0, listOf(PaymentMethod.CARD)))
+    }
+
+    @Test
+    fun configuredCustomPaymentCanBeEdited() {
+        val customMethod = PaymentMethod(name = "SMARTUM", label = "Smartum")
+        val payment = StoredPayment(
+            methodName = customMethod.name,
+            amountCents = 1_300,
+            zettleSuccessful = false
+        )
+
+        assertEquals(payment, listOf(payment).editablePaymentAt(0, listOf(customMethod)))
     }
 
     private fun terminalChargeEligibility(

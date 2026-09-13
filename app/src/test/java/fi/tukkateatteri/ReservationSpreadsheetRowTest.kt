@@ -127,7 +127,9 @@ class ReservationSpreadsheetRowTest {
             payments = listOf(PaymentAllocation(1, 1, PaymentMethod.LIPPUAGENTTI, 0))
         )
 
-        val row = ReservationSpreadsheetRow.fromReservation(reservation(seatCount = 2, ticketSales = listOf(importedSale)))
+        val row = ReservationSpreadsheetRow.fromReservation(
+            reservation(seatCount = 2, ticketSales = listOf(importedSale))
+        )
 
         assertEquals(2, row.realizedTickets.size)
         assertTrue(row.realizedTickets.all { it.payments.single().method == PaymentMethod.LIPPUAGENTTI })

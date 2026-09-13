@@ -9,28 +9,26 @@ import fi.tukkateatteri.data.local.PerformanceEntity
 import fi.tukkateatteri.data.local.ReservationDao
 import fi.tukkateatteri.data.local.ReservationDatabase
 import fi.tukkateatteri.data.local.ReservationEntity
-import fi.tukkateatteri.data.local.ReservationWithTicketSales
-import fi.tukkateatteri.data.local.SheetFieldDefinitionDao
 import fi.tukkateatteri.data.local.SheetFieldAliasDao
-import fi.tukkateatteri.data.local.toAliasEntities
-import fi.tukkateatteri.data.local.toAliasEntity
-import fi.tukkateatteri.data.local.toEntities
+import fi.tukkateatteri.data.local.SheetFieldDefinitionDao
 import fi.tukkateatteri.data.local.TicketSaleEntity
+import fi.tukkateatteri.data.local.toAliasEntity
 import fi.tukkateatteri.data.local.toEntity
 import fi.tukkateatteri.data.local.toGoogleSheetSource
 import fi.tukkateatteri.data.local.toPerformance
 import fi.tukkateatteri.data.local.toReservation
+import fi.tukkateatteri.data.spreadsheet.GoogleSheetTabUnavailableException
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetsClient
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
-import fi.tukkateatteri.data.spreadsheet.SheetFieldMapping
 import fi.tukkateatteri.data.spreadsheet.SheetColumnSchema
+import fi.tukkateatteri.data.spreadsheet.SheetFieldMapping
 import fi.tukkateatteri.data.spreadsheet.saveFieldMappings
 import fi.tukkateatteri.data.spreadsheet.saveSheetSchemas
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 
 internal data class CloudSheetTarget(
     val performanceId: Long,
@@ -109,7 +107,9 @@ internal class RoomReservationRepository(
     }
 
     override suspend fun deletePerformance(performanceId: Long) {
-        AppLog.info(REPOSITORY_LOG_COMPONENT) { "Deleting performance and its local reservations; performanceId=$performanceId" }
+        AppLog.info(REPOSITORY_LOG_COMPONENT) {
+            "Deleting performance and its local reservations; performanceId=$performanceId"
+        }
         database.withTransaction {
             requireNotNull(performanceDao.getById(performanceId)) { "Performance does not exist." }
             reservationDao.deleteAllByPerformance(performanceId)
@@ -341,7 +341,10 @@ internal class RoomReservationRepository(
                         .payments
                         .filter(PaymentAllocationEntity::isLocked)
                     if (protectedPayments.isNotEmpty()) {
-                        require(ticketType == existingTicketSale.ticketType && quantity == existingTicketSale.quantity) {
+                        require(
+                            ticketType == existingTicketSale.ticketType &&
+                                quantity == existingTicketSale.quantity
+                        ) {
                             "A ticket sale with a completed terminal payment cannot change ticket type or quantity."
                         }
                         require(payments.retainProtectedPayments(protectedPayments)) {
@@ -391,7 +394,9 @@ internal class RoomReservationRepository(
             mutation = {
                 database.withTransaction {
                     val ticketSale = reservationDao.getTicketSaleById(ticketSaleId) ?: run {
-                        AppLog.warning(REPOSITORY_LOG_COMPONENT) { "Ticket sale deletion found no row; ticketSaleId=$ticketSaleId" }
+                        AppLog.warning(REPOSITORY_LOG_COMPONENT) {
+                            "Ticket sale deletion found no row; ticketSaleId=$ticketSaleId"
+                        }
                         return@withTransaction 0L
                     }
                     require(
@@ -433,7 +438,9 @@ internal class RoomReservationRepository(
             reservationDao.deleteById(reservationId)
             return
         }
-        AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Staging cloud-backed reservation deletion; reservationId=$reservationId" }
+        AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+            "Staging cloud-backed reservation deletion; reservationId=$reservationId"
+        }
         val baseRows = spreadsheetRowsByReservationId(target.performanceId)
         database.withTransaction {
             reservationDao.getById(reservationId)?.let { reservation ->
@@ -470,7 +477,8 @@ internal class RoomReservationRepository(
         }
         val reservationIds = reservations.map { it.reservation.id }
         AppLog.info(REPOSITORY_LOG_COMPONENT) {
-            "Staging deletion of ${reservationIds.size} cloud-backed reservations; performanceId=${target.performanceId}"
+            "Staging deletion of ${reservationIds.size} cloud-backed reservations; " +
+                "performanceId=${target.performanceId}"
         }
         database.withTransaction {
             reservations.forEach { reservation ->
@@ -527,21 +535,6 @@ internal class RoomReservationRepository(
         }
     }
 
-    internal suspend fun storeSheetSchemas(
-        spreadsheetUrl: String,
-        schemas: List<SheetColumnSchema>
-    ) {
-        val definitions = schemas.flatMap { it.toEntities(spreadsheetUrl) }
-            .distinctBy { it.normalizedHeader }
-        sheetFieldDefinitionDao.deactivateForSpreadsheet(spreadsheetUrl)
-        sheetFieldDefinitionDao.upsertAll(definitions)
-        sheetFieldAliasDao.insertAll(schemas.flatMap { it.toAliasEntities() })
-        AppLog.info(REPOSITORY_LOG_COMPONENT) {
-            "Stored Sheet-provided field definitions; tickets=${definitions.count { it.kind.name == "TICKET" }}, " +
-                "payments=${definitions.count { it.kind.name == "PAYMENT" }}"
-        }
-    }
-
     override suspend fun syncGoogleSheetPerformance(
         performanceId: Long,
         spreadsheetUrl: String,
@@ -555,7 +548,7 @@ internal class RoomReservationRepository(
         val target = CloudSheetTarget(performanceId, spreadsheetUrl, sourceSheetTitle)
         return try {
             flushPendingChanges(target, accessToken)
-        } catch (_: IllegalArgumentException) {
+        } catch (_: GoogleSheetTabUnavailableException) {
             throw GoogleSheetSourceChangedException()
         }
     }
@@ -580,32 +573,4 @@ internal class RoomReservationRepository(
         googleSheetsClient.saveFieldMappings(spreadsheetUrl, accessToken, mappings)
     }
 
-    internal suspend fun storedSheetAliases() = sheetFieldAliasDao.getAll()
-        .associate { it.normalizedAlias to it.toStoredAlias() }
-
 }
-
-private fun List<PendingPaymentAllocation>.retainProtectedPayments(
-    protectedPayments: List<PaymentAllocationEntity>
-): Boolean {
-    val unmatchedPayments = toMutableList()
-    return protectedPayments.all { protected ->
-        val matchIndex = unmatchedPayments.indexOfFirst { pending ->
-            pending.method == protected.paymentMethod &&
-                pending.amountCents == protected.amountCents &&
-                (!protected.zettleSuccessful || pending.zettleSuccessful)
-        }
-        if (matchIndex < 0) {
-            false
-        } else {
-            unmatchedPayments.removeAt(matchIndex)
-            true
-        }
-    }
-}
-
-private val PaymentAllocationEntity.isLocked: Boolean
-    get() = paymentMethod.isExternallyConfirmed
-
-private fun ReservationWithTicketSales.hasLockedPayment(): Boolean =
-    ticketSales.any { sale -> sale.payments.any(PaymentAllocationEntity::isLocked) }

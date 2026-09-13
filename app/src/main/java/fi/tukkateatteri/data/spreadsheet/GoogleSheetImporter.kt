@@ -44,9 +44,8 @@ internal class GoogleSheetImporter(
         val spreadsheetId = spreadsheetUrl.toSpreadsheetId()
         api.ensureApplicationSheet(spreadsheetId, accessToken)
         val structure = api.loadSpreadsheetMetadata(spreadsheetId, accessToken).toSpreadsheetStructure()
-        val sheet = requireNotNull(structure.sheetsByTitle[sheetTitle]) {
-            "Välilehteä '$sheetTitle' ei enää ole."
-        }
+        val sheet = structure.sheetsByTitle[sheetTitle]
+            ?: throw GoogleSheetTabUnavailableException(sheetTitle, "tab does not exist")
         val values = api.loadValuesForTabs(
             spreadsheetId,
             listOf(sheetTitle, APPLICATION_SHEET_TITLE),
@@ -60,9 +59,11 @@ internal class GoogleSheetImporter(
             rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty(),
             applicationRowStates = applicationRows.toApplicationRowStateTable().statesFor(sheet.id)
         )
-        val candidate = requireNotNull(tab.toImportCandidateOrNull()) {
-            "Välilehdeltä puuttuu Esitys: tai Pvm: -tieto."
-        }
+        val candidate = tab.toImportCandidateOrNull()
+            ?: throw GoogleSheetTabUnavailableException(
+                sheetTitle,
+                "Esitys: or Pvm: metadata is missing"
+            )
         parse(
             tab = tab,
             candidate = candidate,

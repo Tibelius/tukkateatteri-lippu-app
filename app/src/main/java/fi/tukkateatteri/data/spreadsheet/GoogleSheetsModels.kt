@@ -24,6 +24,9 @@ data class GoogleSheetImportData(
     val schema: SheetColumnSchema
 )
 
+class GoogleSheetTabUnavailableException(sheetTitle: String, detail: String) :
+    IllegalStateException("Google Sheets tab '$sheetTitle' is unavailable: $detail")
+
 enum class GoogleSheetLockFailure {
     HELD_BY_ANOTHER_DEVICE,
     ACQUISITION_LOST,

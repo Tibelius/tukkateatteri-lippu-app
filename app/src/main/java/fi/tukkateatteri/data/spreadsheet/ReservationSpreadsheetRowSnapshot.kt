@@ -73,17 +73,21 @@ private fun Map<PaymentMethod, Int>.encodedPaymentMethodCounts(): String = entri
             .encoded() + ":$quantity"
     }
 
-private fun String.toTicketTypeCounts(): Map<TicketType, Int> = configCountPairs().mapNotNull { (encoded, quantity) ->
-    val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
-    if (values.size != 4) return@mapNotNull null
-    TicketType(values[0], values[1], values[2].toInt(), values[3].toInt()) to quantity
-}.toMap()
+private fun String.toTicketTypeCounts(): Map<TicketType, Int> = configCountPairs()
+    .mapNotNull { (encoded, quantity) ->
+        val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+        if (values.size != 4) return@mapNotNull null
+        TicketType(values[0], values[1], values[2].toInt(), values[3].toInt()) to quantity
+    }
+    .toMap()
 
-private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = configCountPairs().mapNotNull { (encoded, quantity) ->
-    val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
-    if (values.size != 4) return@mapNotNull null
-    PaymentMethod(values[0], values[1], values[2].toBoolean(), values[3].toInt()) to quantity
-}.toMap()
+private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = configCountPairs()
+    .mapNotNull { (encoded, quantity) ->
+        val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
+        if (values.size != 4) return@mapNotNull null
+        PaymentMethod(values[0], values[1], values[2].toBoolean(), values[3].toInt()) to quantity
+    }
+    .toMap()
 
 private fun List<RealizedTicketSpreadsheetRow>.encodedRealizedTickets(): String = joinToString(
     SNAPSHOT_COUNT_SEPARATOR

@@ -16,7 +16,11 @@ data class SheetFieldAliasEntity(
     val allowsSplitPayment: Boolean
 ) {
     internal fun toStoredAlias(): StoredSheetAlias = StoredSheetAlias(
-        kind = kind.name,
+        kind = when (kind) {
+            SheetFieldKind.TICKET -> SheetFieldClassification.TICKET
+            SheetFieldKind.PAYMENT -> SheetFieldClassification.PAYMENT
+            SheetFieldKind.IGNORE -> SheetFieldClassification.IGNORE
+        },
         label = label,
         priceCents = null,
         allowsSplitPayment = allowsSplitPayment

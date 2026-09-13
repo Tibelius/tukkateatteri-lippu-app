@@ -37,9 +37,15 @@ class TukkateatteriApplication : Application() {
     private fun installationId(): String {
         val preferences = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
         return preferences.getString(PREFERENCE_INSTALLATION_ID, null)
-            ?.also { AppLog.debug(LOG_COMPONENT) { "Reusing installation identifier ${it.take(INSTALLATION_ID_LABEL_LENGTH)}" } }
+            ?.also {
+                AppLog.debug(LOG_COMPONENT) {
+                    "Reusing installation identifier ${it.take(INSTALLATION_ID_LABEL_LENGTH)}"
+                }
+            }
             ?: UUID.randomUUID().toString().also { id ->
-                AppLog.info(LOG_COMPONENT) { "Created installation identifier ${id.take(INSTALLATION_ID_LABEL_LENGTH)}" }
+                AppLog.info(LOG_COMPONENT) {
+                    "Created installation identifier ${id.take(INSTALLATION_ID_LABEL_LENGTH)}"
+                }
                 preferences.edit { putString(PREFERENCE_INSTALLATION_ID, id) }
             }
     }
