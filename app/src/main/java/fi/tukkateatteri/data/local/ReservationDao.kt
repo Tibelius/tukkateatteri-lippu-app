@@ -6,6 +6,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+
 @Dao
 interface ReservationDao {
     @Transaction
@@ -22,7 +23,7 @@ interface ReservationDao {
         "SELECT reservations.* FROM reservations " +
             "INNER JOIN performances ON performances.id = reservations.performance_id " +
             "WHERE performances.act_name = :actName " +
-            "ORDER BY performances.performance_date, reservations.last_name COLLATE NOCASE, " +
+            "ORDER BY performances.performance_date_sort_key, reservations.last_name COLLATE NOCASE, " +
             "reservations.first_name COLLATE NOCASE"
     )
     fun observeByActWithTicketSales(actName: String): Flow<List<ReservationWithTicketSales>>

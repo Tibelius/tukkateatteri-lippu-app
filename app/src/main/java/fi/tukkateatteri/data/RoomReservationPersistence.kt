@@ -67,8 +67,7 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                 sheetRowId = row.sheetRowId,
                 syncState = ReservationSyncState.SYNCED,
                 admissionType = admissionType,
-                arrivalCount = storedArrivalCount,
-                isPresent = storedArrivalCount > 0
+                arrivalCount = storedArrivalCount
             )
         ).also {
             insertedCount += 1
@@ -86,8 +85,7 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                     sheetRowId = row.sheetRowId.ifBlank { existingReservation.sheetRowId },
                     syncState = ReservationSyncState.SYNCED,
                     admissionType = admissionType,
-                    arrivalCount = storedArrivalCount,
-                    isPresent = storedArrivalCount > 0
+                    arrivalCount = storedArrivalCount
                 )
             )
             updatedCount += 1

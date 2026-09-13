@@ -3,7 +3,6 @@ package fi.tukkateatteri.data.local
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
-import androidx.room.Index
 import fi.tukkateatteri.data.TicketType
 
 @Entity(
@@ -16,8 +15,7 @@ import fi.tukkateatteri.data.TicketType
             childColumns = ["reservation_id"],
             onDelete = ForeignKey.CASCADE
         )
-    ],
-    indices = [Index("reservation_id")]
+    ]
 )
 data class ReservedTicketAllocationEntity(
     @ColumnInfo(name = "reservation_id")

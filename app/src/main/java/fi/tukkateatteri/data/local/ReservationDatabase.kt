@@ -5,9 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.sqlite.db.SupportSQLiteDatabase
 import fi.tukkateatteri.logging.AppLog
 
-private const val DATABASE_VERSION = 14
+private const val DATABASE_VERSION = 15
 
 @Database(
     entities = [
@@ -45,7 +46,14 @@ abstract class ReservationDatabase : RoomDatabase() {
                     DATABASE_NAME
                 )
                 .addMigrations(*ReservationDatabaseMigrations.ALL)
+                .addCallback(CONSTRAINTS_CALLBACK)
                 .build()
+        }
+
+        internal val CONSTRAINTS_CALLBACK = object : Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                ReservationDatabaseConstraints.create(db)
+            }
         }
 
         private const val DATABASE_NAME = "tukkateatteri.db"

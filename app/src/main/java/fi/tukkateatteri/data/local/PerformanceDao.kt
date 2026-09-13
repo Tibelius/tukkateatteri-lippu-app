@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 interface PerformanceDao {
     @Query(
         "SELECT * FROM performances " +
-            "ORDER BY is_active DESC, performance_date DESC, act_name COLLATE NOCASE"
+            "ORDER BY is_active DESC, performance_date_sort_key DESC, act_name COLLATE NOCASE"
     )
     fun observeAll(): Flow<List<PerformanceEntity>>
 

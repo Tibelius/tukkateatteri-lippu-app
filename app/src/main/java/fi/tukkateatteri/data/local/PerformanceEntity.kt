@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import fi.tukkateatteri.data.Performance
+import fi.tukkateatteri.data.toPerformanceDateOrNull
 
 @Entity(
     tableName = "performances",
@@ -17,6 +18,8 @@ data class PerformanceEntity(
     val actName: String,
     @ColumnInfo(name = "performance_date")
     val date: String,
+    @ColumnInfo(name = "performance_date_sort_key")
+    val dateSortKey: Long = date.toPerformanceDateOrNull()?.toEpochDay() ?: Long.MIN_VALUE,
     @ColumnInfo(name = "is_active")
     val isActive: Boolean = false,
     @ColumnInfo(name = "source_sheet_title")

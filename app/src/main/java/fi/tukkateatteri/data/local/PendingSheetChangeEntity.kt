@@ -20,6 +20,12 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["reservation_id"],
             onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = PerformanceEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["performance_id"],
+            onDelete = ForeignKey.CASCADE
         )
     ],
     indices = [Index(value = ["performance_id"]), Index(value = ["reservation_id"], unique = true)]

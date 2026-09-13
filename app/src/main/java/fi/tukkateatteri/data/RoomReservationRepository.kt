@@ -169,8 +169,7 @@ internal class RoomReservationRepository(
                         contact = contact.trim(),
                         seatCount = seatCount,
                         admissionType = admissionType,
-                        arrivalCount = if (isDoorSale) seatCount else 0,
-                        isPresent = isDoorSale
+                        arrivalCount = if (isDoorSale) seatCount else 0
                     )
                 )
                 replaceReservedTicketAllocations(reservationId, reservedTicketAllocations)
@@ -226,9 +225,7 @@ internal class RoomReservationRepository(
                                 reservation.seatCount
                             } else {
                                 existingEntity.arrivalCount
-                            },
-                            isPresent = isDoorSale || reservation.isPresent,
-                            paymentMethod = null
+                            }
                         )
                     )
                     replaceReservedTicketAllocations(
@@ -276,8 +273,7 @@ internal class RoomReservationRepository(
                     reservationDao.update(
                         reservation.copy(
                             arrivalCount = (reservation.arrivalCount + quantity)
-                                .coerceAtMost(reservation.seatCount),
-                            isPresent = true
+                                .coerceAtMost(reservation.seatCount)
                         )
                     )
                     AppLog.debug(REPOSITORY_LOG_COMPONENT) {
@@ -307,8 +303,7 @@ internal class RoomReservationRepository(
                     }
                     reservationDao.update(
                         reservation.copy(
-                            arrivalCount = boundedArrivalCount,
-                            isPresent = boundedArrivalCount > 0
+                            arrivalCount = boundedArrivalCount
                         )
                     )
                     AppLog.debug(REPOSITORY_LOG_COMPONENT) {
@@ -372,8 +367,7 @@ internal class RoomReservationRepository(
                             .coerceIn(0, reservation.seatCount)
                         reservationDao.update(
                             reservation.copy(
-                                arrivalCount = arrivalCount,
-                                isPresent = arrivalCount > 0
+                                arrivalCount = arrivalCount
                             )
                         )
                     }
@@ -412,8 +406,7 @@ internal class RoomReservationRepository(
                             val updatedArrivalCount = (reservation.arrivalCount - ticketSale.quantity).coerceAtLeast(0)
                             reservationDao.update(
                                 reservation.copy(
-                                    arrivalCount = updatedArrivalCount,
-                                    isPresent = updatedArrivalCount > 0
+                                    arrivalCount = updatedArrivalCount
                                 )
                             )
                         }

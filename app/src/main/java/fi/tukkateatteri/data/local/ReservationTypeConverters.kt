@@ -59,7 +59,7 @@ class ReservationTypeConverters {
 
     @TypeConverter
     fun sheetFieldKindFromStorage(value: String?): SheetFieldKind =
-        value.toEnumOrDefault(SheetFieldKind.entries, SheetFieldKind.TICKET)
+        value.toEnumOrDefault(SheetFieldKind.entries, SheetFieldKind.IGNORE)
 
     @TypeConverter
     fun sheetFieldKindToStorage(value: SheetFieldKind): String = value.name

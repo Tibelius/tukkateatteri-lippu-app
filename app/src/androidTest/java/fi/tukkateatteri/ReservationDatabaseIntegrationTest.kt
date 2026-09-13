@@ -1,5 +1,6 @@
 package fi.tukkateatteri
 
+import android.database.sqlite.SQLiteException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -17,6 +18,7 @@ import fi.tukkateatteri.data.local.ReservationEntity
 import fi.tukkateatteri.data.local.ReservedTicketAllocationEntity
 import fi.tukkateatteri.data.local.TicketSaleEntity
 import fi.tukkateatteri.data.local.toReservation
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -35,7 +37,9 @@ class ReservationDatabaseIntegrationTest {
         database = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(),
             ReservationDatabase::class.java
-        ).allowMainThreadQueries().build()
+        ).addCallback(ReservationDatabase.CONSTRAINTS_CALLBACK)
+            .allowMainThreadQueries()
+            .build()
     }
 
     @After
@@ -87,7 +91,7 @@ class ReservationDatabaseIntegrationTest {
         assertEquals("Kippari Kalle", reservation.displayName)
         assertEquals(2, reservation.reservedTicketCount)
         assertEquals(1, reservation.paidSeatCount)
-        assertTrue(reservation.ticketSales.single().isSplitPayment)
+        assertTrue(reservation.ticketSales.single().hasMultiplePayments)
         assertEquals(2_200, reservation.ticketSales.single().paidAmountCents)
     }
 
@@ -223,5 +227,50 @@ class ReservationDatabaseIntegrationTest {
         database.reservationDao().deleteById(reservationId)
 
         assertTrue(database.pendingSheetChangeDao().getAllByPerformanceId(performanceId).isEmpty())
+    }
+
+    @Test
+    fun performancesAreOrderedByCalendarDateInsteadOfFormattedDateText() = runBlocking {
+        database.performanceDao().insert(PerformanceEntity(actName = "Testi", date = "30.10.2026"))
+        database.performanceDao().insert(PerformanceEntity(actName = "Testi", date = "2.12.2026"))
+        database.performanceDao().insert(PerformanceEntity(actName = "Testi", date = "4.12.2026"))
+
+        assertEquals(
+            listOf("4.12.2026", "2.12.2026", "30.10.2026"),
+            database.performanceDao().observeAll().first().map(PerformanceEntity::date)
+        )
+    }
+
+    @Test
+    fun freshDatabaseRejectsDuplicateNonBlankSheetIdentity() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Testi", date = "24.10.2026")
+        )
+        database.reservationDao().insert(
+            ReservationEntity(
+                performanceId = performanceId,
+                lastName = "Ensimmäinen",
+                firstName = "Varaus",
+                contact = "",
+                seatCount = 1,
+                sheetRowId = "same-row-id"
+            )
+        )
+
+        try {
+            database.reservationDao().insert(
+                ReservationEntity(
+                    performanceId = performanceId,
+                    lastName = "Toinen",
+                    firstName = "Varaus",
+                    contact = "",
+                    seatCount = 1,
+                    sheetRowId = "same-row-id"
+                )
+            )
+            org.junit.Assert.fail("Expected duplicate sheet row identity to be rejected")
+        } catch (_: SQLiteException) {
+            // Expected.
+        }
     }
 }

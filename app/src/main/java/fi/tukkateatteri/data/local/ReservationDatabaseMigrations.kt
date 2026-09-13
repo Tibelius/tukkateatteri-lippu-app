@@ -4,7 +4,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 internal object ReservationDatabaseMigrations {
-private val MIGRATION_1_2 = object : Migration(1, 2) {
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "ALTER TABLE reservations ADD COLUMN admission_type TEXT NOT NULL DEFAULT 'RESERVATION'"
@@ -344,6 +344,8 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         }
     }
 
+    internal val MIGRATION_14_15 = ReservationDatabaseMigration14To15
+
     val ALL = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -357,6 +359,7 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
         MIGRATION_10_11,
         MIGRATION_11_12,
         MIGRATION_12_13,
-        MIGRATION_13_14
+        MIGRATION_13_14,
+        MIGRATION_14_15
     )
 }

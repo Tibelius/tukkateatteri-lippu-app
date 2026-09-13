@@ -6,6 +6,7 @@ core = "1.19.0"
 kotlin = "2.4.10"
 composeBom = "2026.08.00"
 ksp = "2.3.10"
+kotlinxSerialization = "1.8.1"
 lifecycle = "2.11.0"
 room = "2.8.4"
 googleAuth = "22.0.0"
@@ -28,9 +29,12 @@ androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-p
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 google-play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "googleAuth" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestCore" }
 zettle-core = { group = "com.zettle.sdk", name = "core", version.ref = "zettle" }
 zettle-card-reader-ui = { group = "com.zettle.sdk.feature.cardreader", name = "ui", version.ref = "zettle" }
 

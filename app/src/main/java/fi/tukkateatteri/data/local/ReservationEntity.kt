@@ -6,7 +6,6 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import fi.tukkateatteri.data.AdmissionType
-import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.ReservationSyncState
 
 @Entity(
@@ -43,9 +42,5 @@ data class ReservationEntity(
     @ColumnInfo(name = "admission_type")
     val admissionType: AdmissionType = AdmissionType.RESERVATION,
     @ColumnInfo(name = "arrival_count")
-    val arrivalCount: Int = 0,
-    @ColumnInfo(name = "is_present")
-    val isPresent: Boolean = false,
-    @ColumnInfo(name = "payment_method")
-    val paymentMethod: PaymentMethod? = null
+    val arrivalCount: Int = 0
 )

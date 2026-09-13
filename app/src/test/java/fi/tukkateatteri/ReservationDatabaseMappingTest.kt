@@ -6,8 +6,10 @@ import fi.tukkateatteri.data.TicketSaleOrigin
 import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.local.PaymentAllocationEntity
 import fi.tukkateatteri.data.local.ReservationEntity
+import fi.tukkateatteri.data.local.ReservationTypeConverters
 import fi.tukkateatteri.data.local.ReservationWithTicketSales
 import fi.tukkateatteri.data.local.ReservedTicketAllocationEntity
+import fi.tukkateatteri.data.local.SheetFieldKind
 import fi.tukkateatteri.data.local.TicketSaleEntity
 import fi.tukkateatteri.data.local.TicketSaleWithPayments
 import fi.tukkateatteri.data.local.toReservation
@@ -17,6 +19,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReservationDatabaseMappingTest {
+    @Test
+    fun unknownStoredSheetFieldKind_isIgnoredInsteadOfBecomingATicketType() {
+        assertEquals(
+            SheetFieldKind.IGNORE,
+            ReservationTypeConverters().sheetFieldKindFromStorage("INVALID_KIND")
+        )
+    }
+
     @Test
     fun databaseGraph_mapsAllReservationAndPaymentFieldsToTheDomainModel() {
         val reservation = ReservationWithTicketSales(
@@ -30,8 +40,7 @@ class ReservationDatabaseMappingTest {
                 notes = "Soita tarvittaessa",
                 sourceIdentity = "yön vuodenaika|24.10.2026|kippari|kalle",
                 admissionType = AdmissionType.RESERVATION,
-                arrivalCount = 1,
-                isPresent = true
+                arrivalCount = 1
             ),
             reservedTicketAllocations = listOf(
                 ReservedTicketAllocationEntity(10, TicketType.BASIC, 1),
@@ -94,8 +103,7 @@ class ReservationDatabaseMappingTest {
                 contact = "",
                 seatCount = 1,
                 admissionType = AdmissionType.DOOR_SALE,
-                arrivalCount = 1,
-                isPresent = true
+                arrivalCount = 1
             ),
             ticketSales = emptyList(),
             reservedTicketAllocations = emptyList()
