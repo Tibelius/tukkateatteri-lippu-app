@@ -1,0 +1,4 @@
+# Copy this file to zettle.properties for production builds.
+clientId=your-zettle-production-client-id
+redirectScheme=tukkateatteri-zettle
+redirectHost=zettle-auth

@@ -71,7 +71,7 @@ fun TicketSaleDialog(
     var customAmount by rememberSaveable(ticketSale?.id) { mutableStateOf("") }
     var confirmationAction by remember { mutableStateOf<PaymentAction?>(null) }
     var showTerminalConfirmation by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
-    var terminalError by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
+    var terminalMessageResId by rememberSaveable(ticketSale?.id) { mutableStateOf<Int?>(null) }
     var pendingTypeName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
     var pendingQuantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
     var pendingAmount by rememberSaveable(ticketSale?.id) { mutableIntStateOf(0) }
@@ -106,7 +106,7 @@ fun TicketSaleDialog(
     val finalStoredPayments = basePayments + listOfNotNull(draft)
     val finalPayments = finalStoredPayments.mapNotNull { it.toPending(methodOptions) }
     val editingPayment = editingIndex != null || selectedMethod != null
-    val canSave = quantity in 1..maximumQuantity && when {
+    val canSave = selectedMethod != PaymentMethod.CARD && quantity in 1..maximumQuantity && when {
         total == 0 -> true
         editingPayment -> validDraft
         ticketSale != null -> finalPayments.isNotEmpty()
@@ -121,7 +121,7 @@ fun TicketSaleDialog(
         when (val outcome = gateway.parsePaymentResult(result)) {
             is CardPaymentOutcome.Completed -> {
                 if (pendingType == null || pendingQuantity <= 0 || outcome.amountCents != pendingAmount.toLong()) {
-                    terminalError = true
+                    terminalMessageResId = R.string.card_terminal_payment_result_invalid
                 } else {
                     val payments = pendingBasePayments +
                         StoredPayment(PaymentMethod.CARD.name, pendingAmount, true)
@@ -132,8 +132,13 @@ fun TicketSaleDialog(
                     )
                 }
             }
-            CardPaymentOutcome.Cancelled -> Unit
-            is CardPaymentOutcome.Failed -> terminalError = true
+            CardPaymentOutcome.Cancelled -> {
+                terminalMessageResId = R.string.card_terminal_payment_cancelled
+            }
+
+            is CardPaymentOutcome.Failed -> {
+                terminalMessageResId = R.string.card_terminal_payment_failed
+            }
         }
         pendingTypeName = null
         pendingQuantity = 0
@@ -273,8 +278,17 @@ fun TicketSaleDialog(
                 Text(stringResource(R.string.charge_card_terminal))
             }
         }
-        if (terminalError) {
-            Text(stringResource(R.string.card_terminal_payment_failed), color = MaterialTheme.colorScheme.error)
+        if (selectedMethod == PaymentMethod.CARD) {
+            Text(
+                text = stringResource(
+                    if (gateway.isAvailable) {
+                        R.string.card_payment_terminal_required
+                    } else {
+                        R.string.card_terminal_unavailable
+                    }
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 
@@ -309,13 +323,15 @@ fun TicketSaleDialog(
             onDismiss = { showTerminalConfirmation = false },
             onConfirm = {
                 showTerminalConfirmation = false
-                terminalError = false
+                terminalMessageResId = null
                 val amount = draftAmount ?: return@TerminalPaymentConfirmation
                 val intent = gateway.createPaymentIntent(
                     context,
                     CardPaymentRequest(amount, UUID.randomUUID().toString())
                 )
-                if (intent == null) terminalError = true else {
+                if (intent == null) {
+                    terminalMessageResId = R.string.card_terminal_payment_failed
+                } else {
                     pendingTypeName = ticketType.name
                     pendingQuantity = quantity
                     pendingAmount = amount
@@ -323,6 +339,13 @@ fun TicketSaleDialog(
                     terminalLauncher.launch(intent)
                 }
             }
+        )
+    }
+
+    terminalMessageResId?.let { messageResId ->
+        TerminalPaymentResultDialog(
+            messageResId = messageResId,
+            onDismiss = { terminalMessageResId = null }
         )
     }
 }

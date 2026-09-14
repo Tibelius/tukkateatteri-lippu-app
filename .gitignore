@@ -45,6 +45,7 @@ signing.properties
 .env.*
 !.env.example
 secrets.properties
+zettle.properties
 
 # Logs, profiles, and crash dumps
 *.log

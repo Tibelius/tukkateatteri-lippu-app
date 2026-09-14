@@ -168,7 +168,12 @@
     <string name="confirm_card_terminal_payment_message_ticket">%1$d × %2$s.</string>
     <string name="confirm_card_terminal_payment_message_total">Veloitetaan yhteensä %1$s</string>
     <string name="confirm_card_terminal_payment_message_info">Maksu kirjataan vasta maksupäätteen hyväksynnän jälkeen.</string>
+    <string name="card_payment_terminal_required">Korttimaksu kirjataan vain maksupäätteen hyväksynnän jälkeen.</string>
+    <string name="card_terminal_unavailable">Maksupääte ei ole käytettävissä. Korttimaksua ei voi kirjata.</string>
+    <string name="card_terminal_payment_not_recorded">Maksua ei kirjattu</string>
     <string name="card_terminal_payment_failed">Maksupäätemaksu epäonnistui. Lunastusta ei kirjattu.</string>
+    <string name="card_terminal_payment_cancelled">Maksupäätemaksu keskeytettiin. Lunastusta ei kirjattu.</string>
+    <string name="card_terminal_payment_result_invalid">Maksupäätteen vastausta ei voitu vahvistaa. Lunastusta ei kirjattu.</string>
     <string name="imported_payment">Tuotu taulukosta</string>
     <string name="change_google_account">Vaihda tili</string>
     <string name="google_account_disconnected">Google-tili irrotettu. Valitse tili seuraavassa tuonnissa tai viennissä.</string>

@@ -1,5 +1,6 @@
 package fi.tukkateatteri.ui.dialogs
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -200,6 +201,23 @@ internal fun TerminalPaymentConfirmation(
         confirmButton = {
             Button(onClick = onConfirm) {
                 Text(stringResource(R.string.charge_card_terminal_confirm))
+            }
+        }
+    )
+}
+
+@Composable
+internal fun TerminalPaymentResultDialog(
+    @StringRes messageResId: Int,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.card_terminal_payment_not_recorded)) },
+        text = { Text(stringResource(messageResId)) },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
             }
         }
     )

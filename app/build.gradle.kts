@@ -9,6 +9,19 @@ val releaseKeystoreProperties = Properties().apply {
 val hasReleaseKeystore = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all {
     releaseKeystoreProperties.getProperty(it)?.isNotBlank() == true
 }
+val zettlePropertiesFile = rootProject.file("zettle.properties")
+val zettleProperties = Properties().apply {
+    if (zettlePropertiesFile.isFile) {
+        zettlePropertiesFile.inputStream().use(::load)
+    }
+}
+val zettleClientId = zettleProperties.getProperty("clientId").orEmpty()
+val zettleRedirectScheme = zettleProperties.getProperty("redirectScheme", "tukkateatteri-zettle")
+val zettleRedirectHost = zettleProperties.getProperty("redirectHost", "zettle-auth")
+val zettleRedirectUrl = "$zettleRedirectScheme://$zettleRedirectHost"
+
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 plugins {
     alias(libs.plugins.android.application)
@@ -34,6 +47,9 @@ android {
         targetSdk = 37
         versionCode = 8
         versionName = "0.5.0"
+        manifestPlaceholders["zettleRedirectScheme"] = zettleRedirectScheme
+        manifestPlaceholders["zettleRedirectHost"] = zettleRedirectHost
+        buildConfigField("String", "ZETTLE_REDIRECT_URL", zettleRedirectUrl.asBuildConfigString())
     }
 
     signingConfigs {
@@ -48,7 +64,17 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ZETTLE_DEVELOPER_MODE", "true")
+            buildConfigField(
+                "String",
+                "ZETTLE_CLIENT_ID",
+                (zettleClientId.ifBlank { "developer-mode" }).asBuildConfigString()
+            )
+        }
         release {
+            buildConfigField("boolean", "ZETTLE_DEVELOPER_MODE", "false")
+            buildConfigField("String", "ZETTLE_CLIENT_ID", zettleClientId.asBuildConfigString())
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -62,6 +88,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
@@ -79,9 +106,13 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.runtime)
     implementation(libs.google.play.services.auth)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.zettle.core)
+    implementation(libs.zettle.card.reader.ui)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.core)
@@ -89,8 +120,4 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(libs.androidx.lifecycle.process)
-    debugImplementation(libs.kotlinx.serialization.json)
-    debugImplementation(libs.zettle.core)
-    debugImplementation(libs.zettle.card.reader.ui)
 }
