@@ -38,6 +38,17 @@ class ReservationSpreadsheetRowTest {
     }
 
     @Test
+    fun physicalRowsDistributeExplicitArrivalCountWithoutTicketSales() {
+        val row = ReservationSpreadsheetRow.fromReservation(
+            reservation(seatCount = 3).copy(arrivalCount = 2)
+        )
+
+        val physicalRows = row.toPhysicalSheetRows()
+
+        assertEquals(listOf(1, 1, 0), physicalRows.map { it.arrivalCount })
+    }
+
+    @Test
     fun exportRows_keepsReservationsSeparateAndPreservesAllTicketCategories() {
         val rows = ReservationSpreadsheetRow.fromReservations(
             listOf(

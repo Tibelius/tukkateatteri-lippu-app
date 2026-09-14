@@ -76,13 +76,20 @@ internal class GoogleSheetsClient(
                     row.contact.normalizedIdentity()
                 ).takeIf { it.first.isNotBlank() || it.second.isNotBlank() }?.let(existingByName::get)
             }
-            val rowNumber = idMatchedRowNumber
+            val sourceMatchedDoorSaleRowNumber = if (row.isDoorSale) {
+                row.sourceMatchedDoorSaleRowNumber(existingRows, headerRowIndex, headers)
+            } else {
+                null
+            }
+            val matchedRowNumber = idMatchedRowNumber
                 ?: nameMatchedRowNumber
+                ?: sourceMatchedDoorSaleRowNumber
+            val rowNumber = matchedRowNumber
                 ?: nextAvailableRow.also { nextAvailableRow += 1 }
             val sheetRowId = rowIdsByRowNumber[rowNumber]
                 ?: row.sheetRowId.takeIf(String::isNotBlank)
                 ?: UUID.randomUUID().toString()
-            val isAddition = rowNumber !in existingById.values && rowNumber !in existingByName.values
+            val isAddition = matchedRowNumber == null
             val shouldInsertRow = isAddition && (
                 rowNumber > existingRows.size ||
                     summaryRowNumber?.let { rowNumber >= it } == true
@@ -370,3 +377,15 @@ internal class GoogleSheetsClient(
         const val HARD_DELETE_FROM_SHEET = false
     }
 }
+
+internal fun ReservationSpreadsheetRow.sourceMatchedDoorSaleRowNumber(
+    existingRows: List<List<String>>,
+    headerRowIndex: Int,
+    headers: Map<String, Int>
+): Int? = sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
+    ?.let { dataRowIndex -> headerRowIndex + dataRowIndex + 2 }
+    ?.takeIf { candidateRowNumber ->
+        existingRows.getOrNull(candidateRowNumber - 1)
+            ?.valueAt(headers[HEADER_LAST_NAME])
+            ?.isDoorSaleSheetLabel() == true
+    }

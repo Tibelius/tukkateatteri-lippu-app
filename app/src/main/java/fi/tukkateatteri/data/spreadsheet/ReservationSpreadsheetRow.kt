@@ -136,7 +136,7 @@ internal fun ReservationSpreadsheetRow.toPhysicalSheetRows(): List<ReservationSp
         }.joinToString(SHEET_NOTE_LINE_SEPARATOR)
         copy(
             reservedSeatCount = 1,
-            arrivalCount = if (realized?.arrived == true) 1 else 0,
+            arrivalCount = if (index < arrivalCount) 1 else 0,
             reservedTicketCounts = displayedType?.let { mapOf(it to 1) }.orEmpty(),
             paymentTicketCounts = realized?.paymentCounts().orEmpty(),
             notes = generatedNotes,
