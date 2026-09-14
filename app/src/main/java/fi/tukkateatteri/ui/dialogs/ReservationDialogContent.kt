@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -49,46 +48,10 @@ import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.toEuroString
 import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.CustomerDetailsFields
+import fi.tukkateatteri.ui.components.QuantityControls
 import fi.tukkateatteri.ui.components.SeatCountSelector
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
 import fi.tukkateatteri.ui.components.reservedTicketTypesDetails
-
-@Composable
-internal fun ArrivalCountDialog(
-    currentArrivalCount: Int,
-    maximumArrivalCount: Int,
-    onDismiss: () -> Unit,
-    onSave: (Int) -> Unit
-) {
-    var arrivalCount by rememberSaveable(currentArrivalCount, maximumArrivalCount) {
-        mutableIntStateOf(currentArrivalCount.coerceIn(0, maximumArrivalCount))
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.edit_arrival_count)) },
-        text = {
-            SeatCountSelector(
-                seatCount = arrivalCount,
-                minimumSeatCount = 0,
-                maximumSeatCount = maximumArrivalCount,
-                labelResId = R.string.arrival_count,
-                onDecrease = { arrivalCount-- },
-                onIncrease = { if (arrivalCount < maximumArrivalCount) arrivalCount++ }
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(arrivalCount) }) {
-                Text(stringResource(R.string.save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
 
 @Composable
 internal fun ReservationEditorDialog(
@@ -206,7 +169,8 @@ internal fun ReservationEditorDialog(
 internal fun ArrivalSection(
     arrivalCount: Int,
     seatCount: Int,
-    onEdit: () -> Unit
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
 ) {
     DetailSectionTitle(
         icon = Icons.Filled.HowToReg,
@@ -217,13 +181,17 @@ internal fun ArrivalSection(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = stringResource(R.string.arrival_overview, arrivalCount, seatCount),
+            text = stringResource(R.string.arrival_count),
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        TextButton(onClick = onEdit) {
-            Text(stringResource(R.string.edit))
-        }
+        QuantityControls(
+            quantity = arrivalCount,
+            minimumQuantity = 0,
+            maximumQuantity = seatCount,
+            onDecrease = onDecrease,
+            onIncrease = onIncrease
+        )
     }
 }
 

@@ -183,8 +183,6 @@
     <string name="partial_payment_pending">Maksu kesken</string>
     <string name="payment_total_label">Lunastuksen hinta</string>
     <string name="add_payment">Lisää maksu</string>
-    <string name="use_partial_payment">Maksa osissa</string>
-    <string name="use_remaining_payment_amount">Käytä koko jäljellä oleva summa</string>
     <string name="payment_complete">Lunastus on maksettu kokonaan</string>
     <string name="terminal_payment_locked">Vahvistettua maksua ei voi muuttaa</string>
     <string name="edit_payment">Muokkaa maksua</string>
@@ -200,7 +198,6 @@
     <string name="reservation_ticket_value_mismatch">Lunastettujen lippujen arvo poikkeaa varauksesta</string>
     <string name="arrival_overview">Saapunut %1$d / %2$d</string>
     <string name="arrival_count">Saapuneita</string>
-    <string name="edit_arrival_count">Merkitse saapuneet</string>
 
     <plurals name="seat_count_summary">
         <item quantity="one">%d paikka</item>

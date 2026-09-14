@@ -41,36 +41,19 @@ import fi.tukkateatteri.ui.components.PaymentMethodSelector
 internal fun PaymentEntry(
     selectedMethod: PaymentMethod?,
     methods: List<PaymentMethod>,
-    customAmountEnabled: Boolean,
-    customAmount: String,
+    amount: String,
     onMethodSelected: (PaymentMethod) -> Unit,
-    onToggleCustomAmount: () -> Unit,
     onAmountChanged: (String) -> Unit
 ) {
     PaymentMethodSelector(selectedMethod, methods, onMethodSelected)
-    if (selectedMethod != null) {
-        TextButton(onClick = onToggleCustomAmount) {
-            Text(
-                stringResource(
-                    if (customAmountEnabled) {
-                        R.string.use_remaining_payment_amount
-                    } else {
-                        R.string.use_partial_payment
-                    }
-                )
-            )
-        }
-        if (customAmountEnabled) {
-            OutlinedTextField(
-                value = customAmount,
-                onValueChange = onAmountChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.payment_amount)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                singleLine = true
-            )
-        }
-    }
+    OutlinedTextField(
+        value = amount,
+        onValueChange = onAmountChanged,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.payment_amount)) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        singleLine = true
+    )
 }
 
 @Composable

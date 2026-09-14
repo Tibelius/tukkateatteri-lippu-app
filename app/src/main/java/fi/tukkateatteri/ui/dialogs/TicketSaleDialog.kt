@@ -63,18 +63,25 @@ fun TicketSaleDialog(
 ) {
     val context = LocalContext.current
     val gateway = remember { createCardPaymentGateway() }
-    var quantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(ticketSale?.quantity ?: 1) }
+    val initialQuantity = ticketSale?.quantity ?: 1
+    val initialType = initialTicketType(ticketSale, reservedTicketAllocations, ticketSalesList)
+    val initialRemaining = (
+        initialType.defaultPriceCents * initialQuantity -
+            ticketSale?.payments.orEmpty().sumOf { it.amountCents }
+        ).coerceAtLeast(0)
+    var quantity by rememberSaveable(ticketSale?.id) { mutableIntStateOf(initialQuantity) }
     var typeMenuOpen by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
     var typeName by rememberSaveable(ticketSale?.id) {
-        mutableStateOf(initialTicketType(ticketSale, reservedTicketAllocations, ticketSalesList).name)
+        mutableStateOf(initialType.name)
     }
     var storedPayments by rememberSaveable(ticketSale?.id, saver = StoredPaymentsStateSaver) {
         mutableStateOf(ticketSale?.payments.orEmpty().map { it.toStoredPayment() })
     }
     var editingIndex by rememberSaveable(ticketSale?.id) { mutableStateOf<Int?>(null) }
     var selectedMethodName by rememberSaveable(ticketSale?.id) { mutableStateOf<String?>(null) }
-    var customAmountEnabled by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
-    var customAmount by rememberSaveable(ticketSale?.id) { mutableStateOf("") }
+    var paymentAmount by rememberSaveable(ticketSale?.id) {
+        mutableStateOf(initialRemaining.toDecimalInput())
+    }
     var confirmationAction by remember { mutableStateOf<PaymentAction?>(null) }
     var showTerminalConfirmation by rememberSaveable(ticketSale?.id) { mutableStateOf(false) }
     var terminalMessageResId by rememberSaveable(ticketSale?.id) { mutableStateOf<Int?>(null) }
@@ -85,7 +92,7 @@ fun TicketSaleDialog(
         mutableStateOf(emptyList())
     }
 
-    val fallbackTicketType = initialTicketType(ticketSale, reservedTicketAllocations, ticketSalesList)
+    val fallbackTicketType = initialType
     val typeOptions = (availableTicketTypes + listOfNotNull(ticketSale?.ticketType))
         .filterNot { it == TicketType.UNSPECIFIED }
         .distinctBy(TicketType::name)
@@ -95,30 +102,35 @@ fun TicketSaleDialog(
         .distinctBy(PaymentMethod::name)
         .ifEmpty { PaymentMethod.entries }
     val hasLockedPayment = storedPayments.any { it.isLocked(methodOptions) }
+    val originalStoredPayments = ticketSale?.payments.orEmpty().map { it.toStoredPayment() }
     val basePayments = storedPayments.filterIndexed { index, _ -> index != editingIndex }
     val total = ticketType.defaultPriceCents * quantity
     val remainingBeforeDraft = (total - basePayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
     val selectedMethod = selectedMethodName?.let { name -> methodOptions.firstOrNull { it.name == name } }
-    val draftAmount = when {
-        selectedMethod == null -> null
-        customAmountEnabled -> customAmount.toEuroCentsOrNull()
-        else -> remainingBeforeDraft
-    }
+    val draftAmount = paymentAmount.toEuroCentsOrNull()
     val isPartialDraft = draftAmount != null && draftAmount < remainingBeforeDraft
     val validDraft = selectedMethod != null && draftAmount != null &&
         draftAmount in 1..remainingBeforeDraft &&
         !(!selectedMethod.allowsPartialPayment && (isPartialDraft || basePayments.isNotEmpty()))
-    val draft = if (validDraft) StoredPayment(selectedMethod.name, draftAmount, false) else null
+    val draft = if (validDraft) StoredPayment(checkNotNull(selectedMethod).name, checkNotNull(draftAmount), false) else null
     val finalStoredPayments = basePayments + listOfNotNull(draft)
     val finalPayments = finalStoredPayments.mapNotNull { it.toPending(methodOptions) }
-    val editingPayment = editingIndex != null || selectedMethod != null
     val canSave = selectedMethod != PaymentMethod.CARD && quantity in 1..maximumQuantity && when {
         total == 0 -> true
-        editingPayment -> validDraft
-        ticketSale != null -> finalPayments.isNotEmpty()
-        else -> false
+        remainingBeforeDraft == 0 && editingIndex == null -> ticketSale != null
+        else -> validDraft
     }
     val remainingAfterDraft = (total - finalStoredPayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
+    val recordedRemaining = (total - storedPayments.sumOf(StoredPayment::amountCents)).coerceAtLeast(0)
+    val dismissDialog = {
+        val hasNewLockedPayment = storedPayments != originalStoredPayments &&
+            storedPayments.any { it.isLocked(methodOptions) }
+        if (hasNewLockedPayment) {
+            onSave(ticketType, quantity, storedPayments.mapNotNull { it.toPending(methodOptions) })
+        } else {
+            onDismiss()
+        }
+    }
 
     val terminalLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -131,11 +143,21 @@ fun TicketSaleDialog(
                 } else {
                     val payments = pendingBasePayments +
                         StoredPayment(PaymentMethod.CARD.name, pendingAmount, true)
-                    onSave(
-                        pendingType,
-                        pendingQuantity,
-                        payments.mapNotNull { it.toPending(methodOptions) }
-                    )
+                    if (payments.sumOf(StoredPayment::amountCents) < pendingType.defaultPriceCents * pendingQuantity) {
+                        storedPayments = payments
+                        editingIndex = null
+                        selectedMethodName = null
+                        paymentAmount = (
+                            pendingType.defaultPriceCents * pendingQuantity -
+                                payments.sumOf(StoredPayment::amountCents)
+                            ).coerceAtLeast(0).toDecimalInput()
+                    } else {
+                        onSave(
+                            pendingType,
+                            pendingQuantity,
+                            payments.mapNotNull { it.toPending(methodOptions) }
+                        )
+                    }
                 }
             }
             CardPaymentOutcome.Cancelled -> {
@@ -153,7 +175,7 @@ fun TicketSaleDialog(
     }
 
     ScrollableAppDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissDialog,
         actions = {
             if (!hasLockedPayment) {
                 onDelete?.let { delete ->
@@ -171,8 +193,17 @@ fun TicketSaleDialog(
                 }
             }
             CancelSaveActions(
-                onCancel = onDismiss,
-                onSave = { onSave(ticketType, quantity, finalPayments) },
+                onCancel = dismissDialog,
+                onSave = {
+                    if (isPartialDraft) {
+                        storedPayments = finalStoredPayments
+                        editingIndex = null
+                        selectedMethodName = null
+                        paymentAmount = remainingAfterDraft.toDecimalInput()
+                    } else {
+                        onSave(ticketType, quantity, finalPayments)
+                    }
+                },
                 saveEnabled = canSave
             )
         }
@@ -201,6 +232,10 @@ fun TicketSaleDialog(
                     onDismiss = { typeMenuOpen = false },
                     onSelect = {
                         typeName = it.name
+                        paymentAmount = (
+                            it.defaultPriceCents * quantity -
+                                storedPayments.sumOf(StoredPayment::amountCents)
+                            ).coerceAtLeast(0).toDecimalInput()
                         typeMenuOpen = false
                     }
                 )
@@ -209,8 +244,20 @@ fun TicketSaleDialog(
                 quantity = quantity,
                 minimumQuantity = if (hasLockedPayment) quantity else 1,
                 maximumQuantity = maximumQuantity,
-                onDecrease = { quantity-- },
-                onIncrease = { quantity++ }
+                onDecrease = {
+                    quantity--
+                    paymentAmount = (
+                        ticketType.defaultPriceCents * quantity -
+                            storedPayments.sumOf(StoredPayment::amountCents)
+                        ).coerceAtLeast(0).toDecimalInput()
+                },
+                onIncrease = {
+                    quantity++
+                    paymentAmount = (
+                        ticketType.defaultPriceCents * quantity -
+                            storedPayments.sumOf(StoredPayment::amountCents)
+                        ).coerceAtLeast(0).toDecimalInput()
+                }
             )
         }
         Row(
@@ -225,9 +272,9 @@ fun TicketSaleDialog(
             if (total > 0) {
                 PaymentSummaryValue(
                     label = stringResource(R.string.payment_remaining_label),
-                    value = remainingAfterDraft.toEuroString(),
+                    value = recordedRemaining.toEuroString(),
                     modifier = Modifier.weight(1f),
-                    valueColor = if (remainingAfterDraft == 0) MaterialTheme.colorScheme.primary
+                    valueColor = if (recordedRemaining == 0) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.error
                 )
             }
@@ -244,8 +291,7 @@ fun TicketSaleDialog(
                     else storedPayments.editablePaymentAt(index, methodOptions)?.let { payment ->
                         editingIndex = index
                         selectedMethodName = payment.methodName
-                        customAmount = payment.amountCents.toDecimalInput()
-                        customAmountEnabled = true
+                        paymentAmount = payment.amountCents.toDecimalInput()
                     }
                 },
                 onDelete = { index ->
@@ -259,25 +305,14 @@ fun TicketSaleDialog(
         if (total > 0 && remainingBeforeDraft > 0) {
             PaymentEntry(
                 selectedMethod = selectedMethod,
-                methods = if (
-                    basePayments.isNotEmpty() || (
-                        customAmountEnabled &&
-                            (customAmount.toEuroCentsOrNull() ?: 0) < remainingBeforeDraft
-                        )
-                ) {
+                methods = if (basePayments.isNotEmpty() || isPartialDraft) {
                     methodOptions.filter(PaymentMethod::allowsPartialPayment)
                 } else methodOptions,
-                customAmountEnabled = customAmountEnabled,
-                customAmount = customAmount,
-                onMethodSelected = { selectedMethodName = it.name },
-                onToggleCustomAmount = {
-                    customAmountEnabled = !customAmountEnabled
-                    if (customAmountEnabled && selectedMethod?.allowsPartialPayment == false) {
-                        selectedMethodName = null
-                    }
-                    if (!customAmountEnabled) customAmount = ""
+                amount = paymentAmount,
+                onMethodSelected = {
+                    selectedMethodName = if (selectedMethod == it) null else it.name
                 },
-                onAmountChanged = { customAmount = it }
+                onAmountChanged = { paymentAmount = it }
             )
         } else if (total > 0) {
             Text(
@@ -329,8 +364,7 @@ fun TicketSaleDialog(
                         ?.let { payment ->
                             editingIndex = action.index
                             selectedMethodName = payment.methodName
-                            customAmount = payment.amountCents.toDecimalInput()
-                            customAmountEnabled = true
+                            paymentAmount = payment.amountCents.toDecimalInput()
                         }
                     is PaymentAction.Delete -> {
                         storedPayments = storedPayments.filterIndexed { i, _ -> i != action.index }

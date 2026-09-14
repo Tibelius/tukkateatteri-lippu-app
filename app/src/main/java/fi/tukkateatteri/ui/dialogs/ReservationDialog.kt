@@ -9,7 +9,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,9 +49,15 @@ fun ReservationDialog(
     val isDoorSale = reservation.admissionType == AdmissionType.DOOR_SALE
     var showTicketSaleDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
     var ticketSaleToEditId by rememberSaveable(reservation.id) { mutableStateOf<Long?>(null) }
-    var showArrivalDialog by rememberSaveable(reservation.id) { mutableStateOf(false) }
+    var arrivalCount by rememberSaveable(reservation.id) {
+        mutableIntStateOf(reservation.arrivalCount.coerceIn(0, reservation.seatCount))
+    }
     var showReservationEditor by rememberSaveable(reservation.id) { mutableStateOf(false) }
     var isMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(reservation.arrivalCount, reservation.seatCount) {
+        arrivalCount = reservation.arrivalCount.coerceIn(0, reservation.seatCount)
+    }
 
     if (showTicketSaleDialog) {
         TicketSaleDialog(
@@ -86,18 +94,6 @@ fun ReservationDialog(
                     onDeleteTicketSale(ticketSale.id)
                     ticketSaleToEditId = null
                 }
-            }
-        )
-    }
-
-    if (showArrivalDialog) {
-        ArrivalCountDialog(
-            currentArrivalCount = reservation.arrivalCount,
-            maximumArrivalCount = reservation.seatCount,
-            onDismiss = { showArrivalDialog = false },
-            onSave = { arrivalCount ->
-                onUpdateArrivalCount(reservation.id, arrivalCount)
-                showArrivalDialog = false
             }
         )
     }
@@ -144,9 +140,16 @@ fun ReservationDialog(
 
         if (!isDoorSale) {
             ArrivalSection(
-                arrivalCount = reservation.arrivalCount,
+                arrivalCount = arrivalCount,
                 seatCount = reservation.seatCount,
-                onEdit = { showArrivalDialog = true }
+                onDecrease = {
+                    arrivalCount--
+                    onUpdateArrivalCount(reservation.id, arrivalCount)
+                },
+                onIncrease = {
+                    arrivalCount++
+                    onUpdateArrivalCount(reservation.id, arrivalCount)
+                }
             )
         }
 
