@@ -45,8 +45,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 30
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.5.0"
+        versionCode = 9
+        versionName = "0.6.0"
         manifestPlaceholders["zettleRedirectScheme"] = zettleRedirectScheme
         manifestPlaceholders["zettleRedirectHost"] = zettleRedirectHost
         buildConfigField("String", "ZETTLE_REDIRECT_URL", zettleRedirectUrl.asBuildConfigString())
