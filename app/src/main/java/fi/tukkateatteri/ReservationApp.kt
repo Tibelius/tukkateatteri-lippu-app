@@ -38,7 +38,7 @@ import java.time.format.DateTimeFormatter
 internal fun ReservationApp(
     viewModel: ReservationViewModel,
     onGoogleSheetsTransfer: (String) -> Unit,
-    onGoogleSheetsSync: (Performance, String, Boolean) -> Unit,
+    onGoogleSheetsSync: (Performance, String, Boolean, Boolean) -> Unit,
     onGoogleSheetsSyncAll: (List<Performance>, String) -> Unit,
     onGoogleSheetsMutation: ((String?) -> Unit) -> Unit,
     onChangeGoogleAccount: () -> Unit
@@ -76,7 +76,7 @@ internal fun ReservationApp(
             googleSheetSources
                 .firstOrNull { source -> source.actName == performance.actName }
                 ?.let { source ->
-                    { onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
+                    { onGoogleSheetsSync(performance, source.spreadsheetUrl, true, false) }
                 }
         }
 
@@ -86,7 +86,7 @@ internal fun ReservationApp(
                 .firstOrNull { source -> source.actName == performance.actName }
                 ?.takeIf { performance.canSyncFromGoogleSheets }
                 ?.takeIf { viewModel.reserveAutomaticRefresh(performance.id) }
-                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, false) }
+                ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, false, false) }
         }
     }
 
@@ -113,7 +113,7 @@ internal fun ReservationApp(
                     coroutineScope.launch { drawerState.close() }
                 },
                 onSyncPerformance = { performance, source ->
-                    onGoogleSheetsSync(performance, source.spreadsheetUrl, true)
+                    onGoogleSheetsSync(performance, source.spreadsheetUrl, true, false)
                     coroutineScope.launch { drawerState.close() }
                 },
                 onSyncAct = { actPerformances, source ->
@@ -162,7 +162,9 @@ internal fun ReservationApp(
                     activePerformance?.let { performance ->
                         googleSheetSources
                             .firstOrNull { source -> source.actName == performance.actName }
-                            ?.let { source -> onGoogleSheetsSync(performance, source.spreadsheetUrl, true) }
+                            ?.let { source ->
+                                onGoogleSheetsSync(performance, source.spreadsheetUrl, true, true)
+                            }
                     }
                 },
                 onDeleteAllClick = { showDeleteAllReservationsConfirmation = true },

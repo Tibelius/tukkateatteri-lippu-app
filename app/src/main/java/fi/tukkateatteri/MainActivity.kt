@@ -70,13 +70,18 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             },
-                            onGoogleSheetsSync = { performance, spreadsheetUrl, showFeedback ->
+                            onGoogleSheetsSync = {
+                                    performance,
+                                    spreadsheetUrl,
+                                    showFeedback,
+                                    retryMissingRows ->
                                 authorizeGoogleSheets { accessToken ->
                                     reservationViewModel.syncGoogleSheetPerformance(
                                         performance.id,
                                         spreadsheetUrl,
                                         accessToken,
-                                        showFeedback
+                                        showFeedback,
+                                        retryMissingRows
                                     )
                                 }
                             },

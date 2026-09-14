@@ -262,13 +262,15 @@ class ReservationViewModel(
         performanceId: Long,
         spreadsheetUrl: String,
         accessToken: String,
-        showFeedback: Boolean = true
+        showFeedback: Boolean = true,
+        retryMissingRows: Boolean = false
     ) {
         sheetSync.syncPerformance(
             performanceId,
             spreadsheetUrl,
             accessToken,
-            showFeedback
+            showFeedback,
+            retryMissingRows
         )
     }
 

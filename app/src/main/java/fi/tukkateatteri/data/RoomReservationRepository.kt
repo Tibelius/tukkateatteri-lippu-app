@@ -538,7 +538,8 @@ internal class RoomReservationRepository(
     override suspend fun syncGoogleSheetPerformance(
         performanceId: Long,
         spreadsheetUrl: String,
-        accessToken: String
+        accessToken: String,
+        retryMissingRows: Boolean
     ): Int {
         AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Synchronizing performanceId=$performanceId" }
         val performance = requireNotNull(performanceDao.getById(performanceId)) {
@@ -547,7 +548,7 @@ internal class RoomReservationRepository(
         val sourceSheetTitle = performance.sourceSheetTitle ?: throw GoogleSheetSourceChangedException()
         val target = CloudSheetTarget(performanceId, spreadsheetUrl, sourceSheetTitle)
         return try {
-            flushPendingChanges(target, accessToken)
+            flushPendingChanges(target, accessToken, retryMissingRows)
         } catch (_: GoogleSheetTabUnavailableException) {
             throw GoogleSheetSourceChangedException()
         }

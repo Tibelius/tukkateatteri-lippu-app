@@ -110,11 +110,10 @@ internal suspend fun RoomReservationRepository.stagePendingChanges(
         val desiredRow = reservation?.toReservation()?.let(ReservationSpreadsheetRow::fromReservation)
         val isDeletion = reservation?.reservation?.syncState == ReservationSyncState.PENDING_DELETION
         val operation = if (isDeletion) PendingSheetOperation.DELETE else PendingSheetOperation.UPSERT
-        val baseRowJson = if (existingChange?.status == PendingSheetChangeStatus.CONFLICT) {
-            baseRows[reservationId]?.toSnapshotJson()
-        } else {
-            existingChange?.baseRowJson ?: baseRows[reservationId]?.toSnapshotJson()
-        }
+        val baseRowJson = pendingChangeBaseRowJson(
+            existingChange = existingChange,
+            capturedBaseRow = baseRows[reservationId]
+        )
         pendingSheetChangeDao.upsert(
             PendingSheetChangeEntity(
                 id = existingChange?.id ?: UUID.randomUUID().toString(),
@@ -147,12 +146,29 @@ internal suspend fun RoomReservationRepository.stagePendingChanges(
 }
 
 /**
+ * Keeps an outbox entry's original synchronization base across subsequent local edits.
+ *
+ * In particular, `null` is meaningful: it says the reservation has never existed in the Sheet
+ * and must be inserted. Replacing it with a later local snapshot would incorrectly turn a new
+ * reservation into an update and produce a missing-remote-row conflict.
+ */
+internal fun pendingChangeBaseRowJson(
+    existingChange: PendingSheetChangeEntity?,
+    capturedBaseRow: ReservationSpreadsheetRow?
+): String? = when {
+    existingChange?.status == PendingSheetChangeStatus.CONFLICT -> capturedBaseRow?.toSnapshotJson()
+    existingChange != null -> existingChange.baseRowJson
+    else -> capturedBaseRow?.toSnapshotJson()
+}
+
+/**
  * Reads the selected tab under its lock, imports its current truth, then replays this device's
  * local outbox only when the row has not changed in the meantime.
  */
 internal suspend fun RoomReservationRepository.flushPendingChanges(
     target: CloudSheetTarget,
-    accessToken: String?
+    accessToken: String?,
+    retryMissingRows: Boolean = false
 ): Int {
     val token = requireNotNull(accessToken) { "Google Sheets -kirjautuminen vaaditaan." }
     val startedAt = System.nanoTime()
@@ -201,7 +217,7 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(
                 )
             }
         val allChanges = pendingSheetChangeDao.getAllByPerformanceId(target.performanceId).map { change ->
-            repairRecoverableConflict(change, importData.rows)
+            repairRecoverableConflict(change, importData.rows, retryMissingRows)
         }
         val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
         val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
@@ -226,6 +242,12 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(
         pendingChanges.forEach { change ->
             replayPendingChange(target, token, importData.rows, change)
         }
+        val unresolvedConflictCount = pendingSheetChangeDao.countConflictsByPerformanceId(
+            target.performanceId
+        )
+        if (unresolvedConflictCount > 0) {
+            throw GoogleSheetSynchronizationConflictException(unresolvedConflictCount)
+        }
         AppLog.info(REPOSITORY_LOG_COMPONENT) {
             "Completed pending-change flush; performanceId=${target.performanceId}, " +
                 "remoteRows=${importData.rows.size}, replayed=${pendingChanges.size}, " +
@@ -237,13 +259,28 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(
 
 private suspend fun RoomReservationRepository.repairRecoverableConflict(
     change: PendingSheetChangeEntity,
-    remoteRows: List<ReservationSpreadsheetRow>
+    remoteRows: List<ReservationSpreadsheetRow>,
+    retryMissingRows: Boolean
 ): PendingSheetChangeEntity {
     if (change.status != PendingSheetChangeStatus.CONFLICT) return change
     val reservation = reservationDao.getWithTicketSalesById(change.reservationId)?.toReservation() ?: return change
     val desiredRow = ReservationSpreadsheetRow.fromReservation(reservation)
     val baseRow = change.baseRowJson?.toReservationSpreadsheetRowSnapshot()
-    val remoteRow = remoteRows.firstOrNull { it.matches(baseRow ?: desiredRow) } ?: return change
+    val remoteRow = remoteRows.firstOrNull { it.matches(baseRow ?: desiredRow) }
+    if (remoteRow == null) {
+        if (!retryMissingRows || change.operation != PendingSheetOperation.UPSERT) return change
+        return change.copy(
+            baseRowJson = null,
+            status = PendingSheetChangeStatus.PENDING,
+            lastError = ""
+        ).also { repairedChange ->
+            pendingSheetChangeDao.upsert(repairedChange)
+            AppLog.warning(REPOSITORY_LOG_COMPONENT) {
+                "Restaged a user-requested missing-row conflict as an insertion; " +
+                    "reservationId=${change.reservationId}"
+            }
+        }
+    }
     val canRetry = baseRow?.let(remoteRow::hasSameSheetContentAs) == true ||
         (desiredRow.isDoorSale && remoteRow.isMalformedAppOwnedDoorSaleRow)
     if (!canRetry) return change

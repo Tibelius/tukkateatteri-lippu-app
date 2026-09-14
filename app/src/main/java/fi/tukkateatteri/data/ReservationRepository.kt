@@ -49,7 +49,8 @@ interface ReservationRepository {
     suspend fun syncGoogleSheetPerformance(
         performanceId: Long,
         spreadsheetUrl: String,
-        accessToken: String
+        accessToken: String,
+        retryMissingRows: Boolean = false
     ): Int
     suspend fun upsertGoogleSheetSource(source: GoogleSheetSource)
     suspend fun deleteGoogleSheetSource(actName: String)
@@ -78,3 +79,6 @@ class NoGoogleSheetImportCandidatesException : IllegalStateException("Spreadshee
 /** The change was saved on this device and will be retried after a Sheet sync. */
 class GoogleSheetChangePendingException(cause: Throwable) :
     IllegalStateException("Change was saved locally but cloud synchronization failed.", cause)
+
+class GoogleSheetSynchronizationConflictException(val conflictCount: Int) :
+    IllegalStateException("Synchronization left $conflictCount unresolved Sheet conflicts.")

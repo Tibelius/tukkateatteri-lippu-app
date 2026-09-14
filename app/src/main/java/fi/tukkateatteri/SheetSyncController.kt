@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import fi.tukkateatteri.data.GoogleSheetChangePendingException
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.GoogleSheetSourceChangedException
+import fi.tukkateatteri.data.GoogleSheetSynchronizationConflictException
 import fi.tukkateatteri.data.NoGoogleSheetImportCandidatesException
 import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.ReservationRepository
@@ -269,11 +270,18 @@ internal class SheetSyncController(
         performanceId: Long,
         spreadsheetUrl: String,
         accessToken: String,
-        showFeedback: Boolean = true
+        showFeedback: Boolean = true,
+        retryMissingRows: Boolean = false
     ) {
         refreshThrottle.mark(performanceId)
         val synchronize: suspend () -> Unit = {
-            synchronizePerformance(performanceId, spreadsheetUrl, accessToken, showFeedback)
+            synchronizePerformance(
+                performanceId,
+                spreadsheetUrl,
+                accessToken,
+                showFeedback,
+                retryMissingRows
+            )
         }
         if (showFeedback) {
             launchTrackedOperation("synchronize performance", synchronize)
@@ -286,7 +294,8 @@ internal class SheetSyncController(
         performanceId: Long,
         spreadsheetUrl: String,
         accessToken: String,
-        showFeedback: Boolean
+        showFeedback: Boolean,
+        retryMissingRows: Boolean
     ) {
         try {
             AppLog.info(LOG_COMPONENT) {
@@ -295,7 +304,8 @@ internal class SheetSyncController(
             val rowCount = repository.syncGoogleSheetPerformance(
                 performanceId,
                 spreadsheetUrl,
-                accessToken
+                accessToken,
+                retryMissingRows
             )
             AppLog.info(LOG_COMPONENT) {
                 "Synchronized performanceId=$performanceId; receivedRows=$rowCount"
@@ -318,6 +328,14 @@ internal class SheetSyncController(
                     R.string.google_sheets_performance_locked
                 )
             }
+        } catch (exception: GoogleSheetSynchronizationConflictException) {
+            AppLog.warning(LOG_COMPONENT, exception) {
+                "Performance synchronization has ${exception.conflictCount} unresolved conflicts; " +
+                    "performanceId=$performanceId"
+            }
+            if (showFeedback) {
+                mutableTransferMessage.value = UiMessage.Text(R.string.sheet_change_conflict)
+            }
         } catch (exception: UnmappedSheetColumnsException) {
             AppLog.info(LOG_COMPONENT) {
                 "Performance synchronization needs ${exception.headers.size} column classifications; " +
@@ -332,7 +350,8 @@ internal class SheetSyncController(
                 val rowCount = repository.syncGoogleSheetPerformance(
                     performanceId,
                     spreadsheetUrl,
-                    accessToken
+                    accessToken,
+                    retryMissingRows
                 )
                 AppLog.info(LOG_COMPONENT) {
                     "Synchronized performanceId=$performanceId after field classification; " +

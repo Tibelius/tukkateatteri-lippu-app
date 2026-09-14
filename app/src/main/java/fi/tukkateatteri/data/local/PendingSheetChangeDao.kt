@@ -23,6 +23,12 @@ interface PendingSheetChangeDao {
     )
     suspend fun getAllByPerformanceId(performanceId: Long): List<PendingSheetChangeEntity>
 
+    @Query(
+        "SELECT COUNT(*) FROM pending_sheet_changes WHERE performance_id = :performanceId " +
+            "AND status = 'CONFLICT'"
+    )
+    suspend fun countConflictsByPerformanceId(performanceId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(change: PendingSheetChangeEntity)
 

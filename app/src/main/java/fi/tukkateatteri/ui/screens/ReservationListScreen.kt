@@ -72,6 +72,9 @@ fun ReservationListScreen(
         reservation.syncState == ReservationSyncState.PENDING ||
             reservation.syncState == ReservationSyncState.PENDING_DELETION
     }
+    val synchronizationIssueCount = reservations.count { reservation ->
+        reservation.syncState != ReservationSyncState.SYNCED
+    }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
     val collator = remember { Collator.getInstance(FINNISH_LOCALE) }
@@ -156,6 +159,17 @@ fun ReservationListScreen(
                     }
                 },
                 actions = {
+                    if (synchronizationIssueCount > 0) {
+                        IconButton(
+                            onClick = onSyncPendingClick,
+                            enabled = !isBackgroundSyncInProgress && !isRefreshing
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Sync,
+                                contentDescription = stringResource(R.string.sync_pending_changes)
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { isDataMenuExpanded = true }) {
                             Icon(
@@ -167,7 +181,7 @@ fun ReservationListScreen(
                             expanded = isDataMenuExpanded,
                             onDismissRequest = { isDataMenuExpanded = false }
                         ) {
-                            if (pendingChangeCount > 0) {
+                            if (synchronizationIssueCount > 0) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.sync_pending_changes)) },
                                     leadingIcon = {

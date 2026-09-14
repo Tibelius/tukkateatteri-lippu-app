@@ -68,7 +68,7 @@
     <string name="google_sheets_change_failed">Muutosta ei tallennettu. Tarkista yhteys ja Google-oikeudet.</string>
     <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
-    <string name="sync_pending_changes">Vie odottavat muutokset</string>
+    <string name="sync_pending_changes">Yritä tallennusta uudelleen</string>
     <plurals name="pending_sheet_changes">
         <item quantity="one">%1$d muutos odottaa synkronointia</item>
         <item quantity="other">%1$d muutosta odottaa synkronointia</item>
