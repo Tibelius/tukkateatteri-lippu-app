@@ -5,6 +5,7 @@ import fi.tukkateatteri.data.TicketType
 import fi.tukkateatteri.data.inferImportedTicketSales
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImportedTicketSaleInferenceTest {
@@ -65,5 +66,81 @@ class ImportedTicketSaleInferenceTest {
                 paymentTicketCounts = mapOf(PaymentMethod.CARD to 2)
             )
         )
+    }
+
+    @Test
+    fun noPaymentsProducesNoRealizedSales() {
+        assertTrue(
+            inferImportedTicketSales(
+                reservedTicketCounts = mapOf(TicketType.BASIC to 2),
+                paymentTicketCounts = emptyMap()
+            ).orEmpty().isEmpty()
+        )
+    }
+
+    @Test
+    fun paymentWithoutTicketTypeCannotBeInferred() {
+        assertNull(
+            inferImportedTicketSales(
+                reservedTicketCounts = emptyMap(),
+                paymentTicketCounts = mapOf(PaymentMethod.CARD to 1)
+            )
+        )
+    }
+
+    @Test
+    fun zeroAndNegativeMarkersAreIgnoredBeforeInference() {
+        val sales = inferImportedTicketSales(
+            reservedTicketCounts = mapOf(
+                TicketType.BASIC to 1,
+                TicketType.DISCOUNT to 0,
+                TicketType.MEMBER to -2
+            ),
+            paymentTicketCounts = mapOf(
+                PaymentMethod.CARD to 1,
+                PaymentMethod.CASH to 0
+            )
+        ).orEmpty()
+
+        assertEquals(1, sales.size)
+        assertEquals(TicketType.BASIC, sales.single().ticketType)
+        assertEquals(PaymentMethod.CARD, sales.single().paymentMethod)
+    }
+
+    @Test
+    fun partialPaymentCountForOneTicketTypeCanBeInferred() {
+        val sales = inferImportedTicketSales(
+            reservedTicketCounts = mapOf(TicketType.BASIC to 3),
+            paymentTicketCounts = mapOf(PaymentMethod.CARD to 2)
+        ).orEmpty()
+
+        assertEquals(1, sales.size)
+        assertEquals(2, sales.single().quantity)
+        assertEquals(TicketType.BASIC, sales.single().ticketType)
+    }
+
+    @Test
+    fun severalTicketTypesWithOnlySomePaidCannotBePairedSafely() {
+        assertNull(
+            inferImportedTicketSales(
+                reservedTicketCounts = mapOf(TicketType.BASIC to 2, TicketType.DISCOUNT to 1),
+                paymentTicketCounts = mapOf(PaymentMethod.CARD to 2)
+            )
+        )
+    }
+
+    @Test
+    fun everyBuiltInPaymentMethodCanCoverOneKnownTicketType() {
+        PaymentMethod.entries.forEach { method ->
+            val sale = requireNotNull(
+                inferImportedTicketSales(
+                    reservedTicketCounts = mapOf(TicketType.BASIC to 1),
+                    paymentTicketCounts = mapOf(method to 1)
+                )
+            ).single()
+
+            assertEquals(method, sale.paymentMethod)
+            assertEquals(TicketType.BASIC, sale.ticketType)
+        }
     }
 }

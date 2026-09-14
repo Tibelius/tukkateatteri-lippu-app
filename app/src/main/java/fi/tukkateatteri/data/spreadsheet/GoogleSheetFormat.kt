@@ -3,10 +3,10 @@ package fi.tukkateatteri.data.spreadsheet
 import java.util.UUID
 
 internal fun String.toApiOperation(): String = when {
-    contains(":batchUpdate") -> "spreadsheet batch update"
-    contains(":append") -> "row append"
     contains("values:batchGet") -> "value batch read"
     contains("values:batchUpdate") -> "value batch update"
+    contains(":batchUpdate") -> "spreadsheet batch update"
+    contains(":append") -> "row append"
     contains("/values/") -> "value read"
     else -> "spreadsheet metadata read"
 }

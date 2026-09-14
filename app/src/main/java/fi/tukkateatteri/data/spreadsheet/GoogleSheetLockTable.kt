@@ -15,6 +15,7 @@ internal data class LockRow(
             deviceId.isNotBlank() &&
             lockedAt != null &&
             expiresAt != null &&
+            !now.isBefore(lockedAt) &&
             expiresAt.isAfter(now) &&
             expiresAt.isAfter(lockedAt)
 

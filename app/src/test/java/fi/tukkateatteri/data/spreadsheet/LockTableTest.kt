@@ -3,6 +3,8 @@ package fi.tukkateatteri.data.spreadsheet
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LockTableTest {
@@ -63,6 +65,65 @@ class LockTableTest {
         ).toLockTable()
 
         assertEquals(2, table.ownedLock("sheet|30.10.", "ours", "our-device")?.rowNumber)
+    }
+
+    @Test
+    fun leaseIsActiveOnlyInsideItsHalfOpenTimeRange() {
+        val row = LockRow(
+            performanceKey = "sheet|30.10.",
+            rowNumber = 2,
+            lockId = "lock",
+            lockedAt = now,
+            expiresAt = now.plusSeconds(30),
+            deviceId = "device"
+        )
+
+        assertFalse(row.isActiveAt(now.minusNanos(1)))
+        assertTrue(row.isActiveAt(now))
+        assertTrue(row.isActiveAt(now.plusSeconds(29)))
+        assertFalse(row.isActiveAt(now.plusSeconds(30)))
+    }
+
+    @Test
+    fun ownershipRequiresBothLockAndDeviceIdentifiers() {
+        val row = LockRow("key", 2, "lock", now, now.plusSeconds(30), "device")
+
+        assertTrue(row.isOwnedBy("lock", "device"))
+        assertFalse(row.isOwnedBy("other", "device"))
+        assertFalse(row.isOwnedBy("lock", "other"))
+    }
+
+    @Test
+    fun newestActiveDuplicateWinsAndExpiredDuplicatesAreIgnored() {
+        val table = listOf(
+            headers,
+            lockRow("sheet|30.10.", "expired", now.minusSeconds(40), now.minusSeconds(10)),
+            lockRow("sheet|30.10.", "older", now.minusSeconds(5), now.plusSeconds(20)),
+            lockRow("sheet|30.10.", "newer", now.minusSeconds(1), now.plusSeconds(29))
+        ).toLockTable()
+
+        assertEquals("newer", table.activeLockFor("sheet|30.10.", now)?.lockId)
+        assertNull(table.activeLockFor("sheet|27.10.", now))
+    }
+
+    @Test
+    fun missingLockHeadersAreRejectedClearly() {
+        val error = org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            listOf(listOf("alias", "field_type"), listOf("x", "TICKET")).toLockTable()
+        }
+
+        assertTrue(requireNotNull(error.message).contains("performance_id"))
+    }
+
+    @Test
+    fun clearValuesCoverOnlyDedicatedLockColumns() {
+        val table = listOf(headers, lockRow("sheet|30.10.", "lock", now, now.plusSeconds(30))).toLockTable()
+
+        val values = table.clearValuesFor(2)
+
+        assertEquals(5, values.size)
+        assertTrue(values.all { it.value == "" })
+        assertEquals(listOf("'Sovellus'!H2", "'Sovellus'!I2", "'Sovellus'!J2", "'Sovellus'!K2", "'Sovellus'!L2"), values.map { it.range })
     }
 
     private fun lockRow(

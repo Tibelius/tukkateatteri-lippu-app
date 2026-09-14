@@ -273,4 +273,152 @@ class ReservationDatabaseIntegrationTest {
             // Expected.
         }
     }
+
+    @Test
+    fun activatingPerformanceAtomicallyDeactivatesThePreviousOne() = runBlocking {
+        val firstId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Ensimmäinen", date = "1.1.2027", isActive = true)
+        )
+        val secondId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Toinen", date = "2.1.2027", isActive = true)
+        )
+
+        assertFalse(requireNotNull(database.performanceDao().getById(firstId)).isActive)
+        assertTrue(requireNotNull(database.performanceDao().getById(secondId)).isActive)
+
+        database.performanceDao().setActive(firstId)
+
+        assertTrue(requireNotNull(database.performanceDao().getById(firstId)).isActive)
+        assertFalse(requireNotNull(database.performanceDao().getById(secondId)).isActive)
+    }
+
+    @Test
+    fun selectingMissingPerformanceDoesNotClearCurrentSelection() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Testi", date = "1.1.2027", isActive = true)
+        )
+
+        try {
+            database.performanceDao().setActive(Long.MAX_VALUE)
+            org.junit.Assert.fail("Expected missing performance selection to fail")
+        } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+
+        assertEquals(performanceId, database.performanceDao().getActive()?.id)
+    }
+
+    @Test
+    fun reservationCountConstraintsRejectInvalidInserts() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Testi", date = "1.1.2027")
+        )
+        listOf(
+            0 to 0,
+            -1 to 0,
+            1 to -1,
+            1 to 2
+        ).forEach { (seatCount, arrivalCount) ->
+            expectSqliteFailure {
+                database.reservationDao().insert(
+                    ReservationEntity(
+                        performanceId = performanceId,
+                        lastName = "Virhe",
+                        firstName = "$seatCount/$arrivalCount",
+                        contact = "",
+                        seatCount = seatCount,
+                        arrivalCount = arrivalCount
+                    )
+                )
+            }
+        }
+    }
+
+    @Test
+    fun childValueConstraintsRejectInvalidCountsAndMoney() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Testi", date = "1.1.2027")
+        )
+        val reservationId = database.reservationDao().insert(
+            ReservationEntity(performanceId = performanceId, lastName = "Testi", firstName = "Asiakas", contact = "", seatCount = 1)
+        )
+
+        expectSqliteFailure {
+            database.reservationDao().insertTicketSale(
+                TicketSaleEntity(reservationId = reservationId, ticketType = TicketType.BASIC, quantity = 0, unitPriceCents = 2_200)
+            )
+        }
+        expectSqliteFailure {
+            database.reservationDao().insertTicketSale(
+                TicketSaleEntity(reservationId = reservationId, ticketType = TicketType.BASIC, quantity = 1, unitPriceCents = -1)
+            )
+        }
+        expectSqliteFailure {
+            database.reservationDao().insertReservedTicketAllocations(
+                listOf(ReservedTicketAllocationEntity(reservationId, TicketType.BASIC, 0))
+            )
+        }
+
+        val saleId = database.reservationDao().insertTicketSale(
+            TicketSaleEntity(reservationId = reservationId, ticketType = TicketType.BASIC, quantity = 1, unitPriceCents = 2_200)
+        )
+        expectSqliteFailure {
+            database.reservationDao().insertPaymentAllocations(
+                listOf(PaymentAllocationEntity(ticketSaleId = saleId, paymentMethod = PaymentMethod.CASH, amountCents = -1))
+            )
+        }
+    }
+
+    @Test
+    fun pendingQueriesSeparateRetryableChangesFromConflicts() = runBlocking {
+        val performanceId = database.performanceDao().insert(
+            PerformanceEntity(actName = "Testi", date = "1.1.2027")
+        )
+        val reservationIds = (1..3).map { number ->
+            database.reservationDao().insert(
+                ReservationEntity(
+                    performanceId = performanceId,
+                    lastName = "Testi$number",
+                    firstName = "Asiakas",
+                    contact = "",
+                    seatCount = 1
+                )
+            )
+        }
+        val statuses = listOf(
+            PendingSheetChangeStatus.PENDING,
+            PendingSheetChangeStatus.CONFLICT,
+            PendingSheetChangeStatus.PENDING
+        )
+        reservationIds.zip(statuses).forEachIndexed { index, (reservationId, status) ->
+            database.pendingSheetChangeDao().upsert(
+                PendingSheetChangeEntity(
+                    id = "change-$index",
+                    reservationId = reservationId,
+                    performanceId = performanceId,
+                    operation = PendingSheetOperation.UPSERT,
+                    baseRowJson = null,
+                    desiredRowJson = "desired-$index",
+                    status = status,
+                    createdAt = (statuses.size - index).toLong()
+                )
+            )
+        }
+
+        assertEquals(
+            listOf("change-2", "change-0"),
+            database.pendingSheetChangeDao().getByPerformanceId(performanceId).map { it.id }
+        )
+        assertEquals(1, database.pendingSheetChangeDao().countConflictsByPerformanceId(performanceId))
+        assertEquals(3, database.pendingSheetChangeDao().getAllByPerformanceId(performanceId).size)
+    }
+
+    private suspend fun expectSqliteFailure(block: suspend () -> Unit) {
+        try {
+            block()
+            org.junit.Assert.fail("Expected database constraint violation")
+        } catch (_: SQLiteException) {
+            // Expected.
+        }
+    }
 }

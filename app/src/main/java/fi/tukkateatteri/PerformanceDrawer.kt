@@ -65,12 +65,12 @@ internal fun PerformanceDrawerContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.titleLarge
             )
-            OutlinedButton(
-                onClick = onAddPerformance,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text(stringResource(R.string.add_performance))
-            }
+            //OutlinedButton(
+            //    onClick = onAddPerformance,
+            //    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            //) {
+            //    Text(stringResource(R.string.add_performance))
+            //}
             HorizontalDivider()
             performancesByAct.forEach { (actName, actPerformances) ->
                 val isExpanded = if (hasExplicitExpansionSelection) {

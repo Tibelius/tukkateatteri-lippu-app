@@ -105,6 +105,7 @@ internal object ConfigValueCodec {
         }
         return runCatching {
             val fields = DynamicFields(value)
+            require(fields.first == "0" || fields.first == "1")
             PaymentMethod(
                 name = fields.name,
                 label = fields.label,
