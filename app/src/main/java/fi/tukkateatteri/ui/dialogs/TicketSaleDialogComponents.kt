@@ -43,46 +43,34 @@ internal fun PaymentEntry(
     methods: List<PaymentMethod>,
     customAmountEnabled: Boolean,
     customAmount: String,
-    remaining: Int,
     onMethodSelected: (PaymentMethod) -> Unit,
     onToggleCustomAmount: () -> Unit,
     onAmountChanged: (String) -> Unit
 ) {
-    Text(
-        text = stringResource(R.string.add_payment),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold
-    )
     PaymentMethodSelector(selectedMethod, methods, onMethodSelected)
-    TextButton(onClick = onToggleCustomAmount) {
-        Text(
-            stringResource(
-                if (customAmountEnabled) {
-                    R.string.use_remaining_payment_amount
-                } else {
-                    R.string.use_partial_payment
-                }
+    if (selectedMethod != null) {
+        TextButton(onClick = onToggleCustomAmount) {
+            Text(
+                stringResource(
+                    if (customAmountEnabled) {
+                        R.string.use_remaining_payment_amount
+                    } else {
+                        R.string.use_partial_payment
+                    }
+                )
             )
-        )
-    }
-    if (customAmountEnabled) {
-        OutlinedTextField(
-            value = customAmount,
-            onValueChange = onAmountChanged,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.payment_amount)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            singleLine = true
-        )
-    }
-    Text(
-        text = stringResource(R.string.payment_remaining, remaining.toEuroString()),
-        color = if (remaining == 0) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.error
         }
-    )
+        if (customAmountEnabled) {
+            OutlinedTextField(
+                value = customAmount,
+                onValueChange = onAmountChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.payment_amount)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true
+            )
+        }
+    }
 }
 
 @Composable

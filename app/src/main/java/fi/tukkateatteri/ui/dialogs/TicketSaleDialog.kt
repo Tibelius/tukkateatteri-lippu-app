@@ -2,6 +2,10 @@ package fi.tukkateatteri.ui.dialogs
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -21,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +46,7 @@ import fi.tukkateatteri.payment.createCardPaymentGateway
 import fi.tukkateatteri.ui.components.CancelSaveActions
 import fi.tukkateatteri.ui.components.RemainingReservedTicketTypesSummaryCard
 import fi.tukkateatteri.ui.components.ScrollableAppDialog
-import fi.tukkateatteri.ui.components.SeatCountSelector
+import fi.tukkateatteri.ui.components.QuantityControls
 import java.util.UUID
 
 @Composable
@@ -180,30 +186,52 @@ fun TicketSaleDialog(
                 remainingTicketAllocations(reservedTicketAllocations, ticketSalesList, ticketSale)
             )
         }
-        Text(stringResource(R.string.ticket_type), style = MaterialTheme.typography.titleMedium)
-        TicketTypeDropdown(
-            selected = ticketType,
-            options = typeOptions,
-            expanded = typeMenuOpen,
-            enabled = !hasLockedPayment,
-            onExpand = { typeMenuOpen = true },
-            onDismiss = { typeMenuOpen = false },
-            onSelect = {
-                typeName = it.name
-                typeMenuOpen = false
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(TICKET_SELECTION_SPACING),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                TicketTypeDropdown(
+                    selected = ticketType,
+                    options = typeOptions,
+                    expanded = typeMenuOpen,
+                    enabled = !hasLockedPayment,
+                    onExpand = { typeMenuOpen = true },
+                    onDismiss = { typeMenuOpen = false },
+                    onSelect = {
+                        typeName = it.name
+                        typeMenuOpen = false
+                    }
+                )
             }
-        )
-        SeatCountSelector(
-            seatCount = quantity,
-            minimumSeatCount = if (hasLockedPayment) quantity else 1,
-            maximumSeatCount = maximumQuantity,
-            onDecrease = { quantity-- },
-            onIncrease = { if (quantity < maximumQuantity) quantity++ }
-        )
-        Text(
-            stringResource(R.string.payment_total, total.toEuroString()),
-            style = MaterialTheme.typography.titleMedium
-        )
+            QuantityControls(
+                quantity = quantity,
+                minimumQuantity = if (hasLockedPayment) quantity else 1,
+                maximumQuantity = maximumQuantity,
+                onDecrease = { quantity-- },
+                onIncrease = { quantity++ }
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PAYMENT_SUMMARY_SPACING)
+        ) {
+            PaymentSummaryValue(
+                label = stringResource(R.string.payment_total_label),
+                value = total.toEuroString(),
+                modifier = Modifier.weight(1f)
+            )
+            if (total > 0) {
+                PaymentSummaryValue(
+                    label = stringResource(R.string.payment_remaining_label),
+                    value = remainingAfterDraft.toEuroString(),
+                    modifier = Modifier.weight(1f),
+                    valueColor = if (remainingAfterDraft == 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error
+                )
+            }
+        }
 
         if (storedPayments.isNotEmpty()) {
             PaymentAllocationList(
@@ -241,7 +269,6 @@ fun TicketSaleDialog(
                 } else methodOptions,
                 customAmountEnabled = customAmountEnabled,
                 customAmount = customAmount,
-                remaining = remainingAfterDraft,
                 onMethodSelected = { selectedMethodName = it.name },
                 onToggleCustomAmount = {
                     customAmountEnabled = !customAmountEnabled
@@ -393,3 +420,27 @@ internal fun canChargeWithTerminal(
 
 private val TERMINAL_ICON_SIZE = 20.dp
 private val TERMINAL_CONTENT_SPACING = 8.dp
+private val TICKET_SELECTION_SPACING = 8.dp
+private val PAYMENT_SUMMARY_SPACING = 16.dp
+
+@Composable
+private fun PaymentSummaryValue(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = valueColor,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}

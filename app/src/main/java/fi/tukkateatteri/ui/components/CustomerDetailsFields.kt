@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.R
 
@@ -36,7 +37,10 @@ fun CustomerDetailsFields(
         capitalization = KeyboardCapitalization.Sentences,
         imeAction = ImeAction.Next
     )
-    val contactKeyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+    val contactKeyboardOptions = KeyboardOptions(
+        keyboardType = KeyboardType.Email,
+        imeAction = ImeAction.Next
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(FIELD_SPACING)) {
         Row(horizontalArrangement = Arrangement.spacedBy(NAME_FIELD_SPACING)) {

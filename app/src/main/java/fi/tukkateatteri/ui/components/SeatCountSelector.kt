@@ -35,17 +35,6 @@ fun SeatCountSelector(
     onDecrease: () -> Unit,
     onIncrease: () -> Unit
 ) {
-    val decreaseEnabled = seatCount > minimumSeatCount
-    val increaseEnabled = seatCount < maximumSeatCount
-
-    val appColors = LocalQuantityButtonColors.current
-    val buttonColors = IconButtonDefaults.filledTonalIconButtonColors(
-        containerColor = appColors.container,
-        contentColor = appColors.content,
-        disabledContainerColor = appColors.disabledContainer,
-        disabledContentColor = appColors.disabledContent
-    )
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -56,16 +45,35 @@ fun SeatCountSelector(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.weight(1f))
+        QuantityControls(seatCount, minimumSeatCount, maximumSeatCount, onDecrease, onIncrease)
+    }
+}
 
+@Composable
+fun QuantityControls(
+    quantity: Int,
+    minimumQuantity: Int,
+    maximumQuantity: Int,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
+) {
+    val appColors = LocalQuantityButtonColors.current
+    val buttonColors = IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = appColors.container,
+        contentColor = appColors.content,
+        disabledContainerColor = appColors.disabledContainer,
+        disabledContentColor = appColors.disabledContent
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
         QuantityIconButton(
             imageVector = Icons.Filled.Remove,
             contentDescription = stringResource(R.string.decrease_seat_count),
-            enabled = decreaseEnabled,
+            enabled = quantity > minimumQuantity,
             colors = buttonColors,
             onClick = onDecrease
         )
         Text(
-            text = seatCount.toString(),
+            text = quantity.toString(),
             modifier = Modifier.widthIn(min = 40.dp),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleMedium,
@@ -74,7 +82,7 @@ fun SeatCountSelector(
         QuantityIconButton(
             imageVector = Icons.Filled.Add,
             contentDescription = stringResource(R.string.increase_seat_count),
-            enabled = increaseEnabled,
+            enabled = quantity < maximumQuantity,
             colors = buttonColors,
             onClick = onIncrease
         )

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.MoreVert
@@ -102,6 +103,7 @@ internal fun ReservationEditorDialog(
     var contact by rememberSaveable(reservation.id) { mutableStateOf(reservation.contact) }
     var notes by rememberSaveable(reservation.id) { mutableStateOf(reservation.notes) }
     var seatCount by rememberSaveable(reservation.id) { mutableIntStateOf(reservation.seatCount) }
+    var showNotes by rememberSaveable(reservation.id) { mutableStateOf(reservation.notes.isNotBlank()) }
     var reservedTicketAllocations by rememberSaveable(
         reservation.id,
         stateSaver = reservedTicketAllocationsSaver
@@ -177,13 +179,51 @@ internal fun ReservationEditorDialog(
                 onClick = { showReservedTicketTypesDialog = true }
             )
         }
-        OutlinedTextField(
-            value = notes,
-            onValueChange = { notes = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.reservation_notes)) },
-            minLines = 2
+        TextButton(onClick = { showNotes = !showNotes }) {
+            Text(
+                stringResource(
+                    if (showNotes) R.string.hide_reservation_notes else R.string.show_reservation_notes
+                )
+            )
+            Icon(
+                imageVector = if (showNotes) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null
+            )
+        }
+        if (showNotes) {
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.reservation_notes)) },
+                minLines = 2
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ArrivalSection(
+    arrivalCount: Int,
+    seatCount: Int,
+    onEdit: () -> Unit
+) {
+    DetailSectionTitle(
+        icon = Icons.Filled.HowToReg,
+        text = stringResource(R.string.arrivals)
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = stringResource(R.string.arrival_overview, arrivalCount, seatCount),
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        TextButton(onClick = onEdit) {
+            Text(stringResource(R.string.edit))
+        }
     }
 }
 
@@ -204,34 +244,6 @@ private fun ReservedTicketTypesEditorRow(
             )
         }
         Icon(Icons.Filled.ExpandMore, contentDescription = null)
-    }
-}
-
-@Composable
-internal fun ArrivalSection(
-    arrivalCount: Int,
-    seatCount: Int,
-    canEdit: Boolean,
-    onEdit: () -> Unit
-) {
-    DetailSectionTitle(
-        icon = Icons.Filled.HowToReg,
-        text = stringResource(R.string.arrivals)
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = stringResource(R.string.arrival_overview, arrivalCount, seatCount),
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        if (canEdit) {
-            TextButton(onClick = onEdit) {
-                Text(stringResource(R.string.edit))
-            }
-        }
     }
 }
 

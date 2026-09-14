@@ -1,6 +1,5 @@
 package fi.tukkateatteri.ui.dialogs
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -86,10 +85,6 @@ fun AddAdmissionDialog(
                 onDecrease = { seatCount-- },
                 onIncrease = { seatCount++ }
             )
-            Text(
-                text = stringResource(R.string.optional_customer_details),
-                style = MaterialTheme.typography.titleMedium
-            )
             TextButton(onClick = { showCustomerDetails = !showCustomerDetails }) {
                 Text(
                     stringResource(
@@ -104,7 +99,7 @@ fun AddAdmissionDialog(
             }
         }
 
-        AnimatedVisibility(visible = !isDoorSale || showCustomerDetails) {
+        if (!isDoorSale || showCustomerDetails) {
             CustomerDetailsFields(
                 lastName = lastName,
                 firstName = firstName,

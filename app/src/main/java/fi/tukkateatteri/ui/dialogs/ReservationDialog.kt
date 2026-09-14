@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -143,19 +142,20 @@ fun ReservationDialog(
             ReservedTicketTypesSummaryCard(reservation.reservedTicketAllocations)
         }
 
-        if (reservation.arrivalCount > 0 || reservation.paidSeatCount > 0) {
+        if (!isDoorSale) {
             ArrivalSection(
                 arrivalCount = reservation.arrivalCount,
                 seatCount = reservation.seatCount,
-                canEdit = !isDoorSale,
                 onEdit = { showArrivalDialog = true }
             )
-            HorizontalDivider()
         }
-        RealizedPaymentsSection(
-            ticketSales = reservation.ticketSales,
-            onEditTicketSale = { ticketSale -> ticketSaleToEditId = ticketSale.id }
-        )
+
+        if (reservation.ticketSales.isNotEmpty()) {
+            RealizedPaymentsSection(
+                ticketSales = reservation.ticketSales,
+                onEditTicketSale = { ticketSale -> ticketSaleToEditId = ticketSale.id }
+            )
+        }
         Button(
             onClick = { showTicketSaleDialog = true },
             enabled = reservation.availableTicketSaleSeatCount > 0,
