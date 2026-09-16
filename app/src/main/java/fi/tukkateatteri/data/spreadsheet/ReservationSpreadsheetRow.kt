@@ -187,6 +187,7 @@ private data class MutableSpreadsheetPayment(
 )
 
 internal const val DOOR_SALE_SHEET_LABEL = "- Ovimyynti"
+internal const val DOOR_SALE_CUSTOMER_LABEL = "Ovimyynti"
 internal const val PARTIAL_PAYMENT_LABEL = "Osamaksu"
 internal const val RESERVED_TICKET_LABEL = "Varattu lipputyyppi"
 internal const val PAYMENT_NOTE_SEPARATOR = "; "

@@ -8,7 +8,7 @@ import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import fi.tukkateatteri.logging.AppLog
 
-private const val DATABASE_VERSION = 15
+private const val DATABASE_VERSION = 1
 
 @Database(
     entities = [
@@ -45,7 +45,6 @@ abstract class ReservationDatabase : RoomDatabase() {
                     ReservationDatabase::class.java,
                     DATABASE_NAME
                 )
-                .addMigrations(*ReservationDatabaseMigrations.ALL)
                 .addCallback(CONSTRAINTS_CALLBACK)
                 .build()
         }

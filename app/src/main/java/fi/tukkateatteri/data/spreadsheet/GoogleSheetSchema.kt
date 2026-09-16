@@ -181,11 +181,11 @@ internal fun GoogleSheetTab.valueRightOfLabel(label: String): String? = rows.fir
         ?.takeIf(String::isNotBlank)
 }
 
-internal fun String.isDoorSaleSheetLabel(): Boolean = normalizedIdentity() in setOf(
-    DOOR_SALE_SHEET_LABEL.normalizedIdentity(),
-    "Ovimyynti".normalizedIdentity(),
-    LEGACY_DOOR_SALE_SHEET_LABEL.normalizedIdentity()
-)
+internal fun String.isDoorSaleSheetLabel(): Boolean {
+    val identity = normalizedIdentity()
+    return identity == DOOR_SALE_SHEET_LABEL.normalizedIdentity() ||
+        identity == DOOR_SALE_CUSTOMER_LABEL.normalizedIdentity()
+}
 
 internal fun ReservationSpreadsheetRow.toSheetCellValues(
     sheetTitle: String,

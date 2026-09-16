@@ -15,7 +15,7 @@ class GoogleSheetFormatTest {
     }
 
     @Test
-    fun legacySourceIdentityStillReturnsCustomerName() {
+    fun sourceIdentityWithoutContactReturnsCustomerName() {
         assertEquals(
             SourceCustomerIdentity("kippari", "kalle", null),
             "show|date|kippari|kalle".toCustomerIdentityOrNull()

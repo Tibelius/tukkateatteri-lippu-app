@@ -98,8 +98,8 @@ class ReservationTypeConvertersTest {
     }
 
     @Test
-    fun unknownLegacyDefinitionsFailClosed() {
-        assertEquals(TicketType.UNSPECIFIED, converters.ticketTypeFromStorage("OLD_TICKET"))
-        assertNull(converters.paymentMethodFromStorage("OLD_PAYMENT"))
+    fun unknownStoredDefinitionsFailClosed() {
+        assertEquals(TicketType.UNSPECIFIED, converters.ticketTypeFromStorage("UNKNOWN_TICKET"))
+        assertNull(converters.paymentMethodFromStorage("UNKNOWN_PAYMENT"))
     }
 }

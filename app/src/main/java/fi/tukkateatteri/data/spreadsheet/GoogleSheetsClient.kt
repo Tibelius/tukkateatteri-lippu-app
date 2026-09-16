@@ -230,7 +230,7 @@ internal class GoogleSheetsClient(
         val desiredCustomerKey = listOf(row.lastName, row.firstName, row.contact).map(String::normalizedIdentity)
         val rowNumber = idMatchedRow ?: context.reservationRows.firstOrNull { candidate ->
             !row.isDoorSale && desiredCustomerKey == candidate.customerIdentity(context.headers)
-        }?.rowNumber ?: row.sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
+        }?.rowNumber ?: row.sourceIdentity.toDoorSaleDataRowIndexOrNull()
             ?.let { context.headerRowIndex + it + 2 }
             ?: return@withContext
         val relatedChildRows = context.reservationRows.mapNotNull { candidate ->
@@ -382,7 +382,7 @@ internal fun ReservationSpreadsheetRow.sourceMatchedDoorSaleRowNumber(
     existingRows: List<List<String>>,
     headerRowIndex: Int,
     headers: Map<String, Int>
-): Int? = sourceIdentity.toLegacyDoorSaleDataRowIndexOrNull()
+): Int? = sourceIdentity.toDoorSaleDataRowIndexOrNull()
     ?.let { dataRowIndex -> headerRowIndex + dataRowIndex + 2 }
     ?.takeIf { candidateRowNumber ->
         existingRows.getOrNull(candidateRowNumber - 1)

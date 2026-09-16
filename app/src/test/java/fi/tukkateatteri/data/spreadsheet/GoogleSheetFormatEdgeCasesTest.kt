@@ -79,11 +79,11 @@ class GoogleSheetFormatEdgeCasesTest {
     }
 
     @Test
-    fun legacyDoorSaleIdentityRequiresExactShapeAndNumericRow() {
-        assertEquals(15, "show|date|ovelta|15".toLegacyDoorSaleDataRowIndexOrNull())
-        assertNull("show|date|ovelta|not-a-number".toLegacyDoorSaleDataRowIndexOrNull())
-        assertNull("show|date|customer|15".toLegacyDoorSaleDataRowIndexOrNull())
-        assertNull("show|date|ovelta|15|extra".toLegacyDoorSaleDataRowIndexOrNull())
+    fun doorSaleIdentityRequiresExactShapeAndNumericRow() {
+        assertEquals(15, "show|date|ovelta|15".toDoorSaleDataRowIndexOrNull())
+        assertNull("show|date|ovelta|not-a-number".toDoorSaleDataRowIndexOrNull())
+        assertNull("show|date|customer|15".toDoorSaleDataRowIndexOrNull())
+        assertNull("show|date|ovelta|15|extra".toDoorSaleDataRowIndexOrNull())
     }
 
     @Test

@@ -17,7 +17,6 @@
     <string name="last_name">Sukunimi</string>
     <string name="first_name">Etunimi</string>
     <string name="contact_information">Puhelinnumero tai sähköposti</string>
-    <string name="optional_customer_details">Asiakastiedot (valinnainen)</string>
     <string name="show_optional_customer_details">Näytä asiakastiedot</string>
     <string name="hide_optional_customer_details">Piilota asiakastiedot</string>
     <string name="last_name_optional">Sukunimi (valinnainen)</string>
@@ -48,7 +47,6 @@
     <string name="performance_name">Esityksen nimi</string>
     <string name="performance_date">Päivämäärä</string>
     <string name="no_active_performance">Valitse esitys valikosta ennen varausten käsittelyä.</string>
-    <string name="no_active_performance_2">Valitse tai lisää esitys valikosta ennen varausten käsittelyä.</string>
     <string name="open_performance_menu">Avaa esitysvalikko</string>
     <string name="google_sheets_no_import_candidates">Esitys:- ja Pvm:-tietoja sisältäviä välilehtiä ei löytynyt.</string>
     <plurals name="google_sheets_import_succeeded">
@@ -178,12 +176,10 @@
     <string name="imported_payment">Tuotu taulukosta</string>
     <string name="change_google_account">Vaihda tili</string>
     <string name="google_account_disconnected">Google-tili irrotettu. Valitse tili seuraavassa tuonnissa tai viennissä.</string>
-    <string name="ticket_type">Lipputyyppi</string>
     <string name="payment_amount">Summa (€)</string>
     <string name="payment_remaining_label">Maksamatta</string>
     <string name="partial_payment_pending">Maksu kesken</string>
     <string name="payment_total_label">Lunastuksen hinta</string>
-    <string name="add_payment">Lisää maksu</string>
     <string name="payment_complete">Lunastus on maksettu kokonaan</string>
     <string name="terminal_payment_locked">Vahvistettua maksua ei voi muuttaa</string>
     <string name="edit_payment">Muokkaa maksua</string>

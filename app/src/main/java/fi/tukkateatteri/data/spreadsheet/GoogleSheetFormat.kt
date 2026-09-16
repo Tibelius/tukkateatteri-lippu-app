@@ -37,8 +37,8 @@ internal fun String.toCustomerIdentityOrNull(): SourceCustomerIdentity? = split(
         )
     }
 
-internal fun String.toLegacyDoorSaleDataRowIndexOrNull(): Int? = split(SOURCE_IDENTITY_SEPARATOR)
-    .takeIf { parts -> parts.size == LEGACY_DOOR_SALE_ID_FIELD_COUNT && parts[2] == DOOR_SALE_SOURCE_KEY }
+internal fun String.toDoorSaleDataRowIndexOrNull(): Int? = split(SOURCE_IDENTITY_SEPARATOR)
+    .takeIf { parts -> parts.size == DOOR_SALE_ID_FIELD_COUNT && parts[2] == DOOR_SALE_SOURCE_KEY }
     ?.lastOrNull()
     ?.toIntOrNull()
 
@@ -134,7 +134,6 @@ internal const val HEADER_NOTES =
         "kaikukortti, kutsu tms. sekä muut huomioitavat asiat)"
 internal const val HEADER_PERFORMANCE = "esitys:"
 internal const val HEADER_DATE = "pvm:"
-internal const val LEGACY_DOOR_SALE_SHEET_LABEL = "Ovelta"
 internal const val LOCK_HEADER_PERFORMANCE_ID = "performance_id"
 internal const val LOCK_HEADER_UUID = "lock_uuid"
 internal const val LOCK_HEADER_LOCKED_AT = "locked_at"
@@ -156,5 +155,5 @@ private const val CUSTOMER_IDENTITY_MINIMUM_FIELD_COUNT = 4
 private const val CUSTOMER_LAST_NAME_INDEX = 2
 private const val CUSTOMER_FIRST_NAME_INDEX = 3
 private const val CUSTOMER_CONTACT_INDEX = 4
-private const val LEGACY_DOOR_SALE_ID_FIELD_COUNT = 4
+private const val DOOR_SALE_ID_FIELD_COUNT = 4
 private const val LOCK_KEY_SEPARATOR = "|"
