@@ -12,6 +12,7 @@ import fi.tukkateatteri.data.local.toEntities
 import fi.tukkateatteri.data.local.toReservation
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
 import fi.tukkateatteri.data.spreadsheet.SheetColumnSchema
+import fi.tukkateatteri.data.spreadsheet.hasSamePaymentsAs
 import fi.tukkateatteri.logging.AppLog
 import fi.tukkateatteri.logging.toLogSummary
 
@@ -57,8 +58,8 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                 localReservation.ticketSales.any { sale ->
                     sale.origin == TicketSaleOrigin.MANUAL && sale.ticketType != TicketType.UNSPECIFIED
                 } &&
-                    ReservationSpreadsheetRow.fromReservation(localReservation).realizedTickets ==
-                    row.realizedTickets
+                    ReservationSpreadsheetRow.fromReservation(localReservation).realizedTickets
+                        .hasSamePaymentsAs(row.realizedTickets)
             } != null
         val reservationId = existingReservation?.id ?: reservationDao.insert(
             ReservationEntity(

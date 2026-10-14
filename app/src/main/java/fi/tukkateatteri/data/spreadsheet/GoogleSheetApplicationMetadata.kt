@@ -142,7 +142,7 @@ internal fun List<List<String>>.toApplicationRowStateTable(): ApplicationRowStat
 }
 
 internal fun ReservationSpreadsheetRow.sheetContentHash(): String {
-    val canonicalContent = copy(sourceIdentity = "", sheetRowId = "", sourceRowNumber = null).toSnapshotJson()
+    val canonicalContent = canonicalSheetSnapshot()
     return MessageDigest.getInstance("SHA-256")
         .digest(canonicalContent.toByteArray(Charsets.UTF_8))
         .joinToString(separator = "") { byte -> "%02x".format(byte) }

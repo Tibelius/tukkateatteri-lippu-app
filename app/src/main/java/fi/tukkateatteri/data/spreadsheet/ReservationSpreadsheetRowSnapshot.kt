@@ -38,19 +38,33 @@ fun String.toReservationSpreadsheetRowSnapshot(): ReservationSpreadsheetRow {
 }
 
 /**
- * Identity is deliberately excluded: a row may gain invisible developer metadata during export
- * without changing the actual reservation. All operational values must still match exactly.
+ * Compares the data representable in Sheets. Identity and column order are excluded, and
+ * separate payment events using the same method are compared by their combined amount.
  */
 fun ReservationSpreadsheetRow.hasSameSheetContentAs(other: ReservationSpreadsheetRow): Boolean =
-    lastName == other.lastName &&
-        firstName == other.firstName &&
-        contact == other.contact &&
-        reservedSeatCount == other.reservedSeatCount &&
-        arrivalCount == other.arrivalCount &&
-        reservedTicketCounts == other.reservedTicketCounts &&
-        paymentAmountsCents == other.paymentAmountsCents &&
-        notes == other.notes &&
-        realizedTickets == other.realizedTickets
+    canonicalSheetSnapshot() == other.canonicalSheetSnapshot()
+
+internal fun ReservationSpreadsheetRow.canonicalSheetSnapshot(): String = copy(
+    sourceIdentity = "",
+    sheetRowId = "",
+    reservedTicketCounts = reservedTicketCounts.mapKeys { (type, _) -> type.copy(sortOrder = 0) },
+    paymentAmountsCents = paymentAmountsCents.mapKeys { (method, _) -> method.copy(sortOrder = 0) },
+    realizedTickets = realizedTickets.withCombinedPayments()
+).toSnapshotJson()
+
+/** Sheets keeps one amount per method; local payment events can be more detailed. */
+internal fun List<RealizedTicketSpreadsheetRow>.withCombinedPayments(): List<RealizedTicketSpreadsheetRow> =
+    map { ticket ->
+        ticket.copy(
+            ticketType = ticket.ticketType.copy(sortOrder = 0),
+            payments = ticket.paymentAmountsCents().entries.sortedBy { it.key.name }
+                .map { (method, amount) -> SpreadsheetPaymentAllocation(method.copy(sortOrder = 0), amount) }
+        )
+    }
+
+internal fun List<RealizedTicketSpreadsheetRow>.hasSamePaymentsAs(
+    other: List<RealizedTicketSpreadsheetRow>
+): Boolean = withCombinedPayments().encodedRealizedTickets() == other.withCombinedPayments().encodedRealizedTickets()
 
 private fun String.encoded(): String = Base64.getUrlEncoder().withoutPadding()
     .encodeToString(toByteArray(Charsets.UTF_8))

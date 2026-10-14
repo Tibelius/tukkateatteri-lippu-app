@@ -1,6 +1,7 @@
 package fi.tukkateatteri.data
 
 import fi.tukkateatteri.data.spreadsheet.ReservationSpreadsheetRow
+import fi.tukkateatteri.data.spreadsheet.hasSamePaymentsAs
 
 internal fun ReservationSpreadsheetRow.matches(reservation: Reservation?): Boolean {
     reservation ?: return false
@@ -38,10 +39,15 @@ internal fun mergePendingSheetRow(
 ): PendingSheetRowMerge {
     var hasConflict = false
 
-    fun <T> merged(baseValue: T, desiredValue: T, remoteValue: T): T {
-        val appChanged = desiredValue != baseValue
-        val sheetChanged = remoteValue != baseValue
-        if (appChanged && sheetChanged && desiredValue != remoteValue) hasConflict = true
+    fun <T> merged(
+        baseValue: T,
+        desiredValue: T,
+        remoteValue: T,
+        sameValue: (T, T) -> Boolean = { first, second -> first == second }
+    ): T {
+        val appChanged = !sameValue(desiredValue, baseValue)
+        val sheetChanged = !sameValue(remoteValue, baseValue)
+        if (appChanged && sheetChanged && !sameValue(desiredValue, remoteValue)) hasConflict = true
         return if (appChanged) desiredValue else remoteValue
     }
 
@@ -69,7 +75,8 @@ internal fun mergePendingSheetRow(
             realizedTickets = merged(
                 base.realizedTickets,
                 desired.realizedTickets,
-                remote.realizedTickets
+                remote.realizedTickets,
+                sameValue = { first, second -> first.hasSamePaymentsAs(second) }
             ),
             notes = merged(base.notes, desired.notes, remote.notes),
             sourceIdentity = desired.sourceIdentity.ifBlank { remote.sourceIdentity },
