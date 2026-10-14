@@ -5,7 +5,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 
 private val lightColorScheme = lightColorScheme(
@@ -56,9 +55,6 @@ private val quantityButtonColors = QuantityButtonColors(
     disabledContainer = Color(0xFF9A9A9A),
     disabledContent = Color(0xFF3F4244)
 )
-
-private fun Color.darken(amount: Float): Color =
-    lerp(this, Color.Black, amount)
 
 @Composable
 fun TukkateatteriTheme(

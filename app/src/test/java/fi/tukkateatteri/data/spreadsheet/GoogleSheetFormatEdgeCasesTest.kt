@@ -9,6 +9,23 @@ import org.junit.Test
 
 class GoogleSheetFormatEdgeCasesTest {
     @Test
+    fun paymentAmountsUseExactCentsAndRejectInvalidValues() {
+        assertEquals(2_200, "22".toPaymentAmountCents("kortti", 2))
+        assertEquals(1_250, "12,50 €".toPaymentAmountCents("käteinen", 2))
+        assertEquals(1_250, "12.50".toPaymentAmountCents("käteinen", 2))
+        assertEquals(123_450, "1\u00a0234,50 €".toPaymentAmountCents("kortti", 2))
+        assertEquals(0, "0".toPaymentAmountCents("kortti", 2))
+        assertNull(" ".toPaymentAmountCents("kortti", 2))
+        listOf("TRUE", "x", "-1", "1.234", "999999999999").forEach { value ->
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                value.toPaymentAmountCents("kortti", 42)
+            }
+            assertTrue(failure.message.orEmpty().contains("42"))
+            assertTrue(failure.message.orEmpty().contains("kortti"))
+        }
+    }
+
+    @Test
     fun columnIndexesUseSpreadsheetLettering() {
         val cases = mapOf(
             0 to "A",
@@ -98,7 +115,8 @@ class GoogleSheetFormatEdgeCasesTest {
         assertTrue("Varaukset yhteensä: 12".isReservationSummaryLabel())
         assertTrue("VARAUKSIA: 12".isReservationSummaryLabel())
         assertFalse("Varauksen yhteystiedot".isReservationSummaryLabel())
-        assertFalse("Yhteensä".isReservationSummaryLabel())
+        assertTrue("Yhteensä".isReservationSummaryLabel())
+        assertTrue("Toteutunut katsojamäärä:".isReservationSummaryLabel())
     }
 
     @Test

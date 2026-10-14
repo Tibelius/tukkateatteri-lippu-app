@@ -12,6 +12,9 @@ fun Int.toDecimalInput(): String =
 
 fun Int.toEuroAmount(): Double = toDouble() / CENTS_PER_EURO
 
+internal fun Int.toCompactEuroString(): String =
+    if (this % CENTS_PER_EURO == 0) "${this / CENTS_PER_EURO} €" else toEuroString()
+
 fun String.toEuroCentsOrNull(): Int? {
     val normalizedValue = trim().replace(DECIMAL_COMMA, DECIMAL_POINT)
     if (normalizedValue.isEmpty()) return null

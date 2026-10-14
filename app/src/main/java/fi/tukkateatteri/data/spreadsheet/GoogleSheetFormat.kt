@@ -88,7 +88,13 @@ internal fun String.normalizedIdentity(): String = trimSpreadsheetWhitespace()
 
 internal fun String.isReservationSummaryLabel(): Boolean {
     val value = normalizedHeader()
-    return value.startsWith("varaukset yhteensä") || value.startsWith("varauksia:")
+    return value.startsWith("varaukset yhteensä") || value.startsWith("varauksia:") ||
+        value == "yhteensä" || value.startsWith("toteutunut katsojamäärä")
+}
+
+internal fun List<String>.isReservationFooterRow(): Boolean = any { cell ->
+    cell.isReservationSummaryLabel() || cell.canonicalDataHeader() == HEADER_PERFORMANCE ||
+        cell.canonicalDataHeader() == HEADER_DATE
 }
 
 internal fun String.trimSpreadsheetWhitespace(): String = trim { character ->
@@ -96,6 +102,9 @@ internal fun String.trimSpreadsheetWhitespace(): String = trim { character ->
 }
 
 internal fun List<String>.valueAt(index: Int?): String = index?.let(::getOrNull).orEmpty()
+
+internal fun List<String>.canonicalHeaderIndexes(): Map<String, Int> =
+    mapIndexed { index, header -> header.canonicalDataHeader() to index }.toMap()
 
 internal fun String.toTicketCount(): Int {
     val normalizedValue = trimSpreadsheetWhitespace().lowercase()
@@ -106,7 +115,17 @@ internal fun String.toPaymentAmountCentsOrNull(): Int? = trimSpreadsheetWhitespa
     .removeSuffix("€")
     .trimSpreadsheetWhitespace()
     .takeIf(String::isNotBlank)
+    ?.replace(SPREADSHEET_WHITESPACE_REGEX, "")
     ?.toEuroCentsOrNull()
+
+/** Rejects malformed monetary values before any imported data can replace local payments. */
+internal fun String.toPaymentAmountCents(header: String, rowNumber: Int): Int? {
+    if (trimSpreadsheetWhitespace().isBlank()) return null
+    return toPaymentAmountCentsOrNull()?.takeIf { it >= 0 }
+        ?: throw IllegalArgumentException(
+            "Rivin $rowNumber sarakkeessa '$header' on virheellinen maksusumma."
+        )
+}
 
 internal fun performanceLockKey(spreadsheetId: String, sheetTitle: String): String =
     listOf(spreadsheetId, sheetTitle.trimSpreadsheetWhitespace()).joinToString(LOCK_KEY_SEPARATOR)

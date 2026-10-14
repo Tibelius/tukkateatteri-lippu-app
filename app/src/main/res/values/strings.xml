@@ -176,6 +176,8 @@
     <string name="imported_payment">Tuotu taulukosta</string>
     <string name="change_google_account">Vaihda tili</string>
     <string name="google_account_disconnected">Google-tili irrotettu. Valitse tili seuraavassa tuonnissa tai viennissä.</string>
+    <string name="google_account_disconnect_failed">Google-tilin irrottaminen epäonnistui. Yritä uudelleen.</string>
+    <string name="action_failed">Toiminto epäonnistui. Yritä uudelleen.</string>
     <string name="payment_amount">Summa (€)</string>
     <string name="payment_remaining_label">Maksamatta</string>
     <string name="partial_payment_pending">Maksu kesken</string>

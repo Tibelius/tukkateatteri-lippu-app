@@ -5,18 +5,20 @@ internal data class GoogleSheetEditContext(
     val rows: List<List<String>>,
     val headerRowIndex: Int,
     val headers: Map<String, Int>,
+    val schema: SheetColumnSchema,
     val rowIdsByRowNumber: Map<Int, String>,
     val stateTable: ApplicationRowStateTable
 ) {
     val lastColumnIndex: Int = headers.values.maxOrNull() ?: 0
 
     val reservationRows: List<NumberedSheetRow>
-        get() = rows.drop(headerRowIndex + 1).mapIndexed { index, cells ->
-            NumberedSheetRow(
-                rowNumber = headerRowIndex + index + 2,
-                cells = cells
-            )
-        }
+        get() = rows.drop(headerRowIndex + 1).takeWhile { !it.isReservationFooterRow() }
+            .mapIndexed { index, cells ->
+                NumberedSheetRow(
+                    rowNumber = headerRowIndex + index + 2,
+                    cells = cells
+                )
+            }
 
     fun rowNumberForId(rowId: String): Int? = rowId
         .takeIf(String::isNotBlank)
@@ -54,14 +56,17 @@ internal suspend fun GoogleSheetsApiClient.loadEditContext(
         row.any { cell -> cell.canonicalDataHeader() == HEADER_LAST_NAME }
     }
     require(headerRowIndex >= 0) { "Välilehdeltä ei löytynyt Sukunimi-saraketta." }
-    val headers = rows[headerRowIndex]
-        .mapIndexed { index, header -> header.canonicalDataHeader() to index }
-        .toMap()
+    val headers = rows[headerRowIndex].canonicalHeaderIndexes()
+    val aliases = GoogleSheetTab(
+        APPLICATION_SHEET_TITLE,
+        values.getValue(APPLICATION_SHEET_TITLE)
+    ).storedAliases()
     return GoogleSheetEditContext(
         sheet = sheet,
         rows = rows,
         headerRowIndex = headerRowIndex,
         headers = headers,
+        schema = SheetColumnSchema.fromOrderedHeaders(rows[headerRowIndex], aliases),
         rowIdsByRowNumber = structure.rowIdsBySheetId[sheet.id].orEmpty(),
         stateTable = values.getValue(APPLICATION_SHEET_TITLE).toApplicationRowStateTable()
     )

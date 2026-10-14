@@ -35,15 +35,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import fi.tukkateatteri.data.GoogleSheetSource
 import fi.tukkateatteri.data.Performance
-import fi.tukkateatteri.data.toPerformanceDateOrNull
-import java.time.LocalDate
+import fi.tukkateatteri.data.performanceDateOrder
 
 @Composable
 internal fun PerformanceDrawerContent(
     performances: List<Performance>,
     googleSheetSources: List<GoogleSheetSource>,
     onSelectPerformance: (Performance) -> Unit,
-    onAddPerformance: () -> Unit,
     onSyncPerformance: (Performance, GoogleSheetSource) -> Unit,
     onSyncAct: (List<Performance>, GoogleSheetSource) -> Unit,
     onOpenActStatistics: (String) -> Unit,
@@ -65,12 +63,6 @@ internal fun PerformanceDrawerContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.titleLarge
             )
-            //OutlinedButton(
-            //    onClick = onAddPerformance,
-            //    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            //) {
-            //    Text(stringResource(R.string.add_performance))
-            //}
             HorizontalDivider()
             performancesByAct.forEach { (actName, actPerformances) ->
                 val isExpanded = if (hasExplicitExpansionSelection) {
@@ -139,10 +131,7 @@ internal fun PerformanceDrawerContent(
                 )
                 if (isExpanded) {
                     actPerformances
-                        .sortedWith(
-                            compareBy<Performance> { it.date.toPerformanceDateOrNull() ?: LocalDate.MAX }
-                                .thenBy(Performance::date)
-                        )
+                        .sortedWith(performanceDateOrder)
                         .forEach { performance ->
                             PerformanceDrawerDateItem(
                                 performance = performance,

@@ -71,6 +71,9 @@ internal class SheetSyncController(
                     "Cancelled $operation after ${AppLog.elapsedMillis(startedAt)} ms"
                 }
                 throw exception
+            } catch (exception: Exception) {
+                AppLog.error(LOG_COMPONENT, exception) { "$operation failed" }
+                mutableTransferMessage.value = UiMessage.Text(R.string.action_failed)
             } finally {
                 activeOperationCount -= 1
                 mutableTransferInProgress.value = activeOperationCount > 0

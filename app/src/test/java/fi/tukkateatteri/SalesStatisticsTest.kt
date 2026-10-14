@@ -17,6 +17,24 @@ import org.junit.Test
 
 class SalesStatisticsTest {
     @Test
+    fun repeatedPaymentsWithOneMethodCountTheTicketOnce() {
+        val sale = sale(1, 1, TicketType.BASIC, PaymentMethod.CARD).copy(
+            payments = listOf(
+                PaymentAllocation(1, 1, PaymentMethod.CARD, 2_000),
+                PaymentAllocation(2, 1, PaymentMethod.CARD, 200)
+            )
+        )
+
+        val statistics = calculateSalesStatistics(listOf(reservation(1, sales = listOf(sale))))
+        val method = statistics.paymentMethods.single()
+        assertEquals(1, method.ticketCount)
+        assertEquals(0, method.splitPaymentCount)
+        assertEquals(2_200, method.amountCents)
+        assertEquals(PaymentMethod.CARD, sale.singlePaymentMethod)
+        assertEquals(1, statistics.ticketTypes.single().paymentMethods.single().ticketCount)
+    }
+
+    @Test
     fun calculateSalesStatistics_separatesReservationAndDoorRevenue() {
         val statistics = calculateSalesStatistics(
             listOf(

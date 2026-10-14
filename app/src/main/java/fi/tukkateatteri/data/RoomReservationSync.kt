@@ -26,20 +26,22 @@ internal suspend fun <T> RoomReservationRepository.runCloudMutation(
     affectedReservationIds: suspend (T) -> List<Long>
 ): T {
     val startedAt = System.nanoTime()
-    val target = activeCloudTarget()
-    AppLog.debug(REPOSITORY_LOG_COMPONENT) {
-        "Starting $operation; cloudTarget=${target != null}, performanceId=${target?.performanceId ?: "none"}"
-    }
-    val baseRows = target?.let { spreadsheetRowsByReservationId(it.performanceId) }.orEmpty()
-    val result = mutation()
-    AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Saved $operation locally; capturedBaseRows=${baseRows.size}" }
-    if (target != null) {
-        val affectedIds = affectedReservationIds(result).distinct()
-        AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Staging $operation; affectedReservationIds=$affectedIds" }
-        database.withTransaction {
+    val (result, target) = database.withTransaction {
+        val target = activeCloudTarget()
+        AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+            "Starting $operation; cloudTarget=${target != null}, performanceId=${target?.performanceId ?: "none"}"
+        }
+        val baseRows = target?.let { spreadsheetRowsByReservationId(it.performanceId) }.orEmpty()
+        val result = mutation()
+        if (target != null) {
+            val affectedIds = affectedReservationIds(result).distinct()
+            AppLog.debug(REPOSITORY_LOG_COMPONENT) { "Staging $operation; affectedReservationIds=$affectedIds" }
             ensureSheetRowIds(affectedIds)
             stagePendingChanges(target.performanceId, affectedIds, baseRows)
         }
+        result to target
+    }
+    if (target != null) {
         if (accessToken != null) {
             flushPendingChangesOrThrow(target, accessToken)
         } else {
@@ -116,7 +118,7 @@ internal suspend fun RoomReservationRepository.stagePendingChanges(
         )
         pendingSheetChangeDao.upsert(
             PendingSheetChangeEntity(
-                id = existingChange?.id ?: UUID.randomUUID().toString(),
+                id = UUID.randomUUID().toString(),
                 reservationId = reservationId,
                 performanceId = performanceId,
                 operation = operation,
@@ -220,7 +222,6 @@ internal suspend fun RoomReservationRepository.flushPendingChanges(
             repairRecoverableConflict(change, importData.rows, retryMissingRows)
         }
         val pendingChanges = allChanges.filter { it.status == PendingSheetChangeStatus.PENDING }
-        val pendingReservationIds = allChanges.map(PendingSheetChangeEntity::reservationId).toSet()
         AppLog.debug(REPOSITORY_LOG_COMPONENT) {
             "Loaded local sync state; pending=${pendingChanges.size}, " +
                 "conflicts=${allChanges.size - pendingChanges.size}"
@@ -310,6 +311,12 @@ internal suspend fun RoomReservationRepository.replayPendingChange(
     }
     val baseRow = change.baseRowJson?.toReservationSpreadsheetRowSnapshot()
     val desiredRow = change.desiredRowJson?.toReservationSpreadsheetRowSnapshot()
+    if (pendingSheetChangeDao.findByReservationId(change.reservationId)?.id != change.id) {
+        AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+            "Skipping an outdated outbox revision; reservationId=${change.reservationId}"
+        }
+        return
+    }
     val remoteRow = remoteRows.find { row -> row.matches(baseRow ?: desiredRow) }
     when (change.operation) {
         PendingSheetOperation.UPSERT -> {
@@ -389,7 +396,28 @@ internal suspend fun RoomReservationRepository.markPendingChangeSynced(
     exportedSheetRowId: String,
     importedSheetRow: ReservationSpreadsheetRow? = null
 ) {
-    database.withTransaction {
+    val acknowledged = database.withTransaction {
+        val currentChange = pendingSheetChangeDao.findByReservationId(change.reservationId)
+            ?: return@withTransaction false
+        if (currentChange.id != change.id) {
+            val uploadedRow = importedSheetRow ?: change.desiredRowJson
+                ?.toReservationSpreadsheetRowSnapshot()
+            requireNotNull(uploadedRow) { "An uploaded update must have a row snapshot." }
+            pendingSheetChangeDao.upsert(
+                currentChange.copy(
+                    baseRowJson = uploadedRow.copy(sheetRowId = exportedSheetRowId).toSnapshotJson()
+                )
+            )
+            reservationDao.getById(change.reservationId)?.let { reservation ->
+                reservationDao.update(
+                    reservation.copy(sheetRowId = exportedSheetRowId.ifBlank { reservation.sheetRowId })
+                )
+            }
+            AppLog.debug(REPOSITORY_LOG_COMPONENT) {
+                "Kept a newer local edit pending after upload; reservationId=${change.reservationId}"
+            }
+            return@withTransaction false
+        }
         reservationDao.getById(change.reservationId)?.let { reservation ->
             reservationDao.update(
                 reservation.copy(
@@ -405,7 +433,9 @@ internal suspend fun RoomReservationRepository.markPendingChangeSynced(
             }
         }
         pendingSheetChangeDao.deleteByReservationId(change.reservationId)
+        true
     }
+    if (!acknowledged) return
     AppLog.debug(REPOSITORY_LOG_COMPONENT) {
         "Marked pending update synchronized; reservationId=${change.reservationId}, " +
             "sheetRowId=${exportedSheetRowId.toAbbreviatedId()}"
@@ -413,10 +443,15 @@ internal suspend fun RoomReservationRepository.markPendingChangeSynced(
 }
 
 internal suspend fun RoomReservationRepository.markPendingDeletionSynced(change: PendingSheetChangeEntity) {
-    database.withTransaction {
+    val acknowledged = database.withTransaction {
+        if (pendingSheetChangeDao.findByReservationId(change.reservationId)?.id != change.id) {
+            return@withTransaction false
+        }
         pendingSheetChangeDao.deleteByReservationId(change.reservationId)
         reservationDao.deleteById(change.reservationId)
+        true
     }
+    if (!acknowledged) return
     AppLog.debug(REPOSITORY_LOG_COMPONENT) {
         "Marked pending deletion synchronized; reservationId=${change.reservationId}"
     }
@@ -426,7 +461,10 @@ internal suspend fun RoomReservationRepository.markPendingChangeConflict(
     change: PendingSheetChangeEntity,
     remoteRow: ReservationSpreadsheetRow?
 ) {
-    database.withTransaction {
+    val markedConflict = database.withTransaction {
+        if (pendingSheetChangeDao.findByReservationId(change.reservationId)?.id != change.id) {
+            return@withTransaction false
+        }
         remoteRow?.let { row ->
             importSpreadsheetRows(
                 rows = listOf(row),
@@ -442,7 +480,9 @@ internal suspend fun RoomReservationRepository.markPendingChangeConflict(
         reservationDao.getById(change.reservationId)?.let { reservation ->
             reservationDao.update(reservation.copy(syncState = ReservationSyncState.CONFLICT))
         }
+        true
     }
+    if (!markedConflict) return
     AppLog.warning(REPOSITORY_LOG_COMPONENT) {
         "Stored synchronization conflict; reservationId=${change.reservationId}, remoteRowFound=${remoteRow != null}"
     }

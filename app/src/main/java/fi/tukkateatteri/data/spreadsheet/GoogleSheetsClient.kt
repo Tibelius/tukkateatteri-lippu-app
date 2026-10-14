@@ -42,7 +42,8 @@ internal class GoogleSheetsClient(
         val existingById = rowIdsByRowNumber.entries
             .groupBy({ it.value }, { it.key })
             .mapValues { (_, rowNumbers) -> rowNumbers.min() }
-        val existingByName = existingRows.drop(headerRowIndex + 1).mapIndexedNotNull { index, row ->
+        val existingByName = context.reservationRows.mapNotNull { numberedRow ->
+            val row = numberedRow.cells
             val key = Triple(
                 row.valueAt(headers[HEADER_LAST_NAME]).normalizedIdentity(),
                 row.valueAt(headers[HEADER_FIRST_NAME]).normalizedIdentity(),
@@ -50,7 +51,7 @@ internal class GoogleSheetsClient(
             )
             key.takeIf {
                 it.first.isNotBlank() || it.second.isNotBlank()
-            }?.let { it to headerRowIndex + index + 2 }
+            }?.let { it to numberedRow.rowNumber }
         }.groupBy({ it.first }, { it.second })
             .mapValues { (_, rowNumbers) -> rowNumbers.min() }
         val stateTable = context.stateTable
@@ -59,10 +60,14 @@ internal class GoogleSheetsClient(
             .associateBy(ApplicationRowState::rowId)
         val exportedRows = mutableListOf<ExportedSpreadsheetRow>()
         val obsoleteChildRows = mutableSetOf<Int>()
-        val summaryRowNumber = existingRows.indexOfFirst { cells ->
-            cells.any(String::isReservationSummaryLabel)
-        }.takeIf { it >= 0 }?.plus(1)
-        var nextAvailableRow = api.firstAvailableReservationRow(existingRows, headerRowIndex)
+        val rowAllocator = ReservationRowAllocator(existingRows, headerRowIndex, rowIdsByRowNumber)
+        fun allocateRow(): Int {
+            val placement = rowAllocator.allocate()
+            if (placement.insert) {
+                api.insertReservationRow(spreadsheetId, sheetTitle, placement.rowNumber, accessToken)
+            }
+            return placement.rowNumber
+        }
         rows.forEach { row ->
             val physicalRows = row.toPhysicalSheetRows()
             val primaryRow = physicalRows.first()
@@ -84,22 +89,11 @@ internal class GoogleSheetsClient(
             val matchedRowNumber = idMatchedRowNumber
                 ?: nameMatchedRowNumber
                 ?: sourceMatchedDoorSaleRowNumber
-            val rowNumber = matchedRowNumber
-                ?: nextAvailableRow.also { nextAvailableRow += 1 }
+            val rowNumber = matchedRowNumber ?: allocateRow()
             val sheetRowId = rowIdsByRowNumber[rowNumber]
                 ?: row.sheetRowId.takeIf(String::isNotBlank)
                 ?: UUID.randomUUID().toString()
             val isAddition = matchedRowNumber == null
-            val shouldInsertRow = isAddition && (
-                rowNumber > existingRows.size ||
-                    summaryRowNumber?.let { rowNumber >= it } == true
-                )
-            if (shouldInsertRow) {
-                AppLog.debug(LOG_COMPONENT) {
-                    "Inserting reservation row before summary; tab=$sheetTitle, row=$rowNumber"
-                }
-                api.insertReservationRow(spreadsheetId, sheetTitle, rowNumber, accessToken)
-            }
             if (rowNumber !in rowIdsByRowNumber) {
                 api.attachRowIdentity(spreadsheetId, context.sheet.id, rowNumber, sheetRowId, accessToken)
             }
@@ -112,7 +106,8 @@ internal class GoogleSheetsClient(
                 values = primaryRow.copy(sheetRowId = sheetRowId).toSheetCellValues(
                     sheetTitle = sheetTitle,
                     rowNumber = rowNumber,
-                    headers = headers
+                    headers = headers,
+                    schema = context.schema
                 )
             )
             val existingState = stateRowsById[sheetRowId]
@@ -148,9 +143,10 @@ internal class GoogleSheetsClient(
             run {
                 val customerKey = listOf(row.lastName, row.firstName, row.contact)
                     .map(String::normalizedIdentity)
-                val existingChildRows = existingRows.drop(headerRowIndex + 1)
-                    .mapIndexedNotNull { index, cells ->
-                        val candidateRowNumber = headerRowIndex + index + 2
+                val existingChildRows = context.reservationRows
+                    .mapNotNull { candidate ->
+                        val cells = candidate.cells
+                        val candidateRowNumber = candidate.rowNumber
                         val rowKey = listOf(
                             cells.valueAt(headers[HEADER_LAST_NAME]),
                             cells.valueAt(headers[HEADER_FIRST_NAME]),
@@ -163,20 +159,11 @@ internal class GoogleSheetsClient(
                         }
                     }
                 physicalRows.drop(1).forEachIndexed { index, child ->
-                    val childRowNumber = existingChildRows.getOrNull(index)
-                        ?: nextAvailableRow.also { availableRow ->
-                            if (
-                                availableRow > existingRows.size ||
-                                summaryRowNumber?.let { availableRow >= it } == true
-                            ) {
-                                api.insertReservationRow(spreadsheetId, sheetTitle, availableRow, accessToken)
-                            }
-                            nextAvailableRow += 1
-                        }
+                    val childRowNumber = existingChildRows.getOrNull(index) ?: allocateRow()
                     api.updateCells(
                         spreadsheetId,
                         accessToken,
-                        child.toSheetCellValues(sheetTitle, childRowNumber, headers)
+                        child.toSheetCellValues(sheetTitle, childRowNumber, headers, context.schema)
                     )
                     if (rowIdsByRowNumber[childRowNumber] != sheetRowId) {
                         api.attachRowIdentity(

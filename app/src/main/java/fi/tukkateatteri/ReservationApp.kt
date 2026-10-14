@@ -108,10 +108,6 @@ internal fun ReservationApp(
                     viewModel.selectPerformance(performance.id)
                     coroutineScope.launch { drawerState.close() }
                 },
-                onAddPerformance = {
-                    showPerformanceEditor = true
-                    coroutineScope.launch { drawerState.close() }
-                },
                 onSyncPerformance = { performance, source ->
                     onGoogleSheetsSync(performance, source.spreadsheetUrl, true, false)
                     coroutineScope.launch { drawerState.close() }

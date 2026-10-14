@@ -13,12 +13,43 @@ import fi.tukkateatteri.data.spreadsheet.toSheetCellValues
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 
 class GoogleSheetsParsingTest {
+    @Test
+    fun importRejectsOverpaidTicketsBeforeReplacingLocalData() {
+        val tab = testTab(firstRowOverrides = mapOf(16 to "23"))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull()))
+        }
+    }
+
+    @Test
+    fun importIncludesReservationsAfterBlankRowsButExcludesMetadata() {
+        val tab = GoogleSheetTab(
+            title = "24.10",
+            rows = listOf(
+                headers,
+                dataRow(0 to "Virtanen", 1 to "Maija", 5 to "TRUE"),
+                emptyRow(),
+                dataRow(0 to "Korhonen", 1 to "Matti", 5 to "TRUE"),
+                emptyRow(),
+                listOf("Esitys:", "Yön Vuodenaika"),
+                listOf("Pvm:", "24.10.2026")
+            )
+        )
+
+        val rows = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull()))
+
+        assertEquals(listOf("Virtanen", "Korhonen"), rows.map { it.lastName })
+        assertEquals(listOf(2, 4), rows.map { it.sourceRowNumber })
+    }
+
     @Test
     fun singleSeatLayoutImportsTicketMarkersAndNumericPaymentAmounts() {
         val checkboxHeaders = headers.filterNot { it.startsWith("Varatut liput") }
@@ -97,7 +128,7 @@ class GoogleSheetsParsingTest {
     }
 
     @Test
-    fun importRows_stopsAtTheFirstBlankReservationRowAndIgnoresSummaryRows() {
+    fun importRows_stopsAtSummaryRows() {
         val tab = testTab(
             extraRows = listOf(
                 emptyRow(),

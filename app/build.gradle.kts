@@ -1,20 +1,14 @@
 import java.util.Properties
 
-val releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
-val releaseKeystoreProperties = Properties().apply {
-    if (releaseKeystorePropertiesFile.isFile) {
-        releaseKeystorePropertiesFile.inputStream().use(::load)
-    }
+fun loadLocalProperties(fileName: String): Properties = Properties().apply {
+    rootProject.file(fileName).takeIf { it.isFile }?.inputStream()?.use(::load)
 }
+
+val releaseKeystoreProperties = loadLocalProperties("keystore.properties")
 val hasReleaseKeystore = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all {
     releaseKeystoreProperties.getProperty(it)?.isNotBlank() == true
 }
-val zettlePropertiesFile = rootProject.file("zettle.properties")
-val zettleProperties = Properties().apply {
-    if (zettlePropertiesFile.isFile) {
-        zettlePropertiesFile.inputStream().use(::load)
-    }
-}
+val zettleProperties = loadLocalProperties("zettle.properties")
 val zettleClientId = zettleProperties.getProperty("clientId").orEmpty()
 val zettleRedirectScheme = zettleProperties.getProperty("redirectScheme", "tukkateatteri-zettle")
 val zettleRedirectHost = zettleProperties.getProperty("redirectHost", "zettle-auth")
@@ -110,7 +104,6 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.runtime)
     implementation(libs.google.play.services.auth)
-    implementation(libs.kotlinx.serialization.json)
     implementation(libs.zettle.core)
     implementation(libs.zettle.card.reader.ui)
     ksp(libs.androidx.room.compiler)

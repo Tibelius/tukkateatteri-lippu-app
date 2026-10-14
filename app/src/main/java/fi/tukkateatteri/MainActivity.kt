@@ -175,7 +175,8 @@ class MainActivity : ComponentActivity() {
                 }
                 Toast.makeText(
                     this,
-                    R.string.google_account_disconnected,
+                    if (task.isSuccessful) R.string.google_account_disconnected
+                    else R.string.google_account_disconnect_failed,
                     Toast.LENGTH_SHORT
                 ).show()
             }

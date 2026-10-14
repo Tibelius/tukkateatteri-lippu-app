@@ -10,6 +10,42 @@ import org.junit.Test
 
 class SheetColumnSchemaTest {
     @Test
+    fun exportUsesPreviouslyClassifiedAndIgnoredColumns() {
+        val headers = baseHeaders("Ylläri", "Sisäinen", "KORTTI", "SMARTUM")
+        val schema = SheetColumnSchema.fromOrderedHeaders(
+            headers,
+            mapOf(
+                "ylläri" to alias(SheetFieldClassification.TICKET),
+                "sisäinen" to alias(SheetFieldClassification.IGNORE),
+                "smartum" to alias(SheetFieldClassification.PAYMENT)
+            )
+        )
+        val row = ReservationSpreadsheetRow(
+            lastName = "Virtanen",
+            firstName = "Maija",
+            contact = "",
+            reservedSeatCount = 1,
+            arrivalCount = 0,
+            reservedTicketCounts = mapOf(schema.ticketTypes.single() to 1),
+            paymentAmountsCents = mapOf(schema.paymentMethods.last() to 1_250),
+            notes = ""
+        )
+
+        val values = row.toSheetCellValues("24.10", 2, headers.canonicalHeaderIndexes(), schema)
+
+        assertTrue(values.any { it.range.endsWith("E2") && it.value == true })
+        assertTrue(values.any { it.range.endsWith("H2") && it.value == 12.5 })
+        assertFalse(values.any { it.range.endsWith("F2") })
+    }
+
+    @Test
+    fun ticketPriceOverflowIsRejectedInsteadOfBecomingAnotherPrice() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SheetColumnSchema.fromOrderedHeaders(baseHeaders("Perus 999999999999 €", "KORTTI"))
+        }
+    }
+
+    @Test
     fun knownColumnsAreClassifiedAndOrderedByPhysicalPosition() {
         val schema = SheetColumnSchema.fromOrderedHeaders(
             baseHeaders("Perus 22 €", "Alennus 13,50 EUR", "Kaikukortti", "KORTTI", "KÄTEINEN")

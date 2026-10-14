@@ -250,7 +250,7 @@ internal suspend fun RoomReservationRepository.replacePaymentAllocations(
     )
 }
 
-internal fun RoomReservationRepository.validateReservedTicketAllocations(
+internal fun validateReservedTicketAllocations(
     allocations: List<ReservedTicketAllocation>,
     seatCount: Int
 ) {
@@ -262,7 +262,7 @@ internal fun RoomReservationRepository.validateReservedTicketAllocations(
     }
 }
 
-internal fun RoomReservationRepository.validateTicketSale(
+internal fun validateTicketSale(
     ticketType: TicketType,
     quantity: Int,
     payments: List<PendingPaymentAllocation>

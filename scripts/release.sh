@@ -17,6 +17,14 @@ usage() {
     exit 1
 }
 
+# Local signing properties use simple key=value entries, without printing secret values.
+read_property() {
+    local property_name="$1"
+    local property_file="$2"
+    sed -nE "s/^[[:space:]]*$property_name[[:space:]]*=[[:space:]]*(.*)/\\1/p" "$property_file" |
+        sed -E 's/[[:space:]]+$//' | head -n 1
+}
+
 if [[ $# -ne 1 ]]; then
     usage
 fi
@@ -39,11 +47,12 @@ fi
 
 [[ -f "$keystore_properties" ]] || fail "Create keystore.properties from keystore.properties.example."
 for required_property in storeFile storePassword keyAlias keyPassword; do
-    grep --quiet --extended-regexp "^$required_property=.+" "$keystore_properties" || \
+    [[ -n "$(read_property "$required_property" "$keystore_properties")" ]] || \
         fail "keystore.properties is missing $required_property."
 done
 
-store_file="$(sed -n 's/^storeFile=//p' "$keystore_properties" | head -n 1)"
+store_file="$(read_property storeFile "$keystore_properties")"
+[[ "$store_file" = /* ]] || store_file="$project_root/$store_file"
 [[ -f "$store_file" ]] || fail "The configured keystore file does not exist."
 
 current_version_code="$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+)$/\1/p' "$gradle_file")"

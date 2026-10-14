@@ -1,13 +1,11 @@
 package fi.tukkateatteri
 
-import fi.tukkateatteri.data.Performance
 import fi.tukkateatteri.data.PerformanceStatistics
 import fi.tukkateatteri.data.ReservationRepository
 import fi.tukkateatteri.data.StatisticsReport
 import fi.tukkateatteri.data.calculateSalesStatistics
-import fi.tukkateatteri.data.toPerformanceDateOrNull
+import fi.tukkateatteri.data.performanceDateOrder
 import fi.tukkateatteri.logging.AppLog
-import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,10 +70,7 @@ internal class StatisticsState(
     ) { performances, reservations ->
         val actPerformances = performances
             .filter { it.actName == actName }
-            .sortedWith(
-                compareBy<Performance> { it.date.toPerformanceDateOrNull() ?: LocalDate.MAX }
-                    .thenBy(Performance::date)
-            )
+            .sortedWith(performanceDateOrder)
         StatisticsReport(
             title = actName,
             isActSummary = true,

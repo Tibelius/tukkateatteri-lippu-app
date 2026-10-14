@@ -11,6 +11,10 @@ fun String.toPerformanceDateOrNull(): LocalDate? = try {
     null
 }
 
+internal val performanceDateOrder: Comparator<Performance> =
+    compareBy<Performance> { it.date.toPerformanceDateOrNull() ?: LocalDate.MAX }
+        .thenBy(Performance::date)
+
 private val PERFORMANCE_DATE_FORMATTER = DateTimeFormatter.ofPattern("d.M.uuuu")
     .withResolverStyle(ResolverStyle.STRICT)
 private const val MAXIMUM_DATE_TEXT_LENGTH = 10

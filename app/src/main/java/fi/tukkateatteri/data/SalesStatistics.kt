@@ -146,16 +146,14 @@ private fun List<TicketSale>.toPaymentMethodStatistics(): List<PaymentMethodStat
                         .thenBy { it.payment.method.label }
                 ).payment.method
 
+            val distinctSales = salePayments.map(SalePayment::sale).distinctBy(TicketSale::id)
             PaymentMethodStatistics(
                 name = name,
                 label = method.label,
-                ticketCount = salePayments
-                    .filterNot { it.sale.hasMultiplePayments }
-                    .sumOf { it.sale.quantity },
-                splitPaymentCount = salePayments
-                    .filter { it.sale.hasMultiplePayments }
-                    .distinctBy { it.sale.id }
-                    .size,
+                ticketCount = distinctSales
+                    .filterNot(TicketSale::hasMultiplePaymentMethods)
+                    .sumOf(TicketSale::quantity),
+                splitPaymentCount = distinctSales.count(TicketSale::hasMultiplePaymentMethods),
                 amountCents = salePayments.sumOf { it.payment.amountCents },
                 sortOrder = PaymentMethod.displaySortOrder(method)
             )

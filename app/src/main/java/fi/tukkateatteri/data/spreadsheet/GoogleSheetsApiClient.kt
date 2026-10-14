@@ -179,21 +179,6 @@ internal class GoogleSheetsApiClient {
         sendJson("$API_BASE/spreadsheets/$spreadsheetId:batchUpdate", HTTP_POST, request, accessToken)
     }
 
-    fun firstAvailableReservationRow(rows: List<List<String>>, headerRowIndex: Int): Int {
-        val firstDataRowIndex = headerRowIndex + 1
-        val summaryRowIndex = rows.indexOfFirst { row ->
-            row.any(String::isReservationSummaryLabel)
-        }.takeIf { it >= firstDataRowIndex } ?: rows.size
-        val blankRowIndex = (firstDataRowIndex until summaryRowIndex).firstOrNull { rowIndex ->
-            rows[rowIndex].valueAt(0).isBlank() && rows[rowIndex].valueAt(1).isBlank()
-        }
-        return (blankRowIndex ?: summaryRowIndex).plus(1).also { rowNumber ->
-            AppLog.verbose(LOG_COMPONENT) {
-                "Resolved first available reservation row=$rowNumber, summaryRow=${summaryRowIndex + 1}"
-            }
-        }
-    }
-
     fun insertReservationRow(
         spreadsheetId: String,
         sheetTitle: String,

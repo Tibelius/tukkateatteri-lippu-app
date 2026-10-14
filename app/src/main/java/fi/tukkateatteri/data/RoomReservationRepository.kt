@@ -512,7 +512,9 @@ internal class RoomReservationRepository(
                     date = data.candidate.date,
                     sourceSheetTitle = data.candidate.sheetTitle
                 )
-                importSpreadsheetRows(data.rows, performanceId)
+                val pendingIds = pendingSheetChangeDao.getAllByPerformanceId(performanceId)
+                    .map { it.reservationId }.toSet()
+                importSpreadsheetRows(data.rows, performanceId, preserveReservationIds = pendingIds)
                 performanceId
             }
             performanceDao.setActive(importedPerformanceIds.first())
