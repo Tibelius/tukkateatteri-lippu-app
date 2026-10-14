@@ -24,7 +24,7 @@ internal fun ReservationSpreadsheetRow.toLogSummary(): String =
     "sheetRow=${sourceRowNumber ?: "new"}, sheetRowId=${sheetRowId.toAbbreviatedId()}, " +
         "seats=$reservedSeatCount, arrived=$arrivalCount, " +
         "reservedTypes=${reservedTicketCounts.toCountSummary()}, " +
-        "payments=${paymentTicketCounts.toCountSummary()}, metadata=$applicationMutationMetadataState"
+        "paymentAmountsCents=${paymentAmountsCents.toCountSummary()}, metadata=$applicationMutationMetadataState"
 
 internal fun List<PendingPaymentAllocation>.toPaymentLogSummary(): String =
     groupBy(PendingPaymentAllocation::method)

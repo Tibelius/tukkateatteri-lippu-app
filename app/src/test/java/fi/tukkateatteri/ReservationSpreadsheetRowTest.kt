@@ -82,7 +82,7 @@ class ReservationSpreadsheetRowTest {
     }
 
     @Test
-    fun exportRows_recordsSplitPaymentsInNotesWithoutAssigningThemToOnePaymentColumn() {
+    fun exportRows_recordsSplitPaymentAmountsInTheirPaymentColumns() {
         val splitSale = TicketSale(
             id = 1,
             reservationId = 1,
@@ -95,18 +95,21 @@ class ReservationSpreadsheetRowTest {
             )
         )
 
-        val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(splitSale)))
+        val row = ReservationSpreadsheetRow.fromReservation(
+            reservation(seatCount = 1, ticketSales = listOf(splitSale))
+        )
 
-        assertTrue(row.paymentTicketCounts.isEmpty())
+        assertTrue(row.paymentAmountsCents.isEmpty())
         val realized = row.realizedTickets.single()
         assertEquals(listOf(1_000, 1_200), realized.payments.map { it.amountCents })
-        val physicalRow = row.toPhysicalSheetRows().first { it.notes.contains("Osamaksu") }
-        assertEquals(1, physicalRow.paymentTicketCounts[PaymentMethod.CARD])
-        assertTrue(physicalRow.notes.contains("Kortti 12,00 €; Käteinen 10,00 €"))
+        val physicalRow = row.toPhysicalSheetRows().single()
+        assertEquals(1_200, physicalRow.paymentAmountsCents[PaymentMethod.CARD])
+        assertEquals(1_000, physicalRow.paymentAmountsCents[PaymentMethod.CASH])
+        assertTrue(physicalRow.notes.isEmpty())
     }
 
     @Test
-    fun exportRows_recordsPartialPaymentsAsNotesInsteadOfCompletedTicketCounts() {
+    fun exportRows_recordsPartialPaymentAmountInItsPaymentColumn() {
         val partialSale = TicketSale(
             id = 1,
             reservationId = 1,
@@ -118,15 +121,19 @@ class ReservationSpreadsheetRowTest {
             )
         )
 
-        val row = ReservationSpreadsheetRow.fromReservation(reservation(ticketSales = listOf(partialSale)))
+        val row = ReservationSpreadsheetRow.fromReservation(
+            reservation(seatCount = 1, ticketSales = listOf(partialSale))
+        )
 
-        assertTrue(row.paymentTicketCounts.isEmpty())
+        assertTrue(row.paymentAmountsCents.isEmpty())
         assertEquals(2_000, row.realizedTickets.single().paidAmountCents)
-        assertTrue(row.toPhysicalSheetRows().any { it.notes.contains("Osamaksu") })
+        val physicalRow = row.toPhysicalSheetRows().single()
+        assertEquals(2_000, physicalRow.paymentAmountsCents[PaymentMethod.CARD])
+        assertTrue(physicalRow.notes.isEmpty())
     }
 
     @Test
-    fun exportRows_includesImportedLippuagenttiCounts() {
+    fun exportRows_includesImportedLippuagenttiPayments() {
         val importedSale = TicketSale(
             id = 1,
             reservationId = 1,
@@ -174,9 +181,9 @@ class ReservationSpreadsheetRowTest {
         val physicalRows = rows.map { it.toPhysicalSheetRows().single() }
         assertTrue(physicalRows.all { row -> row.lastName == "- Ovimyynti" && row.reservedSeatCount == 1 })
         assertEquals(1, physicalRows[0].reservedTicketCounts[TicketType.BASIC])
-        assertEquals(1, physicalRows[0].paymentTicketCounts[PaymentMethod.CASH])
+        assertEquals(2_200, physicalRows[0].paymentAmountsCents[PaymentMethod.CASH])
         assertEquals(1, physicalRows[1].reservedTicketCounts[TicketType.DISCOUNT])
-        assertEquals(1, physicalRows[1].paymentTicketCounts[PaymentMethod.EPASSI])
+        assertEquals(1_300, physicalRows[1].paymentAmountsCents[PaymentMethod.EPASSI])
     }
 
     @Test

@@ -59,7 +59,7 @@ class PendingSheetRowMergeTest {
             { value, suffix -> value.copy(reservedSeatCount = if (suffix == "app") 3 else 4) },
             { value, suffix -> value.copy(arrivalCount = if (suffix == "app") 1 else 2) },
             { value, suffix -> value.copy(reservedTicketCounts = mapOf(TicketType.DISCOUNT to if (suffix == "app") 1 else 2)) },
-            { value, suffix -> value.copy(paymentTicketCounts = mapOf(PaymentMethod.CARD to if (suffix == "app") 1 else 2)) },
+            { value, suffix -> value.copy(paymentAmountsCents = mapOf(PaymentMethod.CARD to if (suffix == "app") 100 else 200)) },
             { value, suffix -> value.copy(notes = "notes-$suffix") }
         )
 
@@ -78,7 +78,7 @@ class PendingSheetRowMergeTest {
             reservedSeatCount = 3,
             arrivalCount = 1,
             reservedTicketCounts = mapOf(TicketType.DISCOUNT to 3),
-            paymentTicketCounts = mapOf(PaymentMethod.CASH to 1),
+            paymentAmountsCents = mapOf(PaymentMethod.CASH to 1_000),
             notes = "remote note"
         )
 
@@ -139,7 +139,7 @@ class PendingSheetRowMergeTest {
         reservedSeatCount = 2,
         arrivalCount = 0,
         reservedTicketCounts = mapOf(TicketType.BASIC to 2),
-        paymentTicketCounts = emptyMap<PaymentMethod, Int>(),
+        paymentAmountsCents = emptyMap<PaymentMethod, Int>(),
         notes = "",
         sourceIdentity = "show|date|kippari|kalle",
         sheetRowId = "row-id"

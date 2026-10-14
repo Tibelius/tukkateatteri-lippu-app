@@ -33,7 +33,7 @@ class ReservationSpreadsheetRowSnapshotTest {
         assertTrue(localRowWithAssignedId.hasSameSheetContentAs(remoteRow))
         assertFalse(localRowWithAssignedId.copy(arrivalCount = 1).hasSameSheetContentAs(remoteRow))
         assertFalse(
-            localRowWithAssignedId.copy(paymentTicketCounts = mapOf(PaymentMethod.CARD to 2))
+            localRowWithAssignedId.copy(paymentAmountsCents = mapOf(PaymentMethod.CARD to 2_200))
                 .hasSameSheetContentAs(remoteRow)
         )
     }
@@ -45,7 +45,7 @@ class ReservationSpreadsheetRowSnapshotTest {
         reservedSeatCount = 2,
         arrivalCount = 0,
         reservedTicketCounts = mapOf(TicketType.BASIC to 2),
-        paymentTicketCounts = mapOf(PaymentMethod.LIPPUAGENTTI to 1),
+        paymentAmountsCents = mapOf(PaymentMethod.LIPPUAGENTTI to 2_200),
         notes = "Testihuomautus",
         sourceIdentity = "sheet:abc",
         sheetRowId = "abc"

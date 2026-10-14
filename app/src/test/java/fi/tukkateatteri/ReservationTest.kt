@@ -262,7 +262,7 @@ class ReservationTest {
             reservedSeatCount = -1,
             arrivalCount = 0,
             reservedTicketCounts = emptyMap(),
-            paymentTicketCounts = emptyMap(),
+            paymentAmountsCents = emptyMap(),
             notes = ""
         )
     }

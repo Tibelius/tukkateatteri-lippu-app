@@ -7,6 +7,7 @@ import fi.tukkateatteri.data.spreadsheet.ApplicationMutationMetadataState
 import fi.tukkateatteri.data.spreadsheet.GoogleSheetTab
 import fi.tukkateatteri.data.spreadsheet.sheetContentHash
 import fi.tukkateatteri.data.spreadsheet.toImportCandidateOrNull
+import fi.tukkateatteri.data.spreadsheet.toPhysicalSheetRows
 import fi.tukkateatteri.data.spreadsheet.toReservationSpreadsheetRows
 import fi.tukkateatteri.data.spreadsheet.toSheetCellValues
 import org.junit.Assert.assertEquals
@@ -19,7 +20,7 @@ import java.time.LocalDate
 
 class GoogleSheetsParsingTest {
     @Test
-    fun checkboxLayoutWithoutReservedCountImportsAndExportsBooleanMarkers() {
+    fun singleSeatLayoutImportsTicketMarkersAndNumericPaymentAmounts() {
         val checkboxHeaders = headers.filterNot { it.startsWith("Varatut liput") }
         val tab = GoogleSheetTab(
             title = "24.10",
@@ -30,7 +31,7 @@ class GoogleSheetsParsingTest {
                     this[1] = "Tiina"
                     this[3] = "TRUE"
                     this[4] = "TRUE"
-                    this[12] = "TRUE"
+                    this[12] = "22"
                 },
                 List(checkboxHeaders.size) { "" },
                 listOf("Esitys:", "Yön Vuodenaika"),
@@ -40,12 +41,14 @@ class GoogleSheetsParsingTest {
 
         val row = tab.toReservationSpreadsheetRows(requireNotNull(tab.toImportCandidateOrNull())).single()
         val indexes = checkboxHeaders.mapIndexed { index, header -> header.lowercase() to index }.toMap()
-        val exported = row.toSheetCellValues("24.10", 2, indexes)
+        val exported = row.toPhysicalSheetRows().single().toSheetCellValues("24.10", 2, indexes)
 
         assertEquals(1, row.reservedSeatCount)
         assertEquals(1, row.arrivalCount)
         assertEquals(TicketType.BASIC, row.realizedTickets.single().ticketType)
+        assertEquals(2_200, row.realizedTickets.single().payments.single().amountCents)
         assertTrue(exported.any { it.value == true })
+        assertTrue(exported.any { it.value == 22.0 })
     }
 
     @Test
@@ -152,7 +155,7 @@ class GoogleSheetsParsingTest {
                     5 to "x",
                     11 to "✓",
                     12 to "k",
-                    13 to "x"
+                    13 to "22"
                 ),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
@@ -166,7 +169,7 @@ class GoogleSheetsParsingTest {
         assertEquals(1, row.reservedTicketCounts[TicketType.BASIC])
         assertEquals(1, row.reservedTicketCounts[TicketType.KAIKUKORTTI])
         assertEquals(1, row.reservedTicketCounts[TicketType.FREE_TICKET])
-        assertEquals(1, row.paymentTicketCounts[PaymentMethod.CARD])
+        assertEquals(2_200, row.paymentAmountsCents[PaymentMethod.CARD])
     }
 
     @Test
@@ -335,9 +338,10 @@ class GoogleSheetsParsingTest {
                     2 to "maija@example.fi",
                     4 to "1",
                     5 to "1",
-                    17 to "Osamaksu: Kortti 12,00 €; Käteinen 10,00 €"
+                    13 to "12",
+                    14 to "10"
                 ),
-                dataRow(0 to "Virtanen", 1 to "Maija", 2 to "maija@example.fi", 4 to "1", 5 to "1", 13 to "1"),
+                dataRow(0 to "Virtanen", 1 to "Maija", 2 to "maija@example.fi", 4 to "1", 5 to "1", 13 to "22"),
                 emptyRow(),
                 listOf("Esitys:", "Yön Vuodenaika"),
                 listOf("Pvm:", "24.10.2026")
@@ -351,6 +355,17 @@ class GoogleSheetsParsingTest {
         assertEquals(2, reservation.realizedTickets.size)
         assertEquals(listOf(1_200, 1_000), reservation.realizedTickets.first().payments.map { it.amountCents })
         assertEquals(PaymentMethod.CARD, reservation.realizedTickets.last().payments.single().method)
+        assertTrue(reservation.notes.isEmpty())
+
+        val headerIndexes = headers.mapIndexed { index, header -> header.lowercase() to index }.toMap()
+        val splitPaymentValues = reservation.toPhysicalSheetRows().first().toSheetCellValues(
+            sheetTitle = "24.10",
+            rowNumber = 2,
+            headers = headerIndexes
+        )
+        assertTrue(splitPaymentValues.any { it.range.endsWith("N2") && it.value == 12.0 })
+        assertTrue(splitPaymentValues.any { it.range.endsWith("O2") && it.value == 10.0 })
+        assertTrue(splitPaymentValues.any { it.range.endsWith("R2") && it.value == "" })
     }
 
     private fun validState(rowId: String, contentHash: String, operation: String) = ApplicationRowState(
@@ -375,7 +390,7 @@ class GoogleSheetsParsingTest {
             2 to "kippari@gmail.com",
             3 to "1",
             5 to "1",
-            16 to "1",
+            16 to "22",
             17 to "Ennakkoon ostettu"
         ).toMutableList()
         firstRowOverrides.forEach { (index, value) -> firstRow[index] = value }
@@ -392,10 +407,10 @@ class GoogleSheetsParsingTest {
                         3 to "4",
                         4 to "4",
                         6 to "4",
-                        13 to "4"
+                        13 to "13"
                     )
                 )
-                add(dataRow(0 to "Jorma", 1 to "Seppo", 2 to "seppo@seppo.com", 3 to "2", 7 to "2", 14 to "2"))
+                add(dataRow(0 to "Jorma", 1 to "Seppo", 2 to "seppo@seppo.com", 3 to "2", 7 to "2", 14 to "10"))
                 addAll(extraRows)
                 if (extraRows.isEmpty()) add(emptyRow())
                 if (includePerformance) add(listOf("Esitys:", "Yön Vuodenaika"))

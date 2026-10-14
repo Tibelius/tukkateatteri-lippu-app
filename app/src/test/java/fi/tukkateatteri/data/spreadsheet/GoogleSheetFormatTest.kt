@@ -36,7 +36,7 @@ class GoogleSheetFormatTest {
             reservedSeatCount = 1,
             arrivalCount = 1,
             reservedTicketCounts = emptyMap(),
-            paymentTicketCounts = emptyMap(),
+            paymentAmountsCents = emptyMap(),
             notes = "",
             sourceIdentity = "show|date|ovelta|0"
         )

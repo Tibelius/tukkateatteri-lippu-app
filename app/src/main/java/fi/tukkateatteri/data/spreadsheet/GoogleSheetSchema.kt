@@ -2,7 +2,7 @@ package fi.tukkateatteri.data.spreadsheet
 
 import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.TicketType
-import fi.tukkateatteri.data.toEuroCentsOrNull
+import fi.tukkateatteri.data.toEuroAmount
 import fi.tukkateatteri.data.toPerformanceDateOrNull
 
 fun GoogleSheetTab.toImportCandidateOrNull(): GoogleSheetImportCandidate? {
@@ -66,8 +66,10 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
                 reservedTicketCounts = schema.ticketHeaders.mapNotNull { (ticketType, header) ->
                     row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { ticketType to it }
                 }.toMap(),
-                paymentTicketCounts = schema.paymentHeaders.mapNotNull { (paymentMethod, header) ->
-                    row.valueAt(headerIndexes[header]).toTicketCount().takeIf { it > 0 }?.let { paymentMethod to it }
+                paymentAmountsCents = schema.paymentHeaders.mapNotNull { (paymentMethod, header) ->
+                    row.valueAt(headerIndexes[header]).toPaymentAmountCentsOrNull()
+                        ?.takeIf { it > 0 }
+                        ?.let { paymentMethod to it }
                 }.toMap(),
                 notes = row.valueAt(headerIndexes[HEADER_NOTES]).trimSpreadsheetWhitespace(),
                 sourceIdentity = sourceIdentity,
@@ -82,7 +84,7 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
     }
     return groupedRows.values.mapNotNull { seatRows ->
         val parent = seatRows.first()
-        val realizedTickets = seatRows.mapNotNull { it.toRealizedTicket(schema) }
+        val realizedTickets = seatRows.mapNotNull(ReservationSpreadsheetRow::toRealizedTicket)
         val logicalRow = parent.copy(
             reservedSeatCount = seatRows.sumOf { it.reservedSeatCount.coerceAtLeast(1) },
             arrivalCount = seatRows.sumOf(ReservationSpreadsheetRow::arrivalCount),
@@ -90,8 +92,8 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
                 row.reservedTicketTypeFromNote(schema)?.let { listOf(it) }
                     ?: row.reservedTicketCounts.entries.flatMap { (type, quantity) -> List(quantity) { type } }
             }.groupingBy { it }.eachCount(),
-            paymentTicketCounts = if (realizedTickets.isEmpty()) {
-                seatRows.flatMap { it.paymentTicketCounts.entries }
+            paymentAmountsCents = if (realizedTickets.isEmpty()) {
+                seatRows.flatMap { it.paymentAmountsCents.entries }
                     .groupingBy { it.key }
                     .fold(0) { total, entry -> total + entry.value }
             } else {
@@ -125,37 +127,16 @@ fun GoogleSheetTab.toReservationSpreadsheetRows(
 private fun ReservationSpreadsheetRow.customerKey(): String = listOf(lastName, firstName, contact)
     .joinToString(SOURCE_IDENTITY_SEPARATOR) { it.normalizedIdentity() }
 
-private fun ReservationSpreadsheetRow.toRealizedTicket(
-    schema: SheetColumnSchema
-): RealizedTicketSpreadsheetRow? {
+private fun ReservationSpreadsheetRow.toRealizedTicket(): RealizedTicketSpreadsheetRow? {
     val ticketType = reservedTicketCounts.entries.singleOrNull()
         ?.takeIf { it.value == 1 }
         ?.key ?: return null
-    val notePayments = notes.toPaymentAllocations(schema.paymentHeaders.keys)
-    val hasRealization = arrivalCount > 0 || notePayments.isNotEmpty() || paymentTicketCounts.isNotEmpty()
+    val hasRealization = arrivalCount > 0 || paymentAmountsCents.isNotEmpty()
     if (!hasRealization) return null
-    val payments = if (notePayments.isNotEmpty()) {
-        notePayments
-    } else {
-        paymentTicketCounts.entries.singleOrNull()
-            ?.takeIf { it.value == 1 }
-            ?.let { (method, _) ->
-                listOf(SpreadsheetPaymentAllocation(method, ticketType.defaultPriceCents))
-            }.orEmpty()
+    val payments = paymentAmountsCents.map { (method, amountCents) ->
+        SpreadsheetPaymentAllocation(method, amountCents)
     }
     return RealizedTicketSpreadsheetRow(ticketType, payments, arrivalCount > 0)
-}
-
-private fun String.toPaymentAllocations(methods: Set<PaymentMethod>): List<SpreadsheetPaymentAllocation> {
-    val paymentLine = lineSequence().firstOrNull { it.startsWith("$PARTIAL_PAYMENT_LABEL:", ignoreCase = true) }
-        ?: return emptyList()
-    return paymentLine.substringAfter(':').split(PAYMENT_NOTE_SEPARATOR).mapNotNull { value ->
-        val method = methods.sortedByDescending { it.label.length }
-            .firstOrNull { value.trim().startsWith(it.label, ignoreCase = true) } ?: return@mapNotNull null
-        val amount = value.trim().substring(method.label.length).trim()
-            .removeSuffix("€").trim().toEuroCentsOrNull() ?: return@mapNotNull null
-        SpreadsheetPaymentAllocation(method, amount)
-    }
 }
 
 private fun ReservationSpreadsheetRow.reservedTicketTypeFromNote(schema: SheetColumnSchema): TicketType? {
@@ -168,8 +149,7 @@ private fun ReservationSpreadsheetRow.reservedTicketTypeFromNote(schema: SheetCo
 
 private fun ReservationSpreadsheetRow.userNotes(): String = notes.lineSequence()
     .filterNot { line ->
-        line.startsWith("$PARTIAL_PAYMENT_LABEL:", ignoreCase = true) ||
-            line.startsWith("$RESERVED_TICKET_LABEL:", ignoreCase = true)
+        line.startsWith("$RESERVED_TICKET_LABEL:", ignoreCase = true)
     }
     .joinToString(SHEET_NOTE_LINE_SEPARATOR)
     .trim()
@@ -207,16 +187,16 @@ internal fun ReservationSpreadsheetRow.toSheetCellValues(
         set(header, quantity != null && quantity > 0)
     }
     schema.paymentHeaders.forEach { (method, header) ->
-        val quantity = paymentTicketCounts.entries.firstOrNull { it.key.name == method.name }?.value
-        set(header, quantity != null && quantity > 0)
+        val amountCents = paymentAmountsCents.entries.firstOrNull { it.key.name == method.name }?.value
+        set(header, amountCents?.takeIf { it > 0 }?.toEuroAmount() ?: "")
     }
     set(HEADER_NOTES, notes)
 }
 
 internal data class SheetCellValue(val range: String, val value: Any) {
     init {
-        require(value is String || value is Int || value is Boolean) {
-            "Only text, booleans and whole numbers can be written to Google Sheets."
+        require(value is String || value is Number || value is Boolean) {
+            "Only text, booleans and numbers can be written to Google Sheets."
         }
     }
 }

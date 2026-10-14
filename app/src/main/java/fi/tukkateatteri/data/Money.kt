@@ -10,6 +10,8 @@ fun Int.toEuroString(): String {
 fun Int.toDecimalInput(): String =
     "${this / CENTS_PER_EURO},${(this % CENTS_PER_EURO).toString().padStart(DECIMAL_PLACES, '0')}"
 
+fun Int.toEuroAmount(): Double = toDouble() / CENTS_PER_EURO
+
 fun String.toEuroCentsOrNull(): Int? {
     val normalizedValue = trim().replace(DECIMAL_COMMA, DECIMAL_POINT)
     if (normalizedValue.isEmpty()) return null

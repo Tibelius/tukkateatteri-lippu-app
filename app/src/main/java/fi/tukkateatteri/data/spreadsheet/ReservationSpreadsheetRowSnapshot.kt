@@ -12,7 +12,7 @@ fun ReservationSpreadsheetRow.toSnapshotJson(): String = listOf(
     reservedSeatCount.toString(),
     arrivalCount.toString(),
     reservedTicketCounts.encodedTicketTypeCounts(),
-    paymentTicketCounts.encodedPaymentMethodCounts(),
+    paymentAmountsCents.encodedPaymentMethodAmounts(),
     notes.encoded(),
     sourceIdentity.encoded(),
     sheetRowId.encoded(),
@@ -29,7 +29,7 @@ fun String.toReservationSpreadsheetRowSnapshot(): ReservationSpreadsheetRow {
         reservedSeatCount = values[3].toInt(),
         arrivalCount = values[4].toInt(),
         reservedTicketCounts = values[5].toTicketTypeCounts(),
-        paymentTicketCounts = values[6].toPaymentMethodCounts(),
+        paymentAmountsCents = values[6].toPaymentMethodAmounts(),
         notes = values[7].decoded(),
         sourceIdentity = values[8].decoded(),
         sheetRowId = values[9].decoded(),
@@ -48,7 +48,7 @@ fun ReservationSpreadsheetRow.hasSameSheetContentAs(other: ReservationSpreadshee
         reservedSeatCount == other.reservedSeatCount &&
         arrivalCount == other.arrivalCount &&
         reservedTicketCounts == other.reservedTicketCounts &&
-        paymentTicketCounts == other.paymentTicketCounts &&
+        paymentAmountsCents == other.paymentAmountsCents &&
         notes == other.notes &&
         realizedTickets == other.realizedTickets
 
@@ -65,7 +65,7 @@ private fun Map<TicketType, Int>.encodedTicketTypeCounts(): String = entries
             .encoded() + ":$quantity"
     }
 
-private fun Map<PaymentMethod, Int>.encodedPaymentMethodCounts(): String = entries
+private fun Map<PaymentMethod, Int>.encodedPaymentMethodAmounts(): String = entries
     .sortedBy { (method, _) -> method.name }
     .joinToString(SNAPSHOT_COUNT_SEPARATOR) { (method, quantity) ->
         listOf(method.name, method.label, method.allowsSplitPayment, method.sortOrder)
@@ -81,7 +81,7 @@ private fun String.toTicketTypeCounts(): Map<TicketType, Int> = configCountPairs
     }
     .toMap()
 
-private fun String.toPaymentMethodCounts(): Map<PaymentMethod, Int> = configCountPairs()
+private fun String.toPaymentMethodAmounts(): Map<PaymentMethod, Int> = configCountPairs()
     .mapNotNull { (encoded, quantity) ->
         val values = encoded.decoded().split(SNAPSHOT_CONFIG_SEPARATOR)
         if (values.size != 4) return@mapNotNull null

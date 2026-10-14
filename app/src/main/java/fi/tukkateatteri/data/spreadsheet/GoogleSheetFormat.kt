@@ -1,5 +1,6 @@
 package fi.tukkateatteri.data.spreadsheet
 
+import fi.tukkateatteri.data.toEuroCentsOrNull
 import java.util.UUID
 
 internal fun String.toApiOperation(): String = when {
@@ -100,6 +101,12 @@ internal fun String.toTicketCount(): Int {
     val normalizedValue = trimSpreadsheetWhitespace().lowercase()
     return if (normalizedValue.isBlank() || normalizedValue in UNCHECKED_MARKERS) 0 else 1
 }
+
+internal fun String.toPaymentAmountCentsOrNull(): Int? = trimSpreadsheetWhitespace()
+    .removeSuffix("€")
+    .trimSpreadsheetWhitespace()
+    .takeIf(String::isNotBlank)
+    ?.toEuroCentsOrNull()
 
 internal fun performanceLockKey(spreadsheetId: String, sheetTitle: String): String =
     listOf(spreadsheetId, sheetTitle.trimSpreadsheetWhitespace()).joinToString(LOCK_KEY_SEPARATOR)

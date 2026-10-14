@@ -61,10 +61,10 @@ internal fun mergePendingSheetRow(
                 desired.reservedTicketCounts,
                 remote.reservedTicketCounts
             ),
-            paymentTicketCounts = merged(
-                base.paymentTicketCounts,
-                desired.paymentTicketCounts,
-                remote.paymentTicketCounts
+            paymentAmountsCents = merged(
+                base.paymentAmountsCents,
+                desired.paymentAmountsCents,
+                remote.paymentAmountsCents
             ),
             realizedTickets = merged(
                 base.realizedTickets,

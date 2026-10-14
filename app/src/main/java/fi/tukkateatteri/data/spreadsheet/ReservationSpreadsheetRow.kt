@@ -5,7 +5,6 @@ import fi.tukkateatteri.data.PaymentMethod
 import fi.tukkateatteri.data.Reservation
 import fi.tukkateatteri.data.TicketSale
 import fi.tukkateatteri.data.TicketType
-import fi.tukkateatteri.data.toEuroString
 
 enum class ApplicationMutationMetadataState {
     NONE,
@@ -27,20 +26,9 @@ data class RealizedTicketSpreadsheetRow(
     val isPaid: Boolean
         get() = paidAmountCents == totalPriceCents
 
-    fun paymentCounts(): Map<PaymentMethod, Int> = payments
-        .takeIf(List<SpreadsheetPaymentAllocation>::isNotEmpty)
-        ?.minByOrNull { PaymentMethod.displaySortOrder(it.method) }
-        ?.let { mapOf(it.method to 1) }
-        .orEmpty()
-
-    fun paymentNote(): String {
-        if (payments.isEmpty() || (isPaid && payments.size == 1)) return ""
-        val values = payments.sortedBy { PaymentMethod.displaySortOrder(it.method) }
-            .joinToString(PAYMENT_NOTE_SEPARATOR) { payment ->
-                "${payment.method.label} ${payment.amountCents.toEuroString()}"
-            }
-        return "$PARTIAL_PAYMENT_LABEL: $values"
-    }
+    fun paymentAmountsCents(): Map<PaymentMethod, Int> = payments
+        .groupingBy(SpreadsheetPaymentAllocation::method)
+        .fold(0) { total, payment -> total + payment.amountCents }
 }
 
 data class SpreadsheetPaymentAllocation(
@@ -55,7 +43,7 @@ data class ReservationSpreadsheetRow(
     val reservedSeatCount: Int,
     val arrivalCount: Int,
     val reservedTicketCounts: Map<TicketType, Int>,
-    val paymentTicketCounts: Map<PaymentMethod, Int>,
+    val paymentAmountsCents: Map<PaymentMethod, Int>,
     val notes: String,
     val realizedTickets: List<RealizedTicketSpreadsheetRow> = emptyList(),
     val sourceIdentity: String = "",
@@ -69,7 +57,7 @@ data class ReservationSpreadsheetRow(
             "Arrival count must be valid for the row."
         }
         require(reservedTicketCounts.values.all { it >= 0 }) { "Reserved ticket counts must not be negative." }
-        require(paymentTicketCounts.values.all { it >= 0 }) { "Payment ticket counts must not be negative." }
+        require(paymentAmountsCents.values.all { it >= 0 }) { "Payment amounts must not be negative." }
     }
 
     val isDoorSale: Boolean
@@ -99,7 +87,7 @@ data class ReservationSpreadsheetRow(
             } else {
                 reservation.reservedTicketAllocations.associate { it.ticketType to it.quantity }
             },
-            paymentTicketCounts = emptyMap(),
+            paymentAmountsCents = emptyMap(),
             notes = reservation.notes,
             realizedTickets = reservation.ticketSales.toRealizedTicketRows(),
             sourceIdentity = reservation.sourceIdentity,
@@ -128,7 +116,6 @@ internal fun ReservationSpreadsheetRow.toPhysicalSheetRows(): List<ReservationSp
         val realized = realizedBySeat[index]
         val displayedType = realized?.ticketType ?: reservedType
         val generatedNotes = buildList {
-            realized?.paymentNote()?.takeIf(String::isNotBlank)?.let(::add)
             if (reservedType != null && realized != null && reservedType.name != realized.ticketType.name) {
                 add("$RESERVED_TICKET_LABEL: ${reservedType.label}")
             }
@@ -138,7 +125,7 @@ internal fun ReservationSpreadsheetRow.toPhysicalSheetRows(): List<ReservationSp
             reservedSeatCount = 1,
             arrivalCount = if (index < arrivalCount) 1 else 0,
             reservedTicketCounts = displayedType?.let { mapOf(it to 1) }.orEmpty(),
-            paymentTicketCounts = realized?.paymentCounts().orEmpty(),
+            paymentAmountsCents = realized?.paymentAmountsCents().orEmpty(),
             notes = generatedNotes,
             realizedTickets = emptyList(),
             sourceRowNumber = null
@@ -188,7 +175,5 @@ private data class MutableSpreadsheetPayment(
 
 internal const val DOOR_SALE_SHEET_LABEL = "- Ovimyynti"
 internal const val DOOR_SALE_CUSTOMER_LABEL = "Ovimyynti"
-internal const val PARTIAL_PAYMENT_LABEL = "Osamaksu"
 internal const val RESERVED_TICKET_LABEL = "Varattu lipputyyppi"
-internal const val PAYMENT_NOTE_SEPARATOR = "; "
 internal const val SHEET_NOTE_LINE_SEPARATOR = "\n"

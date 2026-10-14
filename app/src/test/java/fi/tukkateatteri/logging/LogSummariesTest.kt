@@ -46,7 +46,7 @@ class LogSummariesTest {
             reservedSeatCount = 1,
             arrivalCount = 0,
             reservedTicketCounts = mapOf(TicketType.DISCOUNT to 1),
-            paymentTicketCounts = emptyMap(),
+            paymentAmountsCents = emptyMap(),
             notes = "Salainen huomautus",
             sheetRowId = "abcdefgh-1234-1234-1234-123456789abc",
             sourceRowNumber = 5,

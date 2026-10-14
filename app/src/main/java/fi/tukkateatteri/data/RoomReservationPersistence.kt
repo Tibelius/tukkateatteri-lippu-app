@@ -130,54 +130,11 @@ internal suspend fun RoomReservationRepository.importSpreadsheetRows(
                 }
                 return@forEach
             }
-            val inferredSales = inferImportedTicketSales(row.reservedTicketCounts, row.paymentTicketCounts)
-            if (inferredSales == null && row.paymentTicketCounts.isNotEmpty()) {
+            if (row.paymentAmountsCents.isNotEmpty()) {
                 AppLog.warning(REPOSITORY_LOG_COMPONENT) {
-                    "Could not pair imported ticket types with payment methods unambiguously; " +
+                    "Ignored payment amounts without a ticket type; " +
                         "reservationId=$reservationId, ticketTypes=${row.reservedTicketCounts}, " +
-                        "payments=${row.paymentTicketCounts}"
-                }
-            } else if (!inferredSales.isNullOrEmpty()) {
-                AppLog.debug(REPOSITORY_LOG_COMPONENT) {
-                    "Inferred ${inferredSales.size} typed imported sales; reservationId=$reservationId"
-                }
-            }
-            val importedSales = inferredSales?.map { sale ->
-                ImportedSaleData(
-                    ticketType = sale.ticketType,
-                    paymentMethod = sale.paymentMethod,
-                    quantity = sale.quantity,
-                    unitPriceCents = sale.ticketType.defaultPriceCents
-                )
-            } ?: row.paymentTicketCounts.map { (paymentMethod, quantity) ->
-                ImportedSaleData(
-                    ticketType = TicketType.UNSPECIFIED,
-                    paymentMethod = paymentMethod,
-                    quantity = quantity,
-                    unitPriceCents = 0
-                )
-            }
-            importedSales.forEach { sale ->
-                if (sale.quantity > 0) {
-                    val ticketSaleId = reservationDao.insertTicketSale(
-                        TicketSaleEntity(
-                            reservationId = reservationId,
-                            ticketType = sale.ticketType,
-                            quantity = sale.quantity,
-                            unitPriceCents = sale.unitPriceCents,
-                            origin = TicketSaleOrigin.IMPORTED,
-                            countsAsArrival = isDoorSale
-                        )
-                    )
-                    reservationDao.insertPaymentAllocations(
-                        listOf(
-                            PaymentAllocationEntity(
-                                ticketSaleId = ticketSaleId,
-                                paymentMethod = sale.paymentMethod,
-                                amountCents = sale.unitPriceCents * sale.quantity
-                            )
-                        )
-                    )
+                        "paymentAmountsCents=${row.paymentAmountsCents}"
                 }
             }
         }
@@ -205,13 +162,6 @@ internal suspend fun RoomReservationRepository.storeSheetSchemas(
 
 internal suspend fun RoomReservationRepository.storedSheetAliases() = sheetFieldAliasDao.getAll()
     .associate { it.normalizedAlias to it.toStoredAlias() }
-
-private data class ImportedSaleData(
-    val ticketType: TicketType,
-    val paymentMethod: PaymentMethod,
-    val quantity: Int,
-    val unitPriceCents: Int
-)
 
 internal suspend fun RoomReservationRepository.removeMissingSheetReservations(
     performanceId: Long,
