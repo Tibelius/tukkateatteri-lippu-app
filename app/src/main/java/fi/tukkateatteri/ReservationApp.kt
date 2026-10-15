@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -54,6 +55,8 @@ internal fun ReservationApp(
     val sheetMappingRequest by viewModel.sheetMappingRequest.collectAsStateWithLifecycle()
     val syncingPerformanceIds by viewModel.syncingPerformanceIds.collectAsStateWithLifecycle()
     val statisticsReport by viewModel.statisticsReport.collectAsStateWithLifecycle()
+    val syncFailure by viewModel.syncFailure.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     var selectedReservationId by rememberSaveable { mutableStateOf<Long?>(null) }
     var reservationDialogHasChanges by rememberSaveable { mutableStateOf(false) }
     var reservationToDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -90,9 +93,34 @@ internal fun ReservationApp(
         }
     }
 
+    val failedPerformance = performances.firstOrNull { it.id == syncFailure?.performanceId }
+    val failedSource = failedPerformance?.let { performance ->
+        googleSheetSources.firstOrNull { it.actName == performance.actName }
+    }
+    SyncFailureSnackbarEffect(
+        failure = syncFailure,
+        performance = failedPerformance,
+        hostState = snackbarHostState,
+        onDismiss = viewModel::dismissSyncFailure,
+        onRetry = if (failedPerformance?.canSyncFromGoogleSheets == true && failedSource != null) {
+            {
+                onGoogleSheetsMutation { accessToken ->
+                    viewModel.finishReservationEditing(
+                        failedPerformance.id,
+                        failedSource.spreadsheetUrl,
+                        accessToken
+                    )
+                }
+            }
+        } else {
+            null
+        }
+    )
+
     statisticsReport?.let { report ->
         StatisticsScreen(
             report = report,
+            snackbarHostState = snackbarHostState,
             onBack = viewModel::closeStatistics
         )
         return
@@ -140,6 +168,7 @@ internal fun ReservationApp(
             ReservationListScreen(
                 activePerformance = activePerformance,
                 reservations = reservations,
+                snackbarHostState = snackbarHostState,
                 onOpenPerformanceMenu = { coroutineScope.launch { drawerState.open() } },
                 onOpenStatistics = {
                     activePerformance?.let { viewModel.openPerformanceStatistics(it.id) }

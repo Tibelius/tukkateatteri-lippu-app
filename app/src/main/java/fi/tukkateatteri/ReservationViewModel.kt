@@ -78,6 +78,7 @@ class ReservationViewModel(
     val isTransferInProgress: StateFlow<Boolean> = sheetSync.isTransferInProgress
     val sheetMappingRequest: StateFlow<SheetMappingRequest?> = sheetSync.mappingRequest
     val syncingPerformanceIds: StateFlow<Set<Long>> = sheetSync.syncingPerformanceIds
+    internal val syncFailure: StateFlow<SheetSyncFailure?> = sheetSync.syncFailure
     val statisticsReport = statisticsState.report
 
     fun openPerformanceStatistics(performanceId: Long) {
@@ -292,6 +293,10 @@ class ReservationViewModel(
 
     fun dismissTransferMessage() {
         sheetSync.dismissTransferMessage()
+    }
+
+    fun dismissSyncFailure(id: Long) {
+        sheetSync.dismissSyncFailure(id)
     }
 
     companion object {

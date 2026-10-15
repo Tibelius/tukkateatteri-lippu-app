@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,6 +33,8 @@ internal class SheetSyncController(
     private val mutableTransferInProgress = MutableStateFlow(false)
     private val mutableMappingRequest = MutableStateFlow<SheetMappingRequest?>(null)
     private val mutableSyncingPerformanceIds = MutableStateFlow<Set<Long>>(emptySet())
+    private val mutableSyncFailure = MutableStateFlow<SheetSyncFailure?>(null)
+    private var nextFailureId = 0L
     private val mutationMutex = Mutex()
     private val backgroundRequests = mutableMapOf<Long, BackgroundSyncRequest>()
     private val backgroundJobs = mutableMapOf<Long, Job>()
@@ -43,6 +46,19 @@ internal class SheetSyncController(
     val isTransferInProgress: StateFlow<Boolean> = mutableTransferInProgress
     val mappingRequest: StateFlow<SheetMappingRequest?> = mutableMappingRequest
     val syncingPerformanceIds: StateFlow<Set<Long>> = mutableSyncingPerformanceIds
+    val syncFailure: StateFlow<SheetSyncFailure?> = mutableSyncFailure.asStateFlow()
+
+    fun dismissSyncFailure(id: Long) {
+        if (mutableSyncFailure.value?.id == id) mutableSyncFailure.value = null
+    }
+
+    private fun reportSyncFailure(performanceId: Long, reason: SheetSyncFailureReason) {
+        mutableSyncFailure.value = SheetSyncFailure(++nextFailureId, performanceId, reason)
+    }
+
+    private fun clearSyncFailure(performanceId: Long) {
+        if (mutableSyncFailure.value?.performanceId == performanceId) mutableSyncFailure.value = null
+    }
 
     fun reserveAutomaticRefresh(performanceId: Long): Boolean {
         if (!refreshThrottle.tryAcquire(performanceId)) {
@@ -95,6 +111,9 @@ internal class SheetSyncController(
                     AppLog.warning(LOG_COMPONENT, exception) {
                         "$operation was saved locally but could not be synchronized"
                     }
+                    exception.performanceId?.let { performanceId ->
+                        reportSyncFailure(performanceId, exception.toSheetSyncFailureReason())
+                    }
                 } catch (exception: GoogleSheetLockedException) {
                     AppLog.warning(LOG_COMPONENT, exception) {
                         "$operation could not acquire the performance lock"
@@ -123,7 +142,10 @@ internal class SheetSyncController(
         spreadsheetUrl: String,
         accessToken: String?
     ) {
-        if (accessToken == null) return
+        if (accessToken == null) {
+            reportSyncFailure(performanceId, SheetSyncFailureReason.AUTHORIZATION_REQUIRED)
+            return
+        }
         refreshThrottle.mark(performanceId)
         backgroundRequests[performanceId] = BackgroundSyncRequest(spreadsheetUrl, accessToken)
         if (backgroundJobs[performanceId]?.isActive == true) return
@@ -144,6 +166,7 @@ internal class SheetSyncController(
             delay(BACKGROUND_SYNC_DEBOUNCE_MILLIS)
             val request = backgroundRequests.remove(performanceId) ?: break
             mutationMutex.withLock { /* Wait for already queued local writes. */ }
+            clearSyncFailure(performanceId)
             try {
                 AppLog.info(LOG_COMPONENT) {
                     "Starting background Sheet flush; performanceId=$performanceId"
@@ -180,6 +203,7 @@ internal class SheetSyncController(
                 AppLog.warning(LOG_COMPONENT, exception) {
                     "Background Sheet flush failed; changes remain pending for performanceId=$performanceId"
                 }
+                reportSyncFailure(performanceId, exception.toSheetSyncFailureReason())
             }
             if (performanceId !in backgroundRequests) break
         }
@@ -300,6 +324,7 @@ internal class SheetSyncController(
         showFeedback: Boolean,
         retryMissingRows: Boolean
     ) {
+        clearSyncFailure(performanceId)
         try {
             AppLog.info(LOG_COMPONENT) {
                 "Starting synchronization for performanceId=$performanceId"

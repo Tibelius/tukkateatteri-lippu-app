@@ -13,6 +13,10 @@
     <string name="admission_type_door_sale">Ovimyynti</string>
     <string name="no_reservations">Ei lippuja</string>
     <string name="no_reservations_description">Lisää ensimmäinen plus-painikkeella.</string>
+    <string name="filter_all_reservations">Kaikki (%1$d)</string>
+    <string name="filter_incomplete_reservations">Keskeneräiset (%1$d)</string>
+    <string name="no_incomplete_reservations">Ei keskeneräisiä varauksia</string>
+    <string name="no_incomplete_reservations_description">Näet valmiit varaukset valitsemalla Kaikki.</string>
 
     <string name="last_name">Sukunimi</string>
     <string name="first_name">Etunimi</string>
@@ -68,6 +72,12 @@
     <string name="google_sheets_performance_locked">Toinen laite tallentaa tätä esitystä. Yritä hetken kuluttua uudelleen.</string>
     <string name="google_sheets_source_save_failed">Google Sheets -osoitteen tallennus epäonnistui.</string>
     <string name="sync_pending_changes">Yritä tallennusta uudelleen</string>
+    <string name="retry_upload">Yritä uudelleen</string>
+    <string name="sheet_upload_failed">%1$s: Lähetys epäonnistui. Muutokset ovat tallessa laitteella.</string>
+    <string name="sheet_upload_locked">%1$s: Toinen laite tallentaa tietoja. Muutokset odottavat lähetystä.</string>
+    <string name="sheet_upload_conflict">%1$s: Taulukossa on ristiriitainen muutos. Paikalliset muutokset ovat tallessa.</string>
+    <string name="sheet_upload_source_changed">%1$s: Tietolähde on muuttunut. Muutokset ovat tallessa laitteella.</string>
+    <string name="sheet_upload_authorization_required">%1$s: Lähetys vaatii Google-kirjautumisen. Muutokset ovat tallessa laitteella.</string>
     <plurals name="pending_sheet_changes">
         <item quantity="one">%1$d muutos odottaa synkronointia</item>
         <item quantity="other">%1$d muutosta odottaa synkronointia</item>

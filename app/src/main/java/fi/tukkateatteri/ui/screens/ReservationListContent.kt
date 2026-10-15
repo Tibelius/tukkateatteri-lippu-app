@@ -48,11 +48,13 @@ internal fun ReservationListContent(
     hasActivePerformance: Boolean,
     isBackgroundSyncInProgress: Boolean,
     onReservationClick: (Reservation) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isFiltered: Boolean = false
 ) {
     if (reservations.isEmpty()) {
         EmptyReservationList(
             hasActivePerformance = hasActivePerformance,
+            isFiltered = isFiltered,
             modifier = modifier
         )
     } else {
@@ -84,6 +86,7 @@ internal fun ReservationListContent(
 @Composable
 private fun EmptyReservationList(
     hasActivePerformance: Boolean,
+    isFiltered: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -97,17 +100,21 @@ private fun EmptyReservationList(
         ) {
             Text(
                 text = stringResource(
-                    if (hasActivePerformance) R.string.no_reservations else R.string.select_performance
+                    when {
+                        isFiltered -> R.string.no_incomplete_reservations
+                        hasActivePerformance -> R.string.no_reservations
+                        else -> R.string.select_performance
+                    }
                 ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = stringResource(
-                    if (hasActivePerformance) {
-                        R.string.no_reservations_description
-                    } else {
-                        R.string.no_active_performance
+                    when {
+                        isFiltered -> R.string.no_incomplete_reservations_description
+                        hasActivePerformance -> R.string.no_reservations_description
+                        else -> R.string.no_active_performance
                     }
                 ),
                 style = MaterialTheme.typography.bodyMedium,

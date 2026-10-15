@@ -77,7 +77,7 @@ class GoogleSheetSourceChangedException : IllegalStateException("Stored Sheet so
 class NoGoogleSheetImportCandidatesException : IllegalStateException("Spreadsheet contains no importable performances.")
 
 /** The change was saved on this device and will be retried after a Sheet sync. */
-class GoogleSheetChangePendingException(cause: Throwable) :
+class GoogleSheetChangePendingException(cause: Throwable, val performanceId: Long? = null) :
     IllegalStateException("Change was saved locally but cloud synchronization failed.", cause)
 
 class GoogleSheetSynchronizationConflictException(val conflictCount: Int) :

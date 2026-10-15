@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -22,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -31,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +57,7 @@ internal val SYNC_CARD_BORDER_WIDTH = 1.dp
 fun ReservationListScreen(
     activePerformance: Performance?,
     reservations: List<Reservation>,
+    snackbarHostState: SnackbarHostState,
     onOpenPerformanceMenu: () -> Unit,
     onOpenStatistics: () -> Unit,
     onReservationClick: (Reservation) -> Unit,
@@ -76,6 +81,8 @@ fun ReservationListScreen(
         reservation.syncState != ReservationSyncState.SYNCED
     }
     var isDataMenuExpanded by remember { mutableStateOf(false) }
+    var selectedFilter by rememberSaveable(activePerformance?.id) { mutableStateOf(ReservationFilter.ALL) }
+    val incompleteCount = reservations.count(ReservationFilter.INCOMPLETE::includes)
     val pullToRefreshState = rememberPullToRefreshState()
     val collator = remember { Collator.getInstance(FINNISH_LOCALE) }
     val sortedReservations = remember(reservations, collator) {
@@ -95,8 +102,11 @@ fun ReservationListScreen(
         }
     }
 
+    val visibleReservations = sortedReservations.filter(selectedFilter::includes)
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -250,42 +260,48 @@ fun ReservationListScreen(
             }
         }
     ) { contentPadding ->
-        val contentModifier = Modifier
-            .fillMaxSize()
-            .padding(contentPadding)
-        if (onRefresh == null) {
-            ReservationListContent(
-                reservations = sortedReservations,
-                hasActivePerformance = activePerformance != null,
-                isBackgroundSyncInProgress = isBackgroundSyncInProgress,
-                onReservationClick = onReservationClick,
-                modifier = contentModifier
-            )
-        } else {
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = onRefresh,
-                state = pullToRefreshState,
-                modifier = contentModifier,
-                indicator = {
-                    if (!isRefreshing) {
-                        PullToRefreshDefaults.Indicator(
-                            modifier = Modifier.align(Alignment.TopCenter),
-                            isRefreshing = false,
-                            state = pullToRefreshState,
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            ) {
+        Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+            if (activePerformance != null) {
+                ReservationFilterSelector(
+                    selected = selectedFilter,
+                    totalCount = reservations.size,
+                    incompleteCount = incompleteCount,
+                    onSelect = { selectedFilter = it }
+                )
+            }
+            val listModifier = Modifier.weight(1f).fillMaxWidth()
+            val listContent: @Composable () -> Unit = {
                 ReservationListContent(
-                    reservations = sortedReservations,
+                    reservations = visibleReservations,
                     hasActivePerformance = activePerformance != null,
                     isBackgroundSyncInProgress = isBackgroundSyncInProgress,
                     onReservationClick = onReservationClick,
+                    isFiltered = selectedFilter != ReservationFilter.ALL && reservations.isNotEmpty(),
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+            if (onRefresh == null) {
+                Box(modifier = listModifier) { listContent() }
+            } else {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    state = pullToRefreshState,
+                    modifier = listModifier,
+                    indicator = {
+                        if (!isRefreshing) {
+                            PullToRefreshDefaults.Indicator(
+                                modifier = Modifier.align(Alignment.TopCenter),
+                                isRefreshing = false,
+                                state = pullToRefreshState,
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                ) {
+                    listContent()
+                }
             }
         }
     }

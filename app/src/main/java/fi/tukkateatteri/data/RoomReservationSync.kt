@@ -77,7 +77,7 @@ internal suspend fun RoomReservationRepository.flushPendingChangesOrThrow(
         AppLog.warning(REPOSITORY_LOG_COMPONENT, exception) {
             "Automatic synchronization failed; local changes remain pending for performanceId=${target.performanceId}"
         }
-        throw GoogleSheetChangePendingException(exception)
+        throw GoogleSheetChangePendingException(exception, performanceId = target.performanceId)
     }
 }
 
